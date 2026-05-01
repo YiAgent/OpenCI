@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/verify-version-align — staging digest must equal production candidate.
+# ─────────────────────────────────────────────────────────────────────────────
+# Catches the most-common production-deploy footgun: someone reuses an old
+# CI artifact instead of the artifact that staging actually proved.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Verify Version Align
+description: Fail if production candidate digest != staging digest.
+
+inputs:
+  image-digest:
+    description: sha256:... — production candidate.
+    required: true
+  stg-image-digest:
+    description: sha256:... — what staging is actually running.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Compare digests
+      shell: bash
+      env:
+        PRD_DIGEST: ${{ inputs.image-digest }}
+        STG_DIGEST: ${{ inputs.stg-image-digest }}
+      run: |
+        set -euo pipefail
+        if [ "$PRD_DIGEST" != "$STG_DIGEST" ]; then
+          echo "::error title=Version Mismatch::prd=$PRD_DIGEST stg=$STG_DIGEST"
+          exit 1
+        fi
+        echo "::notice title=Version Aligned::digest=$PRD_DIGEST"

@@ -1,0 +1,248 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd.yml — Production deploy with environment gate (SPEC §5.5).
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers:
+#   • workflow_call          — explicit caller orchestration
+#   • workflow_dispatch      — manual emergency
+#   • push tags v*           — semantic version tag releases
+#   • repository_dispatch    — observe-window-complete (P1-12 chain)
+#
+# Critical sequence:
+#   preflight → pre-check (composite: verify-version-align + observe-window)
+#             → deploy-k8s [environment: production] → run-migration?
+#             → smoke-test → create-release + notify-deployed
+#             ↳ on smoke failure → auto-rollback (P1-14)
+#
+# `environment: production` is the human gate. Reviewers are configured in
+# repo Settings → Environments — this workflow does not bake in a specific
+# reviewer set.
+#
+# Security: no PR-form fields are read here; all consumer inputs are via
+# the workflow_call contract or repo-controlled tags / vars.
+# ─────────────────────────────────────────────────────────────────────────────
+name: prd
+
+on:
+  workflow_call:
+    inputs:
+      image-digest:
+        type: string
+        required: true
+      stg-image-digest:
+        type: string
+        required: true
+      stg-deploy-time:
+        type: string
+        required: true
+      image-name:
+        type: string
+        required: true
+      registry:
+        type: string
+        required: false
+        default: ghcr.io
+      app-name:
+        type: string
+        required: true
+      health-url:
+        type: string
+        required: true
+      observation-minutes:
+        type: number
+        required: false
+        default: 30
+      k8s-namespace:
+        type: string
+        required: false
+        default: production
+      run-migration:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      kubeconfig-prd:
+        required: true
+      slack-webhook-url:
+        required: false
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  repository_dispatch:
+    types: [observe-window-complete]
+
+permissions: {}
+
+concurrency:
+  group: deploy-prd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Probe secrets
+        env:
+          KUBECONFIG_PRD:    ${{ secrets.kubeconfig-prd }}
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "KUBECONFIG_PRD" \
+            --optional "SLACK_WEBHOOK_URL"
+
+  pre-check:
+    name: Pre-Check
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/prd/pre-check
+        with:
+          image-digest:        ${{ inputs.image-digest }}
+          stg-image-digest:    ${{ inputs.stg-image-digest }}
+          stg-deploy-time:     ${{ inputs.stg-deploy-time }}
+          observation-minutes: ${{ inputs.observation-minutes }}
+
+  deploy-k8s:
+    name: Deploy K8s (production)
+    needs: pre-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    permissions:
+      contents: read
+    outputs:
+      deploy-time:       ${{ steps.deploy.outputs.deploy-time }}
+      previous-revision: ${{ steps.deploy.outputs.previous-revision }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: deploy
+        uses: ./actions/prd/deploy-k8s
+        with:
+          app-name:      ${{ inputs.app-name }}
+          image-ref:     ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          k8s-namespace: ${{ inputs.k8s-namespace }}
+          kubeconfig:    ${{ secrets.kubeconfig-prd }}
+
+  run-migration:
+    name: Run Migration (production)
+    needs: deploy-k8s
+    if: inputs.run-migration == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/prd/run-migration
+        with:
+          migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
+
+  smoke-test:
+    name: Smoke Test (production)
+    needs: [deploy-k8s, run-migration]
+    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/prd/smoke-test
+        with:
+          health-url: ${{ inputs.health-url }}
+
+  auto-rollback:
+    name: Auto Rollback
+    needs: [deploy-k8s, smoke-test]
+    if: always() && needs.smoke-test.result == 'failure' && needs.deploy-k8s.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Configure kubectl
+        env:
+          KCONF: ${{ secrets.kubeconfig-prd }}
+        run: |
+          set -euo pipefail
+          path="${RUNNER_TEMP:-/tmp}/kubeconfig"
+          echo "$KCONF" | base64 -d > "$path"
+          chmod 600 "$path"
+          echo "::add-mask::$(cat "$path" | tr -d '\n')"
+          echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
+      - uses: ./actions/prd/auto-rollback
+        with:
+          app-name:          ${{ inputs.app-name }}
+          k8s-namespace:     ${{ inputs.k8s-namespace }}
+          previous-revision: ${{ needs.deploy-k8s.outputs.previous-revision }}
+          failed-image:      ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          github-token:      ${{ github.token }}
+
+  create-release:
+    name: Create Release
+    needs: smoke-test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/prd/create-release
+        with:
+          github-token: ${{ github.token }}
+
+  notify-deployed:
+    name: Notify Deployed
+    needs: [deploy-k8s, smoke-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/prd/notify-deployed
+        with:
+          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
+          app-name:    ${{ inputs.app-name }}
+          image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          webhook-url: ${{ secrets.slack-webhook-url }}
+          run-url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/observe-window — verify the staging→production observation window.
+# ─────────────────────────────────────────────────────────────────────────────
+# Pure check. The original `sleep $WAIT` form has been removed (SPEC §5.5
+# tech debt). Actual waiting is delegated to the repository_dispatch chain
+# (P1-12). This atom only enforces "you can't run prd within the window".
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Observe Window
+description: Reject prd runs that fire too soon after staging deploy.
+
+inputs:
+  stg-deploy-time:
+    description: ISO 8601 timestamp from stg.yml output.
+    required: true
+  observation-minutes:
+    description: Minimum minutes between stg deploy and prd deploy.
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - name: Check window
+      shell: bash
+      env:
+        STG_DEPLOY_TIME:     ${{ inputs.stg-deploy-time }}
+        OBSERVATION_MINUTES: ${{ inputs.observation-minutes }}
+      run: bash "${{ github.action_path }}/check.sh"

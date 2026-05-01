@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/deploy-k8s — production deploy with revision snapshot for rollback.
+# ─────────────────────────────────────────────────────────────────────────────
+# Same shape as stg/deploy-k8s but additionally captures the previous
+# deployment revision *before* applying the new image, so auto-rollback can
+# target a known-good version instead of a vague "previous".
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Deploy K8s
+description: kubectl set image (by digest) + capture revision for rollback.
+
+inputs:
+  app-name:
+    description: Deployment name.
+    required: true
+  container-name:
+    description: Container within the deployment.
+    required: false
+    default: ""
+  image-ref:
+    description: registry/owner/name@sha256:...
+    required: true
+  k8s-namespace:
+    description: Kubernetes namespace.
+    required: false
+    default: production
+  rollout-timeout:
+    description: Rollout timeout (e.g. 300s).
+    required: false
+    default: 300s
+  kubeconfig:
+    description: Base64-encoded kubeconfig payload.
+    required: true
+
+outputs:
+  deploy-time:
+    description: ISO 8601 deploy timestamp.
+    value: ${{ steps.deploy.outputs.deploy-time }}
+  previous-revision:
+    description: Pre-deploy revision number — auto-rollback target.
+    value: ${{ steps.snapshot.outputs.previous-revision }}
+
+runs:
+  using: composite
+  steps:
+    - name: Configure kubectl
+      shell: bash
+      env:
+        KCONF: ${{ inputs.kubeconfig }}
+      run: |
+        set -euo pipefail
+        path="${RUNNER_TEMP:-/tmp}/kubeconfig"
+        echo "$KCONF" | base64 -d > "$path"
+        chmod 600 "$path"
+        echo "::add-mask::$(cat "$path" | tr -d '\n')"
+        echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
+
+    - name: Snapshot current revision
+      id: snapshot
+      shell: bash
+      env:
+        APP:       ${{ inputs.app-name }}
+        NAMESPACE: ${{ inputs.k8s-namespace }}
+      run: |
+        set -euo pipefail
+        rev="$(kubectl --namespace "$NAMESPACE" get "deployment/${APP}" \
+                 -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' \
+                 2>/dev/null || echo "")"
+        echo "previous-revision=${rev:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Pre-Deploy Snapshot::app=$APP revision=${rev:-unknown}"
+
+    - name: Set image + rollout
+      id: deploy
+      shell: bash
+      env:
+        APP:       ${{ inputs.app-name }}
+        CONTAINER: ${{ inputs.container-name }}
+        IMAGE:     ${{ inputs.image-ref }}
+        NAMESPACE: ${{ inputs.k8s-namespace }}
+        TIMEOUT:   ${{ inputs.rollout-timeout }}
+      run: |
+        set -euo pipefail
+        container="${CONTAINER:-$APP}"
+        kubectl --namespace "$NAMESPACE" set image \
+          "deployment/${APP}" "${container}=${IMAGE}"
+        kubectl --namespace "$NAMESPACE" rollout status \
+          "deployment/${APP}" --timeout="$TIMEOUT"
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
+        echo "::notice title=PRD Deployed::app=$APP image=$IMAGE namespace=$NAMESPACE at=$ts"

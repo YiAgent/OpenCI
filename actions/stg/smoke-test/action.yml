@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg/smoke-test — HTTP health check + key endpoint probe.
+# ─────────────────────────────────────────────────────────────────────────────
+# Default contract: hit `health-url` and expect HTTP 200. Caller can pass an
+# `extra-checks` shell command for app-specific probes.
+# ─────────────────────────────────────────────────────────────────────────────
+name: STG · Smoke Test
+description: Basic post-deploy health probe; fail on non-200.
+
+inputs:
+  health-url:
+    description: HTTP(S) URL that should return 200.
+    required: true
+  retries:
+    description: How many times to retry before giving up.
+    required: false
+    default: "10"
+  retry-delay-seconds:
+    description: Seconds between retries.
+    required: false
+    default: "5"
+  extra-checks:
+    description: Optional bash command run after the health check passes.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Probe health endpoint
+      shell: bash
+      env:
+        URL:     ${{ inputs.health-url }}
+        RETRIES: ${{ inputs.retries }}
+        DELAY:   ${{ inputs.retry-delay-seconds }}
+      run: |
+        set -euo pipefail
+        attempt=1
+        while [ "$attempt" -le "$RETRIES" ]; do
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+          if [ "$code" = "200" ]; then
+            echo "::notice title=Smoke OK::url=$URL attempt=$attempt"
+            exit 0
+          fi
+          echo "::warning title=Smoke Retry::url=$URL attempt=$attempt http=$code"
+          attempt=$((attempt + 1))
+          sleep "$DELAY"
+        done
+        echo "::error title=Smoke Failed::url=$URL final=$code retries=$RETRIES"
+        exit 1
+
+    - name: Run extra checks
+      if: inputs.extra-checks != ''
+      shell: bash
+      env:
+        EXTRA: ${{ inputs.extra-checks }}
+      run: |
+        set -euo pipefail
+        echo "::notice title=Extra Smoke Checks::cmd=${EXTRA}"
+        bash -c "$EXTRA"

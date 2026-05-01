@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/slack-notify — atomic Slack notifier (graceful-skip).
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — slackapi/slack-github-action SHA is in
+# manifest-pending.yml. Until it's verified, this atom emits a `::notice`
+# with the message it WOULD have sent, so callers can integrate against it
+# now and the wire-up flips on with a SHA migration later.
+#
+# This is an ATOM (single responsibility, no other composites/atoms called),
+# so callers from a composite (e.g. stg/notify-deployed) don't break the
+# "composite cannot call composite" rule (SPEC GC2).
+# ─────────────────────────────────────────────────────────────────────────────
+name: Slack Notify (atom)
+description: Post a Block Kit message to Slack when SLACK_WEBHOOK_URL is set.
+
+inputs:
+  webhook-url:
+    description: Slack incoming-webhook URL. Empty → graceful skip.
+    required: false
+    default: ""
+  status:
+    description: success | failure | warning | info.
+    required: false
+    default: info
+  title:
+    description: Message title.
+    required: true
+  body:
+    description: Message body (markdown).
+    required: false
+    default: ""
+  link:
+    description: URL to attach as a primary action button.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check webhook
+      id: check
+      shell: bash
+      env:
+        URL: ${{ inputs.webhook-url }}
+      run: |
+        if [ -z "$URL" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Slack Skipped::SLACK_WEBHOOK_URL not configured, graceful skip"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Build payload
+      if: steps.check.outputs.skip != 'true'
+      id: payload
+      shell: bash
+      env:
+        STATUS: ${{ inputs.status }}
+        TITLE:  ${{ inputs.title }}
+        BODY:   ${{ inputs.body }}
+        LINK:   ${{ inputs.link }}
+      run: |
+        case "$STATUS" in
+          success) emoji=":white_check_mark:" ;;
+          failure) emoji=":x:"                 ;;
+          warning) emoji=":warning:"           ;;
+          *)       emoji=":information_source:" ;;
+        esac
+        echo "::notice title=Slack Notify (would-send)::status=$STATUS title=$TITLE link=$LINK"
+        echo "emoji=$emoji" >> "$GITHUB_OUTPUT"
+
+    - name: TODO — actually post to Slack
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      run: |
+        echo "::warning title=slack-notify skeleton::SHA pending verification (see manifest-pending.yml: slackapi/slack-github-action)."
+        # When verified:
+        #
+        # - uses: slackapi/slack-github-action@<VERIFIED_SHA>
+        #   with:
+        #     webhook:      ${{ inputs.webhook-url }}
+        #     webhook-type: incoming-webhook
+        #     payload: |
+        #       {
+        #         "text": "${{ steps.payload.outputs.emoji }} ${{ inputs.title }}",
+        #         "blocks": [ ... ]
+        #       }

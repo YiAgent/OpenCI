@@ -1,0 +1,97 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/auto-rollback — kubectl rollout undo + open an incident issue.
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy:
+#   1. Try to rollback to the snapshotted revision (passed in by deploy-k8s).
+#   2. If that fails or no snapshot was provided, fall back to plain
+#      `kubectl rollout undo` (= previous revision).
+#   3. Open an issue with label `incident,priority:p1`. Issue creation is
+#      best-effort — never blocks the rollback itself.
+#   4. Idempotent: a second invocation skips issue creation if one already
+#      exists for the same workflow run.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Auto Rollback
+description: Roll back the deployment and open an incident issue.
+
+inputs:
+  app-name:
+    description: Deployment name.
+    required: true
+  k8s-namespace:
+    description: Kubernetes namespace.
+    required: false
+    default: production
+  previous-revision:
+    description: Revision to roll back TO. Empty → `rollout undo` (prev rev).
+    required: false
+    default: ""
+  failed-image:
+    description: Image ref that failed smoke test.
+    required: true
+  github-token:
+    description: GITHUB_TOKEN with `issues: write`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Rollback deployment
+      shell: bash
+      env:
+        APP:       ${{ inputs.app-name }}
+        NAMESPACE: ${{ inputs.k8s-namespace }}
+        REV:       ${{ inputs.previous-revision }}
+      run: |
+        set -euo pipefail
+        if [ -n "$REV" ] && [ "$REV" != "unknown" ]; then
+          if kubectl --namespace "$NAMESPACE" rollout undo \
+                "deployment/${APP}" --to-revision="$REV"; then
+            echo "::notice title=Rollback OK::app=$APP revision=$REV"
+            exit 0
+          fi
+          echo "::warning title=Rollback Fallback::specific revision $REV failed; trying generic undo"
+        fi
+        kubectl --namespace "$NAMESPACE" rollout undo "deployment/${APP}"
+        kubectl --namespace "$NAMESPACE" rollout status "deployment/${APP}" --timeout=300s
+        echo "::notice title=Rollback OK::app=$APP (generic undo)"
+
+    - name: Open incident issue
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN:    ${{ inputs.github-token }}
+        APP:         ${{ inputs.app-name }}
+        FAILED_IMG:  ${{ inputs.failed-image }}
+        REV:         ${{ inputs.previous-revision }}
+        RUN_URL:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW:    ${{ github.workflow }}
+        SHA:         ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        # Idempotency: search for an open incident issue tagged with this run id.
+        marker="run-id:${{ github.run_id }}"
+        existing="$(gh issue list --state open --label incident --search "$marker in:body" --json number --jq '.[0].number' 2>/dev/null || echo "")"
+        if [ -n "$existing" ]; then
+          echo "::notice title=Incident Already Filed::issue #$existing"
+          exit 0
+        fi
+
+        title="P1: Production rollback — ${APP}"
+        body=$(cat <<EOF
+## Auto-rollback fired
+
+- App: \`${APP}\`
+- Failed image: \`${FAILED_IMG}\`
+- Rolled back to revision: \`${REV:-previous}\`
+- Workflow: ${WORKFLOW}
+- Commit: \`${SHA}\`
+- Run: ${RUN_URL}
+- ${marker}
+
+Please investigate the smoke-test failure and decide on root cause.
+EOF
+)
+        gh issue create \
+          --title "$title" \
+          --body  "$body" \
+          --label "incident,priority:p1"

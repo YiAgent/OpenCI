@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# claude-harness.yml — reusable workflow form of the AI single-entry contract.
+# ─────────────────────────────────────────────────────────────────────────────
+# Use this when an entire job is "call Claude". For step-level embedding
+# inside another atom, use actions/_common/claude-harness/action.yml instead.
+#
+# Inputs / secrets / outputs MUST stay byte-identical to the composite — a
+# caller should be able to swap one for the other without changing wiring.
+#
+# Security: `context` is forwarded as `prompt_inputs` (JSON string) to
+# claude-code-action. We never interpolate it into shell, so the consumer is
+# responsible for sanitising any GitHub event data they put into it.
+# ─────────────────────────────────────────────────────────────────────────────
+name: claude-harness
+
+on:
+  workflow_call:
+    inputs:
+      task:
+        type: string
+        required: true
+      prompt-path:
+        type: string
+        required: false
+        default: ""
+      context:
+        type: string
+        required: false
+        default: "{}"
+      model:
+        type: string
+        required: false
+        default: "claude-sonnet-4-5-20250929"
+      max-turns:
+        type: number
+        required: false
+        default: 10
+    secrets:
+      anthropic-api-key:
+        required: true
+    outputs:
+      result:
+        description: AI output text.
+        value: ${{ jobs.ai-task.outputs.result }}
+      comment-id:
+        description: Sticky PR/Issue comment id.
+        value: ${{ jobs.ai-task.outputs.comment-id }}
+
+permissions: {}
+
+concurrency:
+  group: claude-harness-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
+        run: bash .github/scripts/preflight-secrets.sh --required "ANTHROPIC_API_KEY" --optional ""
+
+  ai-task:
+    name: AI Task
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    outputs:
+      result:     ${{ steps.harness.outputs.result }}
+      comment-id: ${{ steps.harness.outputs.comment-id }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run claude-harness composite
+        id: harness
+        uses: ./actions/_common/claude-harness
+        with:
+          task:               ${{ inputs.task }}
+          prompt-path:        ${{ inputs.prompt-path }}
+          context:            ${{ inputs.context }}
+          model:              ${{ inputs.model }}
+          max-turns:          ${{ inputs.max-turns }}
+          anthropic-api-key:  ${{ secrets.anthropic-api-key }}

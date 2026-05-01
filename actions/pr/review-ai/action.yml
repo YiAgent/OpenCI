@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/review-ai — non-blocking AI review via _common/claude-harness.
+# ─────────────────────────────────────────────────────────────────────────────
+# Job-level wrapper that posts a sticky AI review comment on the PR. Always
+# passes — the AI is advisory, not a gate.
+#
+# This atom intentionally calls `_common/claude-harness` (composite) because
+# the AI call is just one step inside the wider review job. If you instead
+# want a whole job dedicated to a Claude call, use claude-harness.yml.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · AI Review
+description: Run an AI review of the PR diff and post a sticky comment.
+
+inputs:
+  prompt-path:
+    description: Caller-supplied prompt path (empty falls back to prompts/pr/review.md).
+    required: false
+    default: ""
+  model:
+    description: Claude model id.
+    required: false
+    default: "claude-sonnet-4-5-20250929"
+  max-turns:
+    description: Maximum agent turns.
+    required: false
+    default: "10"
+  anthropic-api-key:
+    description: ANTHROPIC_API_KEY (caller forwards from secrets).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build context JSON
+      id: ctx
+      shell: bash
+      env:
+        REPO:    ${{ github.repository }}
+        PR_NUM:  ${{ github.event.pull_request.number }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        # JSON encoded via printf — values come from env, not raw ${{ }} —
+        # so untrusted PR fields can't escape into shell. Numbers / SHAs only.
+        ctx=$(printf '{"repo":"%s","pr":%s,"head":"%s","base":"%s"}' \
+          "$REPO" "${PR_NUM:-0}" "$PR_HEAD" "$PR_BASE")
+        # GitHub Actions multi-line output guard.
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Invoke claude-harness composite
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               pr/review
+        prompt-path:        ${{ inputs.prompt-path }}
+        context:            ${{ steps.ctx.outputs.context }}
+        model:              ${{ inputs.model }}
+        max-turns:          ${{ inputs.max-turns }}
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}

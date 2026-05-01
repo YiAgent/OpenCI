@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/validate-pr-title — Conventional Commits enforcement on the PR title.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: pure-shell. We deliberately do NOT use amannn/action-semantic-pull-request
+# (still in manifest-pending.yml) — a 30-line regex check is simpler, has zero
+# supply-chain surface area, and matches the same semantic-commit ruleset we
+# already enforce in lefthook commit-msg.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Validate Title
+description: Reject PR titles that don't follow Conventional Commits.
+
+runs:
+  using: composite
+  steps:
+    - name: Check title
+      shell: bash
+      env:
+        PR_TITLE: ${{ github.event.pull_request.title }}
+      run: |
+        set -euo pipefail
+        # Allowlist mirrors lefthook commit-msg + SPEC repo conventions.
+        pattern='^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([A-Za-z0-9_./-]+\))?(!)?: .{1,}$'
+        if ! [[ "$PR_TITLE" =~ $pattern ]]; then
+          {
+            echo "::error title=PR Title::Title does not follow Conventional Commits."
+            echo "::error::Got: '${PR_TITLE}'"
+            echo "::error::Expected: '<type>(<scope>)?: <subject>'"
+            echo "::error::Types: feat | fix | refactor | docs | test | chore | perf | ci | build | style | revert"
+          } >&2
+          exit 1
+        fi
+        echo "::notice title=PR Title::Conventional Commits format ok"

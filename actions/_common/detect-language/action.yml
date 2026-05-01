@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/detect-language — single source of truth for language detection.
+# ─────────────────────────────────────────────────────────────────────────────
+# Inspects $GITHUB_WORKSPACE for marker files and emits four normalised
+# outputs that every downstream workflow can rely on. See SPEC §4.
+#
+# The actual detection logic lives in detect.sh (testable with bats); this
+# composite is a thin wrapper so the same code path runs in CI and in tests.
+#
+# Pure shell, zero third-party `uses:` — keeps the dependency graph clean
+# and lets this action run before manifest verification has finished.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Detect Language
+description: Detect language stack and package manager from repository contents.
+
+outputs:
+  language:
+    description: One of node | python | go | java | kotlin | unknown.
+    value: ${{ steps.detect.outputs.language }}
+  package-manager:
+    description: One of npm | pnpm | yarn | uv | pip | go-mod | maven | gradle | gradle-kts | unknown.
+    value: ${{ steps.detect.outputs.package-manager }}
+  version-file:
+    description: Path of the file used to read the runtime version (empty when none applies).
+    value: ${{ steps.detect.outputs.version-file }}
+  runtime-version:
+    description: Runtime version extracted from version-file (empty when not present).
+    value: ${{ steps.detect.outputs.runtime-version }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        DETECT_DIR: ${{ github.workspace }}
+      run: bash "${{ github.action_path }}/detect.sh"

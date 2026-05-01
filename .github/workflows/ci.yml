@@ -1,0 +1,211 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci.yml — Merge-to-main build pipeline (reusable workflow, SPEC §5.3).
+# ─────────────────────────────────────────────────────────────────────────────
+# Sequence:
+#   preflight → detect-language → build-docker
+#                                   ├─ scan-image  (parallel)
+#                                   ├─ sign-image  (parallel)
+#                                   ├─ check-migration  (if run-migration)
+#                                   └─ eval-smoke  (if enable-ai-smoke)
+#
+# Outputs `image-digest` + `deploy-time` for downstream stg.yml / prd.yml.
+# Concurrency does NOT cancel-in-progress: every main commit deserves a
+# fully completed build (they end up tagged as :sha-<7> regardless).
+#
+# Security: caller-supplied `image-name` flows into docker tags via the
+# composite atom; no shell interpolation in this file.
+# ─────────────────────────────────────────────────────────────────────────────
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        type: string
+        required: false
+        default: ""
+      registry:
+        type: string
+        required: false
+        default: ghcr.io
+      image-name:
+        type: string
+        required: true
+      enable-ai-smoke:
+        type: boolean
+        required: false
+        default: false
+      run-migration:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      registry-token:
+        required: true
+      anthropic-api-key:
+        required: false
+    outputs:
+      image-digest:
+        description: sha256:... digest of the pushed image.
+        value: ${{ jobs.build-docker.outputs.image-digest }}
+      deploy-time:
+        description: ISO 8601 build completion timestamp.
+        value: ${{ jobs.build-docker.outputs.completed-at }}
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Probe secrets
+        env:
+          REGISTRY_TOKEN:    ${{ secrets.registry-token }}
+          ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "REGISTRY_TOKEN" \
+            --optional "ANTHROPIC_API_KEY"
+
+  detect-language:
+    name: Detect Language
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      language:        ${{ steps.detect.outputs.language }}
+      package-manager: ${{ steps.detect.outputs.package-manager }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: detect
+        shell: bash
+        env:
+          OVERRIDE: ${{ inputs.language }}
+        run: |
+          if [ -n "$OVERRIDE" ]; then
+            echo "language=$OVERRIDE"      >> "$GITHUB_OUTPUT"
+            echo "package-manager=unknown" >> "$GITHUB_OUTPUT"
+          else
+            bash actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
+          fi
+
+  build-docker:
+    name: Build Docker
+    needs: detect-language
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image-digest:  ${{ steps.build.outputs.image-digest }}
+      image-tag-sha: ${{ steps.build.outputs.image-tag-sha }}
+      completed-at:  ${{ steps.build.outputs.completed-at }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: build
+        uses: ./actions/ci/build-docker
+        with:
+          image-name:     ${{ inputs.image-name }}
+          registry:       ${{ inputs.registry }}
+          registry-token: ${{ secrets.registry-token }}
+
+  scan-image:
+    name: Scan Image
+    needs: build-docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/ci/scan-image
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
+
+  sign-image:
+    name: Sign Image
+    needs: build-docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry-token }}
+      - uses: ./actions/ci/sign-image
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
+
+  check-migration:
+    name: Check Migration
+    needs: build-docker
+    if: inputs.run-migration == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/ci/check-migration
+        with:
+          # Consumer should override via repo-vars; default is a no-op so the
+          # job doesn't accidentally pass for the wrong reason.
+          migration-cmd: ${{ vars.MIGRATION_DRY_RUN_CMD || 'false' }}
+
+  eval-smoke:
+    name: AI Smoke Eval
+    needs: build-docker
+    if: inputs.enable-ai-smoke == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/ci/eval-smoke
+        with:
+          image-digest:      ${{ needs.build-docker.outputs.image-digest }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}

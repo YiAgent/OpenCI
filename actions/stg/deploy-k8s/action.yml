@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg/deploy-k8s — kubectl set image (by digest) + rollout status.
+# ─────────────────────────────────────────────────────────────────────────────
+# Always reference images by sha256 digest, never by tag, to defeat the
+# "tag was repointed under us" race after sign-image runs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: STG · Deploy K8s
+description: kubectl set image and wait for rollout.
+
+inputs:
+  app-name:
+    description: Deployment name (`kubectl set image deployment/<app-name>`).
+    required: true
+  container-name:
+    description: Container within the deployment to update (defaults to app-name).
+    required: false
+    default: ""
+  image-ref:
+    description: Full image ref, by digest (registry/owner/name@sha256:...).
+    required: true
+  k8s-namespace:
+    description: Kubernetes namespace.
+    required: false
+    default: staging
+  rollout-timeout:
+    description: kubectl rollout status timeout (e.g. 300s).
+    required: false
+    default: 300s
+  kubeconfig:
+    description: Base64-encoded kubeconfig payload.
+    required: true
+
+outputs:
+  deploy-time:
+    description: ISO 8601 deploy timestamp.
+    value: ${{ steps.deploy.outputs.deploy-time }}
+
+runs:
+  using: composite
+  steps:
+    - name: Configure kubectl
+      shell: bash
+      env:
+        KCONF: ${{ inputs.kubeconfig }}
+      run: |
+        set -euo pipefail
+        # Decode & write to a per-run path; mask its contents from the log.
+        path="${RUNNER_TEMP:-/tmp}/kubeconfig"
+        echo "$KCONF" | base64 -d > "$path"
+        chmod 600 "$path"
+        echo "::add-mask::$(cat "$path" | tr -d '\n')"
+        echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
+
+    - name: Set image + rollout
+      id: deploy
+      shell: bash
+      env:
+        APP:        ${{ inputs.app-name }}
+        CONTAINER:  ${{ inputs.container-name }}
+        IMAGE:      ${{ inputs.image-ref }}
+        NAMESPACE:  ${{ inputs.k8s-namespace }}
+        TIMEOUT:    ${{ inputs.rollout-timeout }}
+      run: |
+        set -euo pipefail
+        container="${CONTAINER:-$APP}"
+        kubectl --namespace "$NAMESPACE" set image \
+          "deployment/${APP}" "${container}=${IMAGE}"
+
+        kubectl --namespace "$NAMESPACE" rollout status \
+          "deployment/${APP}" --timeout="$TIMEOUT"
+
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
+        echo "::notice title=STG Deployed::app=$APP image=$IMAGE namespace=$NAMESPACE at=$ts"

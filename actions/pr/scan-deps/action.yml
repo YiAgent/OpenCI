@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/scan-deps — block PRs that introduce known-vulnerable dependencies.
+# ─────────────────────────────────────────────────────────────────────────────
+# Wraps actions/dependency-review-action: GitHub-native, reads the GHSA
+# advisory database and flags any new vulnerable dep with severity >= the
+# `fail-on-severity` threshold. Atomic: single third-party `uses:` only.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Scan Dependencies
+description: Fail when a PR adds dependencies with known high/critical vulnerabilities.
+
+inputs:
+  fail-on-severity:
+    description: One of low | moderate | high | critical.
+    required: false
+    default: high
+  comment-summary-in-pr:
+    description: Whether to post a sticky summary comment on the PR.
+    required: false
+    default: "always"
+
+runs:
+  using: composite
+  steps:
+    - name: Dependency Review
+      uses: actions/dependency-review-action@38e6c9cc40b09fb67ca04a29eb89ad60c93adb9b  # v4.6.0
+      with:
+        fail-on-severity:      ${{ inputs.fail-on-severity }}
+        comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}

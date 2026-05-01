@@ -1,0 +1,39 @@
+name: PRD · Smoke Test
+description: Production health probe; failure signals auto-rollback.
+
+inputs:
+  health-url:
+    description: HTTP(S) URL that must return 200.
+    required: true
+  retries:
+    description: Retry attempts.
+    required: false
+    default: "10"
+  retry-delay-seconds:
+    description: Seconds between retries.
+    required: false
+    default: "5"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        URL:     ${{ inputs.health-url }}
+        RETRIES: ${{ inputs.retries }}
+        DELAY:   ${{ inputs.retry-delay-seconds }}
+      run: |
+        set -euo pipefail
+        attempt=1
+        while [ "$attempt" -le "$RETRIES" ]; do
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+          if [ "$code" = "200" ]; then
+            echo "::notice title=PRD Smoke OK::url=$URL attempt=$attempt"
+            exit 0
+          fi
+          echo "::warning title=PRD Smoke Retry::url=$URL attempt=$attempt http=$code"
+          attempt=$((attempt + 1))
+          sleep "$DELAY"
+        done
+        echo "::error title=PRD Smoke Failed::url=$URL retries=$RETRIES — auto-rollback should trigger"
+        exit 1

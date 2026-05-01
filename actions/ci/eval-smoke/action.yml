@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci/eval-smoke — AI smoke eval against a freshly built image.
+# ─────────────────────────────────────────────────────────────────────────────
+# Calls the claude-harness composite with task=ci/smoke-eval. The prompt
+# (prompts/ci/smoke-eval.md) returns structured JSON; downstream tooling
+# can parse outputs.result if you want to gate beyond the AI's own opinion.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI · AI Smoke Eval
+description: Ask Claude to evaluate a freshly built image's smoke endpoints.
+
+inputs:
+  image-digest:
+    description: sha256:... digest produced by build-docker.
+    required: true
+  endpoints:
+    description: JSON array of HTTP endpoints to probe.
+    required: false
+    default: "[]"
+  expected-version:
+    description: Version string the deployment should report.
+    required: false
+    default: ""
+  anthropic-api-key:
+    description: ANTHROPIC_API_KEY.
+    required: true
+
+outputs:
+  result:
+    description: AI eval report (JSON-encoded text).
+    value: ${{ steps.harness.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build context
+      id: ctx
+      shell: bash
+      env:
+        DIGEST:    ${{ inputs.image-digest }}
+        ENDPOINTS: ${{ inputs.endpoints }}
+        VERSION:   ${{ inputs.expected-version }}
+      run: |
+        # Hand-built JSON, all values quoted via printf %s. ENDPOINTS is
+        # already a JSON array (caller responsibility); we splice it raw.
+        ctx=$(printf '{"image-digest":"%s","endpoints":%s,"expected-version":"%s"}' \
+          "$DIGEST" "${ENDPOINTS:-[]}" "$VERSION")
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               ci/smoke-eval
+        context:            ${{ steps.ctx.outputs.context }}
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}

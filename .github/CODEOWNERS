@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CODEOWNERS — auto-request review when matching files change.
+# ─────────────────────────────────────────────────────────────────────────────
+# Order matters: later patterns override earlier ones for the same path.
+# Only list real GitHub accounts / teams; ghost references are silently
+# ignored by GitHub and lead to "no reviewer ever requested" surprises.
+# Consumers forking this repo should replace @YiWang24 with their own
+# maintainer set.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Default — everything not matched below.
+*                                       @YiWang24
+
+# Workflow / action library — the heart of OpenCI; same owner for now.
+/.github/                               @YiWang24
+/.github/workflows/                     @YiWang24
+/.github/scripts/                       @YiWang24
+/actions/                               @YiWang24
+
+# Prompt assets (treated specially: changes affect AI behaviour repo-wide).
+/prompts/                               @YiWang24
+
+# Documentation — SPEC must stay in sync with implementation.
+/docs/                                  @YiWang24
+/docs/SPEC.md                           @YiWang24
+/README.md                              @YiWang24
+
+# Security policy.
+/SECURITY.md                            @YiWang24
+
+# Manifest files — every SHA bump goes through code review.
+/manifest.yml                           @YiWang24
+/manifest-pending.yml                   @YiWang24
+
+# Tests — change in lock-step with code under test.
+/tests/                                 @YiWang24
+
+# Tasks (implementation plan) — drive sequencing decisions.
+/tasks/                                 @YiWang24

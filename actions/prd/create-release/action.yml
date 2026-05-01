@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/create-release — gh release create with auto-generated notes.
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolves the version from `inputs.version` first, then falls back to the
+# git tag that triggered the run (`github.ref_name`).
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Create Release
+description: Cut a GitHub release with auto-generated notes.
+
+inputs:
+  version:
+    description: Tag/version, e.g. v1.2.3. Empty → use github.ref_name.
+    required: false
+    default: ""
+  github-token:
+    description: GITHUB_TOKEN with `contents: write`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION:  ${{ inputs.version }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        ver="${VERSION:-$REF_NAME}"
+        if [ -z "$ver" ]; then
+          echo "::error title=Create Release::No version supplied and ref_name is empty"
+          exit 1
+        fi
+        if gh release view "$ver" >/dev/null 2>&1; then
+          echo "::notice title=Release Exists::version=$ver — skipping create"
+          exit 0
+        fi
+        gh release create "$ver" --generate-notes --verify-tag --title "$ver"
+        echo "::notice title=Release Created::version=$ver"

@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/validate-pr-description — require a linked issue (or `no-issue` label).
+# ─────────────────────────────────────────────────────────────────────────────
+# Logic lives in check.sh so it is bats-testable. The atom passes the PR body
+# and labels via env vars to dodge the classic ${{ … }}-into-shell injection
+# class (see https://github.blog/security/.../workflow-injections).
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Validate Description
+description: Reject PRs that don't link an issue and lack the `no-issue` label.
+
+runs:
+  using: composite
+  steps:
+    - name: Check description for issue link
+      shell: bash
+      env:
+        PR_BODY:   ${{ github.event.pull_request.body }}
+        # github.event.pull_request.labels is an array of objects; we flatten
+        # to a comma-joined name list via fromJSON + join().
+        PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+      run: bash "${{ github.action_path }}/check.sh"

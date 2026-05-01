@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci/build-docker — buildx + GHCR push, emit `image-digest` + `image-size`.
+# ─────────────────────────────────────────────────────────────────────────────
+# Pushes two tags:
+#   • ghcr.io/{owner}/{image}:main          — moving "latest stable" tag
+#   • ghcr.io/{owner}/{image}:sha-<7chars>  — immutable per-commit tag
+#
+# Downstream atoms (scan-image, sign-image, deploy) MUST consume by digest,
+# never by tag, to defeat tag-shift races. The digest is exposed as an
+# action output so callers can wire it via `needs.<job>.outputs.image-digest`.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI · Build Docker
+description: Build and push a Docker image to GHCR; emit digest + size.
+
+inputs:
+  image-name:
+    description: Image name (the part after the registry/owner prefix, e.g. "my-app").
+    required: true
+  registry:
+    description: OCI registry hostname.
+    required: false
+    default: ghcr.io
+  context:
+    description: Build context directory.
+    required: false
+    default: .
+  dockerfile:
+    description: Path to the Dockerfile.
+    required: false
+    default: Dockerfile
+  registry-token:
+    description: Token used by docker login. For GHCR pass GITHUB_TOKEN.
+    required: true
+
+outputs:
+  image-digest:
+    description: sha256:... digest of the pushed image.
+    value: ${{ steps.push.outputs.digest }}
+  image-tag-sha:
+    description: Immutable per-commit tag (e.g. sha-abc1234).
+    value: ${{ steps.meta.outputs.version }}
+  image-size:
+    description: Image size in bytes (best-effort).
+    value: ${{ steps.size.outputs.bytes }}
+  completed-at:
+    description: ISO 8601 build completion timestamp.
+    value: ${{ steps.size.outputs.completed-at }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+    - name: Login to registry
+      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.registry-token }}
+
+    - name: Compute metadata
+      id: meta
+      uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+      with:
+        images: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}
+        tags: |
+          type=raw,value=main,enable={{is_default_branch}}
+          type=sha,format=short,prefix=sha-
+
+    - name: Build and push
+      id: push
+      uses: docker/build-push-action@263435318d21b8e681c14492fe198e19c3bc6bb6  # v6.18.0
+      with:
+        context:    ${{ inputs.context }}
+        file:       ${{ inputs.dockerfile }}
+        push:       "true"
+        tags:       ${{ steps.meta.outputs.tags }}
+        labels:     ${{ steps.meta.outputs.labels }}
+        provenance: "true"
+        sbom:       "true"
+        cache-from: "type=gha"
+        cache-to:   "type=gha,mode=max"
+
+    - name: Capture size + completed-at
+      id: size
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ steps.push.outputs.digest }}
+      run: |
+        set -euo pipefail
+        completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "completed-at=$completed_at" >> "$GITHUB_OUTPUT"
+
+        # Best-effort size (skopeo / docker manifest); zero out if unavailable.
+        bytes=0
+        if command -v docker >/dev/null 2>&1; then
+          bytes=$(docker manifest inspect "$IMAGE_REF" 2>/dev/null \
+            | jq '[.layers[].size] | add // 0' 2>/dev/null || echo 0)
+        fi
+        echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
+
+        echo "::notice title=Image Built::digest=${{ steps.push.outputs.digest }} size=${bytes}B at=${completed_at}"

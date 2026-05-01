@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/pre-check — composite that gates production deploy.
+# ─────────────────────────────────────────────────────────────────────────────
+# Currently runs: verify-version-align + observe-window.
+# P2-15 adds check-error-rate (Sentry-driven) here.
+#
+# This composite calls atoms only — no nested composites — per SPEC GC2.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Pre-Check
+description: Gate prd deploy on version alignment + observation window.
+
+inputs:
+  image-digest:
+    description: sha256:... candidate digest.
+    required: true
+  stg-image-digest:
+    description: sha256:... staging digest.
+    required: true
+  stg-deploy-time:
+    description: ISO 8601 staging deploy timestamp.
+    required: true
+  observation-minutes:
+    description: Required wait after staging deploy.
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify version alignment
+      uses: ./actions/prd/verify-version-align
+      with:
+        image-digest:     ${{ inputs.image-digest }}
+        stg-image-digest: ${{ inputs.stg-image-digest }}
+
+    - name: Observe window
+      uses: ./actions/prd/observe-window
+      with:
+        stg-deploy-time:     ${{ inputs.stg-deploy-time }}
+        observation-minutes: ${{ inputs.observation-minutes }}

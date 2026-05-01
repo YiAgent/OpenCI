@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/claude-harness — composite wrapper around anthropics/claude-code-action.
+# ─────────────────────────────────────────────────────────────────────────────
+# This composite is the SINGLE entrypoint into Claude. Use cases:
+#   • Embedded inside an atom (e.g. actions/pr/review-ai) → use this composite.
+#   • Owns a whole job (e.g. health-report.synthesize) → use the sister
+#     reusable workflow .github/workflows/claude-harness.yml instead.
+#
+# Both the reusable workflow and this composite share the same input/output
+# contract (see SPEC §5.1):
+#   inputs : task, prompt-path, context, model, max-turns, anthropic-api-key
+#   outputs: result, comment-id
+#
+# Sticky-comment marker: every invocation tags the comment with
+# `<!-- openCI:claude-harness:{task} -->` so claude-code-action updates the
+# same comment instead of stacking new ones across re-runs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Claude Harness (composite)
+description: Single entrypoint composite for Claude calls.
+
+inputs:
+  task:
+    description: Logical task name; controls default prompt and sticky-comment scope.
+    required: true
+  prompt-path:
+    description: Caller-supplied prompt path (relative to consumer repo). Empty falls back to built-in prompts/<task>.md.
+    required: false
+    default: ""
+  context:
+    description: JSON-encoded variables interpolated into the prompt template.
+    required: false
+    default: "{}"
+  model:
+    description: Claude model id.
+    required: false
+    default: "claude-sonnet-4-5-20250929"
+  max-turns:
+    description: Maximum agent turns.
+    required: false
+    default: "10"
+  anthropic-api-key:
+    description: ANTHROPIC_API_KEY (passed via with: from caller — composites cannot read secrets directly).
+    required: true
+
+outputs:
+  result:
+    description: AI output text.
+    value: ${{ steps.invoke.outputs.result }}
+  comment-id:
+    description: Sticky PR/Issue comment id.
+    value: ${{ steps.invoke.outputs.comment-id }}
+  prompt-source:
+    description: Where the prompt came from — "caller" or "builtin".
+    value: ${{ steps.resolve.outputs.prompt-source }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve prompt
+      id: resolve
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/resolve-prompt.sh" \
+          "${{ inputs.task }}" \
+          "${{ inputs.prompt-path }}" \
+          "${{ github.action_path }}"
+
+    - name: Annotate invocation
+      shell: bash
+      env:
+        TASK:      ${{ inputs.task }}
+        MODEL:     ${{ inputs.model }}
+        MAX_TURNS: ${{ inputs.max-turns }}
+      run: |
+        echo "::notice title=AI Task::task=$TASK model=$MODEL turns=$MAX_TURNS"
+
+    # NOTE: we pin via the manifest. Bumping the SHA must also update manifest.yml.
+    - name: Run claude-code-action
+      id: invoke
+      uses: anthropics/claude-code-action@a4d5fe83c90d37e4f2fcbab2a0bf04e9c01e8ecf  # v1.0.0
+      with:
+        prompt_file:        ${{ steps.resolve.outputs.resolved-prompt }}
+        prompt_inputs:      ${{ inputs.context }}
+        model:              ${{ inputs.model }}
+        max_turns:          ${{ inputs.max-turns }}
+        use_sticky_comment: "true"
+        sticky_comment_marker: "openCI:claude-harness:${{ inputs.task }}"
+        anthropic_api_key:  ${{ inputs.anthropic-api-key }}

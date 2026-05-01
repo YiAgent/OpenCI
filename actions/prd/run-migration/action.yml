@@ -1,0 +1,19 @@
+name: PRD · Run Migration
+description: Run a DB migration against production.
+
+inputs:
+  migration-cmd:
+    description: Shell command that runs the migration.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MIGRATION_CMD: ${{ inputs.migration-cmd }}
+      run: |
+        set -euo pipefail
+        echo "::notice title=PRD Migration::cmd=${MIGRATION_CMD}"
+        bash -c "$MIGRATION_CMD"
+        echo "::notice title=PRD Migration::ok"

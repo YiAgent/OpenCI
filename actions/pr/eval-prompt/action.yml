@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/eval-prompt — promptfoo regression eval, gated on prompt path changes.
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs only when:
+#   • the consumer enabled `enable-eval` at the workflow level, AND
+#   • the PR actually touched files under `prompts/`.
+#
+# The path filter is the caller's responsibility (they pass `should-run`).
+# Non-blocking: failures surface as annotations, the job stays green so a
+# brittle eval doesn't block legitimate PRs (the eval signal lives in the
+# Codecov-like dashboard, not the merge button).
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Prompt Eval
+description: Run promptfoo eval against changed prompts and publish a sticky comment.
+
+inputs:
+  config-path:
+    description: Path to promptfoo config (default `promptfooconfig.yaml`).
+    required: false
+    default: "promptfooconfig.yaml"
+  anthropic-api-key:
+    description: ANTHROPIC_API_KEY for the eval models.
+    required: true
+  should-run:
+    description: "true|false — caller decides whether prompt files changed."
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Skip when nothing changed
+      if: inputs.should-run != 'true'
+      shell: bash
+      run: echo "::notice title=Prompt Eval Skipped::No prompt files changed in this PR"
+
+    - name: Run promptfoo
+      if: inputs.should-run == 'true'
+      uses: promptfoo/promptfoo-action@8e12b04e93d24ea43d7694d8f27dd86e7abd5a72  # v1.0.0
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      with:
+        config:           ${{ inputs.config-path }}
+        no-share:         "true"
+        cache:            "true"

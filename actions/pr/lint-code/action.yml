@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/lint-code — language-aware lint via MegaLinter.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton. The implementation step that would call
+#   uses: oxsecurity/megalinter@<SHA>
+# is intentionally OMITTED until that SHA is verified and migrated from
+# manifest-pending.yml → manifest.yml. Adding the `uses:` line earlier would
+# either break verify-sha-consistency (pending-action reference) or smuggle
+# an unverified SHA into the repo.
+#
+# Verification path (see docs/SPEC.md §3.1):
+#   1. Visit https://github.com/oxsecurity/megalinter/commits/<tag>
+#   2. Cross-check via `npx pin-github-action`
+#   3. Move the entry into manifest.yml + uncomment the step below + fill
+#      the verified 40-char SHA into the `uses:` line.
+#
+# When that lands, this composite should pass `flavor` based on the
+# detect-language output (SPEC §11 mapping table) and `disable_linters` for
+# linters not yet relevant.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Lint Code
+description: Run language-aware linters via MegaLinter (TODO — pending SHA verification).
+
+inputs:
+  language:
+    description: Detected language (drives MegaLinter flavor).
+    required: true
+  package-manager:
+    description: Detected package manager.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Pick MegaLinter flavor
+      id: flavor
+      shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        # SPEC §11: language → flavor.
+        case "$LANGUAGE" in
+          node|javascript|typescript) flavor="javascript" ;;
+          python)                     flavor="python"     ;;
+          go)                         flavor="go"         ;;
+          java|kotlin)                flavor="java"       ;;
+          *)                          flavor="ci_light"   ;;
+        esac
+        echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
+        echo "::notice title=MegaLinter Flavor::language=$LANGUAGE flavor=$flavor"
+
+    - name: TODO — invoke MegaLinter
+      shell: bash
+      run: |
+        echo "::warning title=lint-code skeleton::MegaLinter step not yet wired up; SHA pending verification (see manifest-pending.yml: oxsecurity/megalinter)."
+        # When SHA is verified, replace this step with:
+        #
+        # - uses: oxsecurity/megalinter/flavors/${{ steps.flavor.outputs.flavor }}@<VERIFIED_SHA>
+        #   env:
+        #     VALIDATE_ALL_CODEBASE: "false"
+        #     APPLY_FIXES: "none"

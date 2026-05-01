@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci/scan-image — Trivy CVE scan, SARIF upload, hard-fail on HIGH/CRITICAL.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — aquasecurity/trivy-action SHA is in manifest-pending.yml.
+# The actual `uses:` line is omitted until the SHA is verified (SPEC §3.1).
+#
+# Trivy results are uploaded to the GitHub code-scanning Security tab via
+# github/codeql-action/upload-sarif (already verified). Thresholds default to
+# CRITICAL,HIGH and `exit-code: 1` so net-new vulns block the merge.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI · Scan Image
+description: Scan an image with Trivy and upload SARIF.
+
+inputs:
+  image-ref:
+    description: Image reference, ideally by digest (registry/owner/name@sha256:...).
+    required: true
+  severity:
+    description: Comma-separated severities that fail the scan.
+    required: false
+    default: "CRITICAL,HIGH"
+
+runs:
+  using: composite
+  steps:
+    - name: TODO — invoke Trivy
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+        SEVERITY:  ${{ inputs.severity }}
+      run: |
+        echo "::warning title=scan-image skeleton::Trivy step not yet wired up; SHA pending verification (see manifest-pending.yml: aquasecurity/trivy-action). image=${IMAGE_REF} severity=${SEVERITY}"
+        # When SHA is verified, replace this step with:
+        #
+        # - uses: aquasecurity/trivy-action@<VERIFIED_SHA>
+        #   with:
+        #     image-ref: ${{ inputs.image-ref }}
+        #     format:    sarif
+        #     output:    trivy-results.sarif
+        #     severity:  ${{ inputs.severity }}
+        #     exit-code: "1"
+        #
+        # - uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0
+        #   if: always()
+        #   with:
+        #     sarif_file: trivy-results.sarif

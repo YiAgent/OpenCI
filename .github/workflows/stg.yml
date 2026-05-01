@@ -1,0 +1,158 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg.yml — Staging deploy (reusable workflow, SPEC §5.4).
+# ─────────────────────────────────────────────────────────────────────────────
+# Serial chain (stg failures should stop fast and notify):
+#   preflight → deploy-k8s → run-migration? → smoke-test → notify-deployed
+#
+# Image is consumed BY DIGEST. The caller is responsible for not pointing at
+# a tag — the deploy atom does NOT do tag→digest resolution to avoid hidden
+# tag-shift races.
+#
+# Concurrency: same-ref deploys serialize but never cancel; we never want
+# to abandon a half-applied deployment.
+#
+# Security: no consumer-supplied PR field is used in shell here. The
+# health-url, app-name, etc. are repo-controlled inputs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: stg
+
+on:
+  workflow_call:
+    inputs:
+      image-digest:
+        type: string
+        required: true
+      image-name:
+        type: string
+        required: true
+      registry:
+        type: string
+        required: false
+        default: ghcr.io
+      app-name:
+        type: string
+        required: true
+      health-url:
+        type: string
+        required: true
+      k8s-namespace:
+        type: string
+        required: false
+        default: staging
+      run-migration:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      kubeconfig-stg:
+        required: true
+      slack-webhook-url:
+        required: false
+    outputs:
+      deploy-time:
+        description: ISO 8601 deploy timestamp.
+        value: ${{ jobs.deploy-k8s.outputs.deploy-time }}
+
+permissions: {}
+
+concurrency:
+  group: deploy-stg-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Probe secrets
+        env:
+          KUBECONFIG_STG:    ${{ secrets.kubeconfig-stg }}
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "KUBECONFIG_STG" \
+            --optional "SLACK_WEBHOOK_URL"
+
+  deploy-k8s:
+    name: Deploy K8s
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      deploy-time: ${{ steps.deploy.outputs.deploy-time }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: deploy
+        uses: ./actions/stg/deploy-k8s
+        with:
+          app-name:      ${{ inputs.app-name }}
+          image-ref:     ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          k8s-namespace: ${{ inputs.k8s-namespace }}
+          kubeconfig:    ${{ secrets.kubeconfig-stg }}
+
+  run-migration:
+    name: Run Migration
+    needs: deploy-k8s
+    if: inputs.run-migration == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/stg/run-migration
+        with:
+          migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
+
+  smoke-test:
+    name: Smoke Test
+    needs: [deploy-k8s, run-migration]
+    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/stg/smoke-test
+        with:
+          health-url: ${{ inputs.health-url }}
+
+  notify-deployed:
+    name: Notify Deployed
+    needs: [deploy-k8s, smoke-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/stg/notify-deployed
+        with:
+          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
+          app-name:    ${{ inputs.app-name }}
+          image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          webhook-url: ${{ secrets.slack-webhook-url }}
+          run-url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

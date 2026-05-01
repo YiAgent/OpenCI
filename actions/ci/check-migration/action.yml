@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci/check-migration — DB migration dry-run.
+# ─────────────────────────────────────────────────────────────────────────────
+# We don't ship a migration runner — the consumer's stack defines the
+# command. We give them a reliable harness: run the command, capture exit
+# code + stdout + stderr, and surface results as Annotations.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI · Check Migration
+description: Dry-run a DB migration command, fail on non-zero exit.
+
+inputs:
+  migration-cmd:
+    description: Shell command that performs a dry-run migration.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run migration dry-run
+      shell: bash
+      env:
+        MIGRATION_CMD: ${{ inputs.migration-cmd }}
+      run: |
+        set -euo pipefail
+        echo "::notice title=Migration Dry-run::cmd=${MIGRATION_CMD}"
+        # Caller-provided command — the env-then-bash pattern keeps the
+        # value out of the workflow expression context.
+        bash -c "$MIGRATION_CMD"
+        echo "::notice title=Migration Dry-run::ok"

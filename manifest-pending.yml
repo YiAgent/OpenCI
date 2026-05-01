@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenCI manifest-pending.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Staging area for third-party action SHAs that have NOT yet passed the
+# verification checklist in docs/SPEC.md §3.1.
+#
+# RULES:
+#   1. Entries here MAY use the literal placeholder "<待验证 SHA>" until a
+#      real 40-char SHA is recorded. Do NOT use fake hex strings like
+#      "1234567890abcdef..." — placeholders must be obviously unverified.
+#   2. Workflows / actions MUST NOT reference any SHA listed in this file.
+#      verify-sha-consistency rejects such references with the message
+#      "Migrate after verification".
+#   3. Verification checklist before promotion to manifest.yml:
+#         a. Visit https://github.com/<owner>/<repo>/commits/<tag> and
+#            confirm the SHA matches the tag's commit.
+#         b. Run `npx pin-github-action` against a smoke workflow and
+#            compare the resulting SHA.
+#         c. For high-trust actions (harden-runner / cosign / trivy / codeql)
+#            additionally run `cosign verify-blob` against the release
+#            artifact signature.
+#         d. Cut a PR that moves the entry into manifest.yml AND replaces
+#            every <待验证 SHA> placeholder in workflow / action files with
+#            the verified SHA.
+# ─────────────────────────────────────────────────────────────────────────────
+version: "1.7"
+
+deps:
+  # Pages / docs deploy
+  actions/upload-pages-artifact:          "<待验证 SHA>"
+  actions/deploy-pages:                   "<待验证 SHA>"
+
+  # Node / package managers
+  actions/setup-node:                     "<待验证 SHA>"
+  pnpm/action-setup:                      "<待验证 SHA>"
+  astral-sh/setup-uv:                     "<待验证 SHA>"
+
+  # AWS deploy
+  aws-actions/amazon-ecs-deploy-task-definition: "<待验证 SHA>"
+
+  # Security tooling
+  trufflesecurity/trufflehog:             "<待验证 SHA>"
+  aquasecurity/trivy-action:              "<待验证 SHA>"
+  SonarSource/sonarcloud-github-action:   "<待验证 SHA>"
+  oxsecurity/megalinter:                  "<待验证 SHA>"
+  snyk/actions:                           "<待验证 SHA>"
+  amannn/action-semantic-pull-request:    "<待验证 SHA>"
+
+  # Deploy / SSH
+  appleboy/ssh-action:                    "<待验证 SHA>"
+
+  # Issue / community
+  stale-org/stale:                        "<待验证 SHA>"   # community fork of archived actions/stale
+  dessant/lock-threads:                   "<待验证 SHA>"
+  kentaro/auto-assign-action:             "<待验证 SHA>"
+
+  # Notifications / external SaaS
+  slackapi/slack-github-action:           "<待验证 SHA>"
+  getsentry/action-release:               "<待验证 SHA>"

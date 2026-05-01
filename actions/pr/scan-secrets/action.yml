@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/scan-secrets — TruffleHog scan over the PR diff.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — TruffleHog SHA is in manifest-pending.yml. The step that
+# would call `uses: trufflesecurity/trufflehog@<SHA>` is intentionally
+# omitted until the SHA is verified (see SPEC §3.1 + Appendix B).
+#
+# Non-blocking by design: secrets in PR diffs should be flagged loudly but
+# the merge gate is dependency-review + scan-deps; this atom adds an extra
+# signal without adding a brittle gate that fires on benign keyword overlap.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Scan Secrets
+description: Detect leaked secrets in the PR diff (TODO — pending SHA verification).
+
+runs:
+  using: composite
+  steps:
+    - name: TODO — invoke TruffleHog
+      shell: bash
+      run: |
+        echo "::warning title=scan-secrets skeleton::TruffleHog step not yet wired up; SHA pending verification (see manifest-pending.yml: trufflesecurity/trufflehog)."
+        # When SHA is verified, replace this step with:
+        #
+        # - uses: trufflesecurity/trufflehog@<VERIFIED_SHA>
+        #   with:
+        #     base: ${{ github.event.pull_request.base.sha }}
+        #     head: ${{ github.event.pull_request.head.sha }}
+        #     extra_args: "--only-verified"

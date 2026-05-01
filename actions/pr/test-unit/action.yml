@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/test-unit — language-aware unit test runner with JUnit + coverage upload.
+# ─────────────────────────────────────────────────────────────────────────────
+# Composite that picks a default test command per language (consumer can
+# override via `test-cmd`), runs it, surfaces JUnit results via dorny/test-reporter,
+# and uploads the coverage artifact for the next job (check-coverage) to read.
+#
+# Defaults (when `test-cmd` is empty):
+#   node    → pnpm test  (or npm test if no pnpm-lock.yaml)
+#   python  → pytest --junitxml=junit.xml --cov --cov-report=xml
+#   go      → go test ./... -coverprofile=coverage.out -json | tee gotest.json
+#   java    → mvn -B test    (maven) | gradle test    (gradle)
+#   kotlin  → gradle test
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Run Unit Tests
+description: Run unit tests, publish JUnit results, upload coverage artifact.
+
+inputs:
+  language:
+    description: detect-language output (node | python | go | java | kotlin | unknown).
+    required: true
+  package-manager:
+    description: detect-language output (npm | pnpm | yarn | uv | pip | go-mod | maven | gradle | gradle-kts | unknown).
+    required: true
+  test-cmd:
+    description: Override command. Empty → use default for the detected stack.
+    required: false
+    default: ""
+  junit-report-path:
+    description: Glob for JUnit XML output (defaults per language).
+    required: false
+    default: ""
+  coverage-report-path:
+    description: Path to write the coverage report to.
+    required: false
+    default: ""
+
+outputs:
+  coverage-file:
+    description: Path of the coverage report produced (relative to workspace).
+    value: ${{ steps.run.outputs.coverage-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run tests
+      id: run
+      shell: bash
+      env:
+        LANGUAGE:        ${{ inputs.language }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        TEST_CMD:        ${{ inputs.test-cmd }}
+        JUNIT_PATH:      ${{ inputs.junit-report-path }}
+        COVERAGE_PATH:   ${{ inputs.coverage-report-path }}
+      run: |
+        set -euo pipefail
+
+        # Pick a sensible default per language when consumer didn't supply one.
+        cmd="$TEST_CMD"
+        coverage_default=""
+        junit_default=""
+
+        if [ -z "$cmd" ]; then
+          case "$LANGUAGE" in
+            node)
+              if [ "$PACKAGE_MANAGER" = "pnpm" ]; then cmd="pnpm test"
+              elif [ "$PACKAGE_MANAGER" = "yarn" ]; then cmd="yarn test"
+              else cmd="npm test"
+              fi
+              coverage_default="coverage/lcov.info"
+              junit_default="junit.xml"
+              ;;
+            python)
+              cmd="pytest --junitxml=junit.xml --cov --cov-report=xml"
+              coverage_default="coverage.xml"
+              junit_default="junit.xml"
+              ;;
+            go)
+              cmd="go test ./... -coverprofile=coverage.out"
+              coverage_default="coverage.out"
+              ;;
+            java|kotlin)
+              if [ "$PACKAGE_MANAGER" = "maven" ]; then
+                cmd="mvn -B test"
+                coverage_default="target/site/jacoco/jacoco.xml"
+                junit_default="target/surefire-reports/TEST-*.xml"
+              else
+                cmd="gradle test --no-daemon"
+                coverage_default="build/reports/jacoco/test/jacocoTestReport.xml"
+                junit_default="build/test-results/test/TEST-*.xml"
+              fi
+              ;;
+            *)
+              echo "::error title=Unsupported Language::Cannot infer test command for language=$LANGUAGE"
+              exit 1
+              ;;
+          esac
+        fi
+
+        coverage_path="${COVERAGE_PATH:-$coverage_default}"
+        junit_path="${JUNIT_PATH:-$junit_default}"
+
+        echo "::notice title=Test Command::$cmd"
+        # Run the command. Don't `set -e` over it — we want the test failure
+        # to flow through to dorny/test-reporter rather than halt the action.
+        bash -c "$cmd"
+
+        echo "coverage-file=$coverage_path" >> "$GITHUB_OUTPUT"
+        if [ -n "$junit_path" ] && [ -e "$junit_path" ]; then
+          echo "junit-file=$junit_path" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Publish test results
+      if: always() && hashFiles(steps.run.outputs.junit-file) != ''
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84efa5  # v1.9.0
+      with:
+        name:           Unit Tests
+        path:           ${{ steps.run.outputs.junit-file }}
+        reporter:       java-junit
+        fail-on-error:  "false"
+
+    - name: Upload coverage artifact
+      if: always() && steps.run.outputs.coverage-file != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: coverage-report
+        path: ${{ steps.run.outputs.coverage-file }}
+        if-no-files-found: warn
+        retention-days: 7
