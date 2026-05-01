@@ -1,0 +1,42 @@
+name: "Post PR Comment"
+description: |
+  Upsert a PR comment with ETag-aware concurrency handling.
+  Uses marker-based deduplication to update existing comments in place.
+  Requires pull-requests: write permission.
+
+inputs:
+  body:
+    description: "Comment body (markdown)"
+    required: true
+  marker:
+    description: "HTML comment marker for deduplication (e.g., '<!-- pr-summary -->')"
+    required: true
+  token:
+    description: "GitHub token with pull-requests: write permission"
+    required: true
+
+outputs:
+  comment-id:
+    description: "ID of the created or updated comment"
+    value: ${{ steps.comment.outputs.comment_id }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Upsert comment
+      id: comment
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        BODY: ${{ inputs.body }}
+        MARKER: ${{ inputs.marker }}
+      run: |
+        set -euo pipefail
+        python3 ${{ github.action_path }}/scripts/upsert_comment.py
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Post Comment" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Comment ID: ${{ steps.comment.outputs.comment_id }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Marker: ${{ inputs.marker }}" >> "$GITHUB_STEP_SUMMARY"

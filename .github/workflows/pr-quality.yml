@@ -1,0 +1,103 @@
+name: "PR: Quality"
+
+on:
+  workflow_run:
+    workflows: ["PR: Gate"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: pr-quality-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  gate-check:
+    name: "Gate Check"
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      gate-ok: ${{ steps.parse.outputs.gate_ok }}
+      should-run: ${{ steps.parse.outputs.should_run }}
+      pr-number: ${{ steps.parse.outputs.pr_number }}
+      head-sha: ${{ steps.parse.outputs.head_sha }}
+      backend: ${{ steps.parse.outputs.backend }}
+      frontend: ${{ steps.parse.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: gate-context
+          path: gate-context/
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Parse gate context
+        id: parse
+        run: python3 scripts/python/gate_consume.py gate-context/gate-context.json ""
+
+  ruff-reviewdog:
+    name: "Ruff (reviewdog)"
+    needs: [gate-check]
+    if: needs.gate-check.outputs.gate-ok == 'true' && needs.gate-check.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.gate-check.outputs.head-sha }}
+      - uses: ./actions/setup-python
+      - uses: ./actions/run-lint
+        with:
+          tool: ruff
+          level: warning
+          reviewdog-reporter: github-pr-review
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  eslint-reviewdog:
+    name: "ESLint (reviewdog)"
+    needs: [gate-check]
+    if: needs.gate-check.outputs.gate-ok == 'true' && needs.gate-check.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.gate-check.outputs.head-sha }}
+      - uses: ./actions/setup-node
+      - uses: ./actions/run-lint
+        with:
+          tool: eslint
+          level: warning
+          reviewdog-reporter: github-pr-review
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  quality-result:
+    name: "Quality Result"
+    needs: [gate-check, ruff-reviewdog, eslint-reviewdog]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate results
+        env:
+          RUFF: ${{ needs.ruff-reviewdog.result }}
+          ESLINT: ${{ needs.eslint-reviewdog.result }}
+        run: |
+          echo "## Quality Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Ruff: $RUFF" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ESLint: $ESLINT" >> "$GITHUB_STEP_SUMMARY"

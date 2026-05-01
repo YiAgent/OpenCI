@@ -1,0 +1,52 @@
+name: "Notify Slack"
+description: |
+  Send a message to a Slack channel via webhook.
+  Validates webhook URL against an allowlist.
+
+inputs:
+  webhook-url:
+    description: "Slack webhook URL"
+    required: true
+  message:
+    description: "Message text"
+    required: true
+  channel:
+    description: "Override channel (optional)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate webhook URL
+      shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        ALLOWED_HOSTS: "hooks.slack.com"
+      run: |
+        set -euo pipefail
+        HOST=$(echo "$WEBHOOK_URL" | awk -F/ '{print $3}')
+        if ! echo "$ALLOWED_HOSTS" | grep -q "$HOST"; then
+          echo "::error::Webhook host not in allowlist: $HOST"
+          exit 1
+        fi
+
+    - name: Send Slack message
+      shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        MESSAGE: ${{ inputs.message }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+        PAYLOAD=$(jq -n --arg text "$MESSAGE" --arg channel "$CHANNEL" \
+          '{text: $text} + (if $channel != "" then {channel: $channel} else {} end)')
+        curl -sf -X POST "$WEBHOOK_URL" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD"
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Slack Notification" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Sent: :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"

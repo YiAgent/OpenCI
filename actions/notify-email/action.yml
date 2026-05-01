@@ -1,0 +1,52 @@
+name: "Notify Email"
+description: |
+  Send an email via Resend API.
+
+inputs:
+  api-key:
+    description: "Resend API key"
+    required: true
+  from:
+    description: "Sender email address"
+    required: true
+  to:
+    description: "Recipient email address(es) (comma-separated)"
+    required: true
+  subject:
+    description: "Email subject"
+    required: true
+  body:
+    description: "Email body (HTML)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send email
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.api-key }}
+        FROM: ${{ inputs.from }}
+        TO: ${{ inputs.to }}
+        SUBJECT: ${{ inputs.subject }}
+        BODY: ${{ inputs.body }}
+      run: |
+        set -euo pipefail
+        TO_JSON=$(echo "$TO" | tr ',' '\n' | jq -R . | jq -s .)
+        PAYLOAD=$(jq -n \
+          --arg from "$FROM" \
+          --argjson to "$TO_JSON" \
+          --arg subject "$SUBJECT" \
+          --arg html "$BODY" \
+          '{from: $from, to: $to, subject: $subject, html: $html}')
+        curl -sf -X POST "https://api.resend.com/emails" \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD"
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Email Notification" >> "$GITHUB_STEP_SUMMARY"
+        echo "- To: ${{ inputs.to }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Subject: ${{ inputs.subject }}" >> "$GITHUB_STEP_SUMMARY"

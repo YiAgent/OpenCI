@@ -1,0 +1,65 @@
+name: "Reusable: Verify"
+
+on:
+  workflow_call:
+    inputs:
+      autofix:
+        description: "Auto-fix lint issues and commit back"
+        type: boolean
+        default: false
+      database-url:
+        description: "Database URL placeholder (used when use-real-secrets=false)"
+        type: string
+        default: "postgresql+asyncpg://test:test@localhost:5432/test"
+      use-real-secrets:
+        description: "Read URLs from secrets (true) or use input placeholders (false)"
+        type: boolean
+        default: false
+      coverage-threshold:
+        description: "Minimum coverage percentage"
+        type: number
+        default: 30
+    outputs:
+      backend-ok:
+        description: "Backend verify passed"
+        value: ${{ jobs.backend-verify.result == 'success' || jobs.backend-verify.result == 'skipped' }}
+      frontend-ok:
+        description: "Frontend verify passed"
+        value: ${{ jobs.frontend-verify.result == 'success' || jobs.frontend-verify.result == 'skipped' }}
+
+permissions: {}
+
+jobs:
+  backend-verify:
+    name: "Backend Verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: ${{ inputs.use-real-secrets && secrets.DATABASE_URL || inputs.database-url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: ./actions/setup-python
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy app/
+      - name: Tests
+        run: uv run pytest --cov-fail-under=${{ inputs.coverage-threshold }}
+
+  frontend-verify:
+    name: "Frontend Verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: ./actions/setup-node
+      - name: Lint
+        run: pnpm lint
+      - name: Type check
+        run: pnpm type-check
+      - name: Tests
+        run: pnpm test:coverage

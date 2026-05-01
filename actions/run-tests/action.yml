@@ -1,0 +1,118 @@
+name: "Run Tests"
+description: |
+  Run tests with coverage reporting and optional threshold enforcement.
+  Supports pytest, vitest, jest, go test, and custom commands.
+
+inputs:
+  command:
+    description: "Test command to run"
+    required: true
+  coverage-threshold:
+    description: "Minimum coverage percentage (0 to skip check)"
+    required: false
+    default: "0"
+  upload-coverage:
+    description: "Upload coverage artifact"
+    required: false
+    default: "false"
+  working-directory:
+    description: "Working directory for test command"
+    required: false
+    default: "."
+  coverage-format:
+    description: "Coverage output format (lcov/cobertura/html)"
+    required: false
+    default: "lcov"
+  coverage-file:
+    description: "Path to coverage output file"
+    required: false
+    default: ""
+
+outputs:
+  coverage-pct:
+    description: "Measured coverage percentage"
+    value: ${{ steps.test.outputs.coverage_pct }}
+  tests-passed:
+    description: "Whether all tests passed"
+    value: ${{ steps.test.outputs.tests_passed }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run tests
+      id: test
+      shell: bash
+      env:
+        CMD: ${{ inputs.command }}
+        THRESHOLD: ${{ inputs.coverage-threshold }}
+        WORKDIR: ${{ inputs.working-directory }}
+        COVERAGE_FILE: ${{ inputs.coverage-file }}
+      run: |
+        set -euo pipefail
+        cd "$WORKDIR"
+
+        set +e
+        eval "$CMD" 2>&1 | tee test-output.log
+        TEST_EXIT=$?
+        set -e
+
+        if [ "$TEST_EXIT" -eq 0 ]; then
+          echo "tests_passed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "tests_passed=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Tests failed with exit code $TEST_EXIT"
+        fi
+
+        # Extract coverage if file exists
+        COVERAGE_PCT="0"
+        if [ -n "$COVERAGE_FILE" ] && [ -f "$COVERAGE_FILE" ]; then
+          if [[ "$COVERAGE_FILE" == *.json ]]; then
+            COVERAGE_PCT=$(python3 -c "import json; data=json.load(open('$COVERAGE_FILE')); print(round(data.get('totals',{}).get('percent_covered',0),1))" 2>/dev/null || echo "0")
+          elif [[ "$COVERAGE_FILE" == *.xml ]]; then
+            COVERAGE_PCT=$(python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('$COVERAGE_FILE')
+root = tree.getroot()
+cov = root.find('.//coverage')
+if cov is not None:
+    rate = float(cov.get('line-rate', 0)) * 100
+    print(round(rate, 1))
+else:
+    print(0)
+" 2>/dev/null || echo "0")
+          fi
+        fi
+
+        echo "coverage_pct=$COVERAGE_PCT" >> "$GITHUB_OUTPUT"
+
+        # Check threshold
+        if [ "$(echo "$THRESHOLD > 0" | bc -l)" -eq 1 ]; then
+          if [ "$(echo "$COVERAGE_PCT < $THRESHOLD" | bc -l)" -eq 1 ]; then
+            echo "::error::Coverage $COVERAGE_PCT% is below threshold $THRESHOLD%"
+            exit 1
+          fi
+        fi
+
+        exit $TEST_EXIT
+
+    - name: Upload coverage
+      if: inputs.upload-coverage == 'true' && steps.test.outputs.coverage-pct != '0'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: coverage-report
+        path: |
+          coverage/
+          htmlcov/
+          coverage.xml
+          lcov.info
+        retention-days: 7
+
+    - name: Summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## Test Results" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Command: ${{ inputs.command }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Passed: ${{ steps.test.outputs.tests-passed }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Coverage: ${{ steps.test.outputs.coverage-pct }}%" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Threshold: ${{ inputs.coverage-threshold }}%" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,45 @@
+name: "With Gate Context"
+description: |
+  Download gate context and conditionally skip the workflow if the area hasn't changed.
+  Middleware pattern: chains gate-consume with conditional skip logic.
+
+inputs:
+  area:
+    description: "Area to check (backend/frontend/docs/infra/ci)"
+    required: false
+    default: ""
+
+outputs:
+  gate-ok:
+    description: "Whether the gate passed"
+    value: ${{ steps.gate.outputs.gate-ok }}
+  should-run:
+    description: "Whether this workflow should run"
+    value: ${{ steps.gate.outputs.should-run }}
+  pr-number:
+    description: "PR number from gate context"
+    value: ${{ steps.gate.outputs.pr-number }}
+  head-sha:
+    description: "Head SHA from gate context"
+    value: ${{ steps.gate.outputs.head-sha }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Consume gate context
+      id: gate
+      uses: ./actions/gate-consume
+      with:
+        area: ${{ inputs.area }}
+
+    - name: Check if should run
+      shell: bash
+      run: |
+        if [ "${{ steps.gate.outputs.should-run }}" != "true" ]; then
+          echo "::notice::Skipping — gate says area '${{ inputs.area }}' did not change or gate failed"
+          echo "## Gate Skip" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Area: ${{ inputs.area }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Gate OK: ${{ steps.gate.outputs.gate-ok }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Should Run: ${{ steps.gate.outputs.should-run }}" >> "$GITHUB_STEP_SUMMARY"
+          exit 78
+        fi

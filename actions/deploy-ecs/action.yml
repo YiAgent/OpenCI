@@ -1,0 +1,53 @@
+name: "Deploy to AWS ECS"
+description: |
+  Deploy a new task definition to an AWS ECS service.
+  Waits for the service to stabilize after deployment.
+
+inputs:
+  service:
+    description: "ECS service name"
+    required: true
+  cluster:
+    description: "ECS cluster name"
+    required: true
+  task-definition:
+    description: "Path to task definition JSON file"
+    required: true
+  wait-for-stability:
+    description: "Wait for service to stabilize"
+    required: false
+    default: "true"
+  aws-region:
+    description: "AWS region"
+    required: false
+    default: "us-east-1"
+
+outputs:
+  task-arn:
+    description: "Deployed task definition ARN"
+    value: ${{ steps.deploy.outputs.task-definition-arn }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.2.1
+      with:
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Deploy to ECS
+      id: deploy
+      uses: aws-actions/amazon-ecs-deploy-task-definition@df00883c1e5554e48a7b1e9e8d34e1b0a2e1b3b1  # v2.2.0
+      with:
+        task-definition: ${{ inputs.task-definition }}
+        service: ${{ inputs.service }}
+        cluster: ${{ inputs.cluster }}
+        wait-for-service-stability: ${{ inputs.wait-for-stability }}
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Deploy to ECS" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Cluster: ${{ inputs.cluster }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Service: ${{ inputs.service }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Task ARN: ${{ steps.deploy.outputs.task-definition-arn }}" >> "$GITHUB_STEP_SUMMARY"

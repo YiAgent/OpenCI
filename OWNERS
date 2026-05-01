@@ -1,0 +1,78 @@
+# See https://github.com/kubernetes/community/blob/master/contributors/guide/owners.md
+# for the OWNERS format documentation.
+
+# Default approvers for the entire repository
+approvers:
+  - wy
+
+# Default reviewers for the entire repository
+reviewers:
+  - wy
+
+# Per-directory ownership
+filters:
+  "actions/setup-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/deploy-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/build-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/notify-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/check-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/gate-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/run-*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "actions/post-comment":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "composite/*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  ".github/workflows/*":
+    approvers:
+      - wy
+    reviewers:
+      - wy
+
+  "scripts/*":
+    approvers:
+      - wy
+    reviewers:
+      - wy

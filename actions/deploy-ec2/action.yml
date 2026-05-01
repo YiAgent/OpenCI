@@ -1,0 +1,49 @@
+name: "Deploy to EC2 via SSH"
+description: |
+  Deploy to an EC2 instance via SSH.
+  Runs a deployment command on the remote host.
+
+inputs:
+  host:
+    description: "EC2 host address"
+    required: true
+  key:
+    description: "SSH private key"
+    required: true
+  username:
+    description: "SSH username"
+    required: false
+    default: "ubuntu"
+  command:
+    description: "Deployment command to run"
+    required: true
+  port:
+    description: "SSH port"
+    required: false
+    default: "22"
+
+outputs:
+  exit-code:
+    description: "Exit code of the deployment command"
+    value: ${{ steps.deploy.outputs.exit_code }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Deploy via SSH
+      id: deploy
+      uses: appleboy/ssh-action@v1
+      with:
+        host: ${{ inputs.host }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.key }}
+        port: ${{ inputs.port }}
+        command: ${{ inputs.command }}
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Deploy to EC2" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Host: ${{ inputs.host }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- User: ${{ inputs.username }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Command: ${{ inputs.command }}" >> "$GITHUB_STEP_SUMMARY"

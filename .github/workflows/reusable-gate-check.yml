@@ -1,0 +1,49 @@
+name: "Reusable: Gate Check"
+
+on:
+  workflow_call:
+    inputs:
+      area:
+        description: "Area to check (backend/frontend/docs/infra/ci)"
+        type: string
+        default: ""
+    outputs:
+      gate-ok:
+        description: "Whether the gate passed"
+        value: ${{ jobs.gate-check.outputs.gate-ok }}
+      should-run:
+        description: "Whether this workflow should run"
+        value: ${{ jobs.gate-check.outputs.should-run }}
+      pr-number:
+        description: "PR number"
+        value: ${{ jobs.gate-check.outputs.pr-number }}
+      head-sha:
+        description: "Head SHA"
+        value: ${{ jobs.gate-check.outputs.head-sha }}
+
+permissions: {}
+
+jobs:
+  gate-check:
+    name: "Gate Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      gate-ok: ${{ steps.parse.outputs.gate_ok }}
+      should-run: ${{ steps.parse.outputs.should_run }}
+      pr-number: ${{ steps.parse.outputs.pr_number }}
+      head-sha: ${{ steps.parse.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: gate-context
+          path: gate-context/
+      - name: Parse gate context
+        id: parse
+        env:
+          AREA: ${{ inputs.area }}
+        run: python3 scripts/python/gate_consume.py gate-context/gate-context.json "$AREA"

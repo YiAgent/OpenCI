@@ -1,0 +1,148 @@
+name: "PRD: Canary Watch"
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions: {}
+
+concurrency:
+  group: canary-watch-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  sentry-spike-check:
+    name: "Sentry Spike Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      spike-detected: ${{ steps.check.outputs.spike }}
+      error-count: ${{ steps.check.outputs.error_count }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Check Sentry error spike
+        id: check
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          echo "## Sentry Spike Check" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::warning::SENTRY_AUTH_TOKEN not set, skipping"
+            echo "spike=false" >> "$GITHUB_OUTPUT"
+            echo "error_count=0" >> "$GITHUB_OUTPUT"
+            echo "- Status: skipped (no token)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Fetch 30-minute error counts
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+            "https://sentry.io/api/0/organizations/$SENTRY_ORG/projects/$SENTRY_PROJECT/stats/?stat=received&since=$(date -d '30 minutes ago' +%s)&until=$(date +%s)" \
+            2>/dev/null || echo "[]")
+
+          # Sum error counts
+          ERROR_COUNT=$(echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          total = sum(point[1] for point in data) if isinstance(data, list) else 0
+          print(total)
+          " 2>/dev/null || echo "0")
+
+          echo "error_count=$ERROR_COUNT" >> "$GITHUB_OUTPUT"
+          echo "- Errors (30m): $ERROR_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+          # Spike detection: >50 errors in 30 minutes
+          if [ "$ERROR_COUNT" -gt 50 ]; then
+            echo "spike=true" >> "$GITHUB_OUTPUT"
+            echo "- Status: SPIKE DETECTED" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Sentry error spike detected: $ERROR_COUNT errors in 30 minutes"
+          else
+            echo "spike=false" >> "$GITHUB_OUTPUT"
+            echo "- Status: normal" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  health-check:
+    name: "Health Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      healthy: ${{ steps.check.outputs.healthy }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Check production health
+        id: check
+        env:
+          PROD_URL: ${{ secrets.PROD_URL }}
+        run: |
+          echo "## Health Check" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$PROD_URL" ]; then
+            echo "::warning::PROD_URL not set, skipping"
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+            echo "- Status: skipped (no URL)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "$PROD_URL/health" 2>/dev/null || echo "000")
+          echo "- URL: $PROD_URL/health" >> "$GITHUB_STEP_SUMMARY"
+          echo "- HTTP: $HTTP_CODE" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+            echo "- Status: healthy" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "- Status: UNHEALTHY" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Production health check failed: HTTP $HTTP_CODE"
+          fi
+
+  rollback-if-needed:
+    name: "Rollback if Needed"
+    needs: [sentry-spike-check, health-check]
+    if: needs.sentry-spike-check.outputs.spike-detected == 'true' || needs.health-check.outputs.healthy == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Initiate rollback
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SPIKE: ${{ needs.sentry-spike-check.outputs.spike-detected }}
+          UNHEALTHY: ${{ needs.health-check.outputs.healthy }}
+        run: |
+          echo "## Canary Watch: Rollback" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Spike detected: $SPIKE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Unhealthy: $UNHEALTHY" >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Canary watch triggered rollback"
+          echo "- Status: rollback initiated" >> "$GITHUB_STEP_SUMMARY"
+
+  create-incident:
+    name: "Create Incident"
+    needs: [rollback-if-needed, sentry-spike-check, health-check]
+    if: needs.rollback-if-needed.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Create P1 incident
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+          SPIKE: ${{ needs.sentry-spike-check.outputs.spike-detected }}
+          ERROR_COUNT: ${{ needs.sentry-spike-check.outputs.error-count }}
+          UNHEALTHY: ${{ needs.health-check.outputs.healthy }}
+        run: |
+          echo "## Incident Created" >> "$GITHUB_STEP_SUMMARY"
+          REASON="Canary watch auto-rollback. Spike: $SPIKE, Errors: $ERROR_COUNT, Unhealthy: $UNHEALTHY"
+          echo "- Reason: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::P1 incident: $REASON"

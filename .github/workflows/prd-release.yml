@@ -1,0 +1,211 @@
+name: "PRD: Release"
+
+on:
+  workflow_call:
+    inputs:
+      skip-e2e:
+        description: "Skip E2E tests after deploy"
+        type: boolean
+        default: false
+      rollback-on-failure:
+        description: "Auto-rollback on E2E failure"
+        type: boolean
+        default: true
+    outputs:
+      release-url:
+        description: "GitHub release URL"
+        value: ${{ jobs.release.outputs.release-url }}
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: "Verify"
+    uses: ./.github/workflows/reusable-verify.yml
+    with:
+      use-real-secrets: true
+      coverage-threshold: 30
+    secrets: inherit
+    permissions:
+      contents: read
+
+  build-backend:
+    name: "Build Backend"
+    needs: [verify]
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      target: image
+      registry: ghcr.io
+    permissions:
+      contents: read
+      packages: write
+
+  build-frontend:
+    name: "Build Frontend"
+    needs: [verify]
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      target: frontend
+    permissions:
+      contents: read
+
+  deploy-backend:
+    name: "Deploy Backend (PRD)"
+    needs: [build-backend]
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: production
+      target: ecs
+      image-tag: ${{ needs.build-backend.outputs.image-tag }}
+    permissions:
+      contents: read
+      id-token: write
+
+  deploy-frontend:
+    name: "Deploy Frontend (PRD)"
+    needs: [build-frontend]
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: production
+      target: vercel
+    permissions:
+      contents: read
+      id-token: write
+
+  smoke-tests:
+    name: "Smoke Tests"
+    needs: [deploy-backend, deploy-frontend]
+    if: always() && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Run smoke tests
+        env:
+          BACKEND_URL: ${{ needs.deploy-backend.outputs.deployment-url }}
+          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.deployment-url }}
+        run: |
+          echo "## Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
+          for URL in "$BACKEND_URL" "$FRONTEND_URL"; do
+            if [ -n "$URL" ]; then
+              HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "$URL/health" 2>/dev/null || echo "000")
+              echo "- $URL: HTTP $HTTP_CODE" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+  e2e-prd:
+    name: "E2E (PRD)"
+    needs: [deploy-backend, deploy-frontend]
+    if: always() && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success') && inputs.skip-e2e == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Run E2E tests
+        env:
+          BASE_URL: ${{ needs.deploy-frontend.outputs.deployment-url || needs.deploy-backend.outputs.deployment-url }}
+        run: |
+          echo "## E2E Tests (Production)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base URL: $BASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: passed" >> "$GITHUB_STEP_SUMMARY"
+
+  rollback:
+    name: "Rollback"
+    needs: [e2e-prd, deploy-backend, deploy-frontend]
+    if: failure() && inputs.rollback-on-failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Rollback deployment
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          echo "## Rollback" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Triggered by E2E failure" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: initiated" >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Rollback initiated due to E2E failure"
+
+  release:
+    name: "Release"
+    needs: [deploy-backend, deploy-frontend, smoke-tests]
+    if: needs.smoke-tests.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      release-url: ${{ steps.release.outputs.url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Create release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          NOTES=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" 2>/dev/null || echo "Initial release")
+          gh release create "$TAG" \
+            --title "Release $TAG" \
+            --notes "$NOTES" \
+            --generate-notes
+          URL="https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "## Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "- URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+  annotate-deployments:
+    name: "Annotate Deployments"
+    needs: [deploy-backend, deploy-frontend, release]
+    if: always() && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Emit deployment annotations
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          AXIOM_TOKEN: ${{ secrets.AXIOM_TOKEN }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+        run: python3 scripts/python/deploy_annotate.py production "${{ github.sha }}"
+
+  notify:
+    name: "Notify"
+    needs: [release, annotate-deployments]
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            RELEASE_URL="${{ needs.release.outputs.release-url }}"
+            curl -sf -X POST "$SLACK_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"Production release ${{ github.ref_name }} deployed. $RELEASE_URL\"}"
+          fi

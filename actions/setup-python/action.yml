@@ -1,0 +1,83 @@
+name: "Setup Python Environment"
+description: |
+  Install Python + uv + project dependencies.
+  Reads versions from .tool-versions (single source of truth).
+  Uses GitHub Actions cache for uv packages.
+
+inputs:
+  python-version:
+    description: "Python version override (default: read from .tool-versions)"
+    required: false
+    default: ""
+  uv-version:
+    description: "uv version override (default: read from .tool-versions)"
+    required: false
+    default: ""
+  install-deps:
+    description: "Run uv sync to install dependencies"
+    required: false
+    default: "true"
+  dev-deps:
+    description: "Include dev dependencies"
+    required: false
+    default: "true"
+  working-directory:
+    description: "Working directory for dependency installation"
+    required: false
+    default: "."
+
+outputs:
+  python-version:
+    description: "Resolved Python version"
+    value: ${{ steps.versions.outputs.python }}
+  uv-version:
+    description: "Resolved uv version"
+    value: ${{ steps.versions.outputs.uv }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Read tool versions
+      id: versions
+      shell: bash
+      run: |
+        if [ -f .tool-versions ]; then
+          PYTHON="${{ inputs.python-version || '' }}"
+          UV="${{ inputs.uv-version || '' }}"
+          [ -z "$PYTHON" ] && PYTHON=$(grep '^python=' .tool-versions | cut -d= -f2)
+          [ -z "$UV" ] && UV=$(grep '^uv=' .tool-versions | cut -d= -f2)
+        else
+          PYTHON="${{ inputs.python-version || '3.12' }}"
+          UV="${{ inputs.uv-version || '0.5' }}"
+        fi
+        echo "python=$PYTHON" >> "$GITHUB_OUTPUT"
+        echo "uv=$UV" >> "$GITHUB_OUTPUT"
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: ${{ steps.versions.outputs.uv }}
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      with:
+        python-version: ${{ steps.versions.outputs.python }}
+
+    - name: Install dependencies
+      if: inputs.install-deps == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ "${{ inputs.dev-deps }}" == "true" ]; then
+          uv sync
+        else
+          uv sync --no-dev
+        fi
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Setup Python" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Python: ${{ steps.versions.outputs.python }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- uv: ${{ steps.versions.outputs.uv }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Dependencies installed: ${{ inputs.install-deps }}" >> "$GITHUB_STEP_SUMMARY"
