@@ -249,6 +249,7 @@ jobs:
         with:
           coverage-file:      ${{ needs.test.outputs.coverage-file || 'coverage/lcov.info' }}
           coverage-threshold: ${{ inputs.coverage-threshold }}
+          mode:               pr
           codecov-token:      ${{ secrets.codecov-token }}
 
   build-check:

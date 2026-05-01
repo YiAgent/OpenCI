@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/posthog-event — POST a `deploy` event into PostHog.
+# ─────────────────────────────────────────────────────────────────────────────
+# Lets you overlay deploys on user-behavior funnels — useful for spotting
+# adoption-killing regressions on the day of release.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PostHog Event (atom)
+description: Send a deploy event to PostHog.
+
+inputs:
+  api-key:
+    description: PostHog Project API key. Empty → skip.
+    required: false
+    default: ""
+  host:
+    description: PostHog instance hostname.
+    required: false
+    default: app.posthog.com
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release version.
+    required: true
+  git-sha:
+    description: Git sha.
+    required: true
+  app-name:
+    description: Application identifier.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check api key
+      id: check
+      shell: bash
+      env:
+        KEY: ${{ inputs.api-key }}
+      run: |
+        if [ -z "$KEY" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=PostHog Skipped::api-key not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Send event
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      timeout-minutes: 1
+      env:
+        KEY:     ${{ inputs.api-key }}
+        HOST:    ${{ inputs.host }}
+        ENV:     ${{ inputs.environment }}
+        VERSION: ${{ inputs.version }}
+        SHA:     ${{ inputs.git-sha }}
+        APP:     ${{ inputs.app-name }}
+      run: |
+        set -euo pipefail
+        body="$(jq -n \
+          --arg key "$KEY" \
+          --arg env "$ENV" \
+          --arg ver "$VERSION" \
+          --arg sha "$SHA" \
+          --arg app "$APP" \
+          '{
+             api_key: $key,
+             event:   "deploy",
+             distinct_id: "ci-system",
+             properties: { environment: $env, version: $ver, git_sha: $sha, app: $app }
+           }')"
+        curl -sS --max-time 25 -X POST \
+          -H "Content-Type: application/json" \
+          "https://${HOST}/capture/" \
+          -d "$body" >/dev/null || {
+            echo "::warning title=PostHog Event::POST failed (continuing)"
+          }
+        echo "::notice title=PostHog Event::version=${VERSION} env=${ENV}"

@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/notify-deploy — fan out a deploy event to up to 5 SaaS sinks.
+# ─────────────────────────────────────────────────────────────────────────────
+# Each sink atom is gated by its own enable-* flag, so consumers opt in
+# per-service. Atoms internally graceful-skip on missing tokens, so the
+# composite stays simple — it just forwards inputs and lets each atom
+# decide whether to post or skip.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Notify Deploy (composite)
+description: Fan out a deploy marker to Sentry / Datadog / PostHog / LangSmith / Axiom.
+
+inputs:
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release version (immutable; usually `:sha-XXXXXXX`).
+    required: true
+  git-sha:
+    description: Full git SHA.
+    required: true
+  app-name:
+    description: Application identifier.
+    required: true
+
+  enable-sentry:    { required: false, default: "false", description: "" }
+  enable-datadog:   { required: false, default: "false", description: "" }
+  enable-posthog:   { required: false, default: "false", description: "" }
+  enable-langsmith: { required: false, default: "false", description: "" }
+  enable-axiom:     { required: false, default: "false", description: "" }
+
+  sentry-token:    { required: false, default: "", description: "" }
+  sentry-org:      { required: false, default: "", description: "" }
+  sentry-project:  { required: false, default: "", description: "" }
+  datadog-api-key: { required: false, default: "", description: "" }
+  datadog-site:    { required: false, default: "datadoghq.com", description: "" }
+  posthog-api-key: { required: false, default: "", description: "" }
+  posthog-host:    { required: false, default: "app.posthog.com", description: "" }
+  langsmith-api-key: { required: false, default: "", description: "" }
+  langsmith-endpoint: { required: false, default: "https://api.smith.langchain.com", description: "" }
+  langsmith-project:  { required: false, default: "", description: "" }
+  axiom-token:     { required: false, default: "", description: "" }
+  axiom-dataset:   { required: false, default: "", description: "" }
+
+runs:
+  using: composite
+  steps:
+    - name: Sentry release
+      if: inputs.enable-sentry == 'true'
+      uses: ./actions/integrations/sentry-release
+      with:
+        sentry-token:   ${{ inputs.sentry-token }}
+        sentry-org:     ${{ inputs.sentry-org }}
+        sentry-project: ${{ inputs.sentry-project }}
+        environment:    ${{ inputs.environment }}
+        version:        ${{ inputs.version }}
+        git-sha:        ${{ inputs.git-sha }}
+      continue-on-error: true
+
+    - name: Datadog event
+      if: inputs.enable-datadog == 'true'
+      uses: ./actions/integrations/datadog-event
+      with:
+        api-key:     ${{ inputs.datadog-api-key }}
+        site:        ${{ inputs.datadog-site }}
+        environment: ${{ inputs.environment }}
+        version:     ${{ inputs.version }}
+        git-sha:     ${{ inputs.git-sha }}
+        app-name:    ${{ inputs.app-name }}
+      continue-on-error: true
+
+    - name: PostHog event
+      if: inputs.enable-posthog == 'true'
+      uses: ./actions/integrations/posthog-event
+      with:
+        api-key:     ${{ inputs.posthog-api-key }}
+        host:        ${{ inputs.posthog-host }}
+        environment: ${{ inputs.environment }}
+        version:     ${{ inputs.version }}
+        git-sha:     ${{ inputs.git-sha }}
+        app-name:    ${{ inputs.app-name }}
+      continue-on-error: true
+
+    - name: LangSmith tag
+      if: inputs.enable-langsmith == 'true'
+      uses: ./actions/integrations/langsmith-tag
+      with:
+        api-key:     ${{ inputs.langsmith-api-key }}
+        endpoint:    ${{ inputs.langsmith-endpoint }}
+        project:     ${{ inputs.langsmith-project }}
+        environment: ${{ inputs.environment }}
+        version:     ${{ inputs.version }}
+        git-sha:     ${{ inputs.git-sha }}
+      continue-on-error: true
+
+    - name: Axiom event
+      if: inputs.enable-axiom == 'true'
+      uses: ./actions/integrations/axiom-event
+      with:
+        token:       ${{ inputs.axiom-token }}
+        dataset:     ${{ inputs.axiom-dataset }}
+        environment: ${{ inputs.environment }}
+        version:     ${{ inputs.version }}
+        git-sha:     ${{ inputs.git-sha }}
+        app-name:    ${{ inputs.app-name }}
+      continue-on-error: true

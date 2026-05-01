@@ -1,0 +1,46 @@
+# Skeleton — same contract as query-sentry.
+# Real implementation queries Datadog Metrics + Events APIs for latency/RPS/error rate.
+name: Observability · Query Datadog
+description: Fetch latency + RPS metrics from Datadog.
+
+inputs:
+  api-key:      { required: false, default: "", description: Datadog API key }
+  app-key:      { required: false, default: "", description: Datadog APP key }
+  site:         { required: false, default: "datadoghq.com", description: "" }
+  window-hours: { required: false, default: "24", description: "" }
+  query-rps:    { required: false, default: "sum:trace.servlet.request.hits{*}.as_rate()", description: "" }
+
+outputs:
+  data:
+    description: JSON blob; { service: "datadog", metrics: {...} } or partial-error shape.
+    value: ${{ steps.query.outputs.data }}
+
+runs:
+  using: composite
+  steps:
+    - id: query
+      shell: bash
+      timeout-minutes: 2
+      env:
+        KEY:     ${{ inputs.api-key }}
+        APP_KEY: ${{ inputs.app-key }}
+        SITE:    ${{ inputs.site }}
+        HOURS:   ${{ inputs.window-hours }}
+      run: |
+        set -euo pipefail
+        emit() {
+          {
+            echo "data<<__OPENCI_EOF__"
+            echo "$1"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+        }
+        if [ -z "$KEY" ] || [ -z "$APP_KEY" ]; then
+          emit "$(jq -n '{service: "datadog", _error: "credentials missing", _partial: true}')"
+          exit 0
+        fi
+        # TODO: implement /api/v1/query series + /api/v1/events when the workflow
+        # gets exercised against a real DD account. For now, emit a zero-value
+        # blob so synthesise can still run.
+        emit "$(jq -n '{service: "datadog", metrics: {rps: null, p95_latency_ms: null, error_rate: null}, _partial: true, _error: "TODO live query"}')"
+        echo "::warning title=Query Datadog::placeholder data — implement against real DD account"

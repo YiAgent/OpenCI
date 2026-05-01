@@ -23,6 +23,37 @@ inputs:
     description: Required wait after staging deploy.
     required: false
     default: "30"
+  # Sentry inputs are optional — when sentry-token is empty the
+  # error-rate gate is skipped (graceful-skip pattern, P0-5).
+  sentry-token:
+    description: Sentry auth token (Bearer). Empty → gate skipped.
+    required: false
+    default: ""
+  sentry-org:
+    description: Sentry org slug.
+    required: false
+    default: ""
+  sentry-project:
+    description: Sentry project slug.
+    required: false
+    default: ""
+  sentry-environment:
+    description: Sentry environment to query.
+    required: false
+    default: staging
+  baseline-error-rate:
+    description: Baseline error rate (e.g. 0.005).
+    required: false
+    default: "0.005"
+  threshold-multiplier:
+    description: real threshold = baseline * multiplier
+    required: false
+    default: "2.0"
+
+outputs:
+  error-rate-passed:
+    description: Did the error-rate gate pass (or skip). Empty when sentry-token unset.
+    value: ${{ steps.error-rate.outputs.passed }}
 
 runs:
   using: composite
@@ -38,3 +69,28 @@ runs:
       with:
         stg-deploy-time:     ${{ inputs.stg-deploy-time }}
         observation-minutes: ${{ inputs.observation-minutes }}
+
+    - name: Check error rate (graceful-skip when sentry-token unset)
+      id: error-rate-skip
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.sentry-token }}
+      run: |
+        if [ -z "$TOKEN" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Error Rate Check Skipped::sentry-token not configured, graceful skip"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check error rate
+      id: error-rate
+      if: steps.error-rate-skip.outputs.skip != 'true'
+      uses: ./actions/prd/check-error-rate
+      with:
+        sentry-token:         ${{ inputs.sentry-token }}
+        sentry-org:           ${{ inputs.sentry-org }}
+        sentry-project:       ${{ inputs.sentry-project }}
+        environment:          ${{ inputs.sentry-environment }}
+        baseline-error-rate:  ${{ inputs.baseline-error-rate }}
+        threshold-multiplier: ${{ inputs.threshold-multiplier }}

@@ -48,6 +48,16 @@ on:
         required: true
       slack-webhook-url:
         required: false
+      sentry-token:
+        required: false
+      datadog-api-key:
+        required: false
+      posthog-api-key:
+        required: false
+      langsmith-api-key:
+        required: false
+      axiom-token:
+        required: false
     outputs:
       deploy-time:
         description: ISO 8601 deploy timestamp.
@@ -80,9 +90,35 @@ jobs:
             --required "KUBECONFIG_STG" \
             --optional "SLACK_WEBHOOK_URL"
 
+  coverage-gate:
+    name: Coverage Gate
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Optional: when no coverage artifact is available, skip silently. When
+    # an artifact exists, compute % and block stg deploy on shortfall.
+    if: ${{ vars.STG_COVERAGE_THRESHOLD != '' }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: coverage-report
+          path: .
+        continue-on-error: true
+      - uses: ./actions/pr/check-coverage
+        with:
+          coverage-file:      ${{ vars.STG_COVERAGE_FILE || 'coverage/lcov.info' }}
+          coverage-threshold: ${{ vars.STG_COVERAGE_THRESHOLD || '60' }}
+          mode:               stg
+
   deploy-k8s:
     name: Deploy K8s
-    needs: preflight
+    needs: [preflight, coverage-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -135,6 +171,46 @@ jobs:
       - uses: ./actions/stg/smoke-test
         with:
           health-url: ${{ inputs.health-url }}
+
+  notify-observability:
+    name: Notify Observability
+    needs: [deploy-k8s, smoke-test]
+    # Always emit deploy markers when the deploy itself succeeded — even if
+    # smoke-test then failed. The deploy *did* happen, downstream tools need
+    # to know about it for accurate metric overlay.
+    if: always() && needs.deploy-k8s.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/integrations/notify-deploy
+        with:
+          environment: stg
+          version:     ${{ inputs.image-digest }}
+          git-sha:     ${{ github.sha }}
+          app-name:    ${{ inputs.app-name }}
+          enable-sentry:     ${{ vars.ENABLE_SENTRY    || 'false' }}
+          enable-datadog:    ${{ vars.ENABLE_DATADOG   || 'false' }}
+          enable-posthog:    ${{ vars.ENABLE_POSTHOG   || 'false' }}
+          enable-langsmith:  ${{ vars.ENABLE_LANGSMITH || 'false' }}
+          enable-axiom:      ${{ vars.ENABLE_AXIOM     || 'false' }}
+          sentry-token:      ${{ secrets.sentry-token }}
+          sentry-org:        ${{ vars.SENTRY_ORG }}
+          sentry-project:    ${{ vars.SENTRY_PROJECT }}
+          datadog-api-key:   ${{ secrets.datadog-api-key }}
+          datadog-site:      ${{ vars.DATADOG_SITE     || 'datadoghq.com' }}
+          posthog-api-key:   ${{ secrets.posthog-api-key }}
+          posthog-host:      ${{ vars.POSTHOG_HOST     || 'app.posthog.com' }}
+          langsmith-api-key: ${{ secrets.langsmith-api-key }}
+          langsmith-project: ${{ vars.LANGSMITH_PROJECT }}
+          axiom-token:       ${{ secrets.axiom-token }}
+          axiom-dataset:     ${{ vars.AXIOM_DATASET }}
 
   notify-deployed:
     name: Notify Deployed

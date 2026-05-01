@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# observability/query-sentry — pull issues + stats for the daily report.
+# ─────────────────────────────────────────────────────────────────────────────
+# Output JSON schema (stable contract, downstream depends on it):
+#   { "service": "sentry", "errors": [...], "stats": {...}, "_partial": false }
+# When TOKEN missing or HTTP fails:
+#   { "service": "sentry", "_error": "<reason>", "_partial": true }
+# This way `merge` in health-report.yml can synthesise even with partial data.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Observability · Query Sentry
+description: Fetch the last 24h of Sentry issues + stats.
+
+inputs:
+  token:        { required: false, default: "", description: Sentry auth token }
+  org:          { required: false, default: "", description: Sentry org slug }
+  project:      { required: false, default: "", description: Sentry project slug }
+  window-hours: { required: false, default: "24", description: Lookback window }
+
+outputs:
+  data:
+    description: JSON-encoded result blob.
+    value: ${{ steps.query.outputs.data }}
+
+runs:
+  using: composite
+  steps:
+    - id: query
+      shell: bash
+      timeout-minutes: 2
+      env:
+        TOKEN:        ${{ inputs.token }}
+        ORG:          ${{ inputs.org }}
+        PROJECT:      ${{ inputs.project }}
+        WINDOW_HOURS: ${{ inputs.window-hours }}
+      run: |
+        set -euo pipefail
+        emit() {
+          {
+            echo "data<<__OPENCI_EOF__"
+            echo "$1"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+        }
+        if [ -z "$TOKEN" ] || [ -z "$ORG" ] || [ -z "$PROJECT" ]; then
+          emit "$(jq -n '{service: "sentry", _error: "credentials missing", _partial: true}')"
+          echo "::warning title=Query Sentry::credentials missing — partial data"
+          exit 0
+        fi
+        # NOTE: query construction kept simple here; a real implementation
+        # would call /issues/?statsPeriod=24h&query=is:unresolved + stats_v2.
+        if ! issues="$(curl -sS --max-time 25 \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://sentry.io/api/0/projects/${ORG}/${PROJECT}/issues/?statsPeriod=${WINDOW_HOURS}h" 2>/dev/null)"; then
+          emit "$(jq -n '{service: "sentry", _error: "http failed", _partial: true}')"
+          echo "::warning title=Query Sentry::http failed — partial data"
+          exit 0
+        fi
+        # Reduce to the top-N fingerprint summary.
+        summary="$(jq '
+          if type == "array" then
+            { service: "sentry", errors: ([.[] | {fingerprint: .id, title, count: (.count // "0"), firstSeen, level}] | .[0:10]) }
+          else
+            { service: "sentry", _error: "unexpected response", _partial: true }
+          end
+        ' <<<"$issues")"
+        emit "$summary"

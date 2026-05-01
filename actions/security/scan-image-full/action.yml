@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# security/scan-image-full — Trivy full-severity image scan.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton (trivy-action SHA pending). Differs from ci/scan-image
+# (P1-10) in that it scans LOW+MEDIUM as well, so the weekly schedule
+# surfaces lower-severity findings that PR-time gates intentionally let pass.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Security · Scan Image (full)
+description: Trivy scan with all severities, weekly cadence.
+
+inputs:
+  image-ref:
+    description: Image reference (registry/owner/name@sha256:...).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: TODO — invoke Trivy
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: |
+        echo "::warning title=scan-image-full skeleton::Trivy step not yet wired up; SHA pending verification (manifest-pending.yml: aquasecurity/trivy-action). image=${IMAGE_REF}"
+        # When verified:
+        # - uses: aquasecurity/trivy-action@<SHA>
+        #   with:
+        #     image-ref: ${{ inputs.image-ref }}
+        #     format:    sarif
+        #     output:    trivy-full.sarif
+        #     severity:  "LOW,MEDIUM,HIGH,CRITICAL"
+        #     exit-code: "0"  # full scan reports, not blocks
+        # - uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0
+        #   if: always()
+        #   with:
+        #     sarif_file: trivy-full.sarif

@@ -64,6 +64,16 @@ on:
         required: true
       slack-webhook-url:
         required: false
+      sentry-token:
+        required: false
+      datadog-api-key:
+        required: false
+      posthog-api-key:
+        required: false
+      langsmith-api-key:
+        required: false
+      axiom-token:
+        required: false
   workflow_dispatch:
   push:
     tags: ["v*"]
@@ -115,6 +125,10 @@ jobs:
           stg-image-digest:    ${{ inputs.stg-image-digest }}
           stg-deploy-time:     ${{ inputs.stg-deploy-time }}
           observation-minutes: ${{ inputs.observation-minutes }}
+          # Sentry error-rate gate (optional, graceful-skip when token unset).
+          sentry-token:        ${{ secrets.sentry-token }}
+          sentry-org:          ${{ vars.SENTRY_ORG }}
+          sentry-project:      ${{ vars.SENTRY_PROJECT }}
 
   deploy-k8s:
     name: Deploy K8s (production)
@@ -225,6 +239,43 @@ jobs:
       - uses: ./actions/prd/create-release
         with:
           github-token: ${{ github.token }}
+
+  notify-observability:
+    name: Notify Observability
+    needs: [deploy-k8s, smoke-test]
+    if: always() && needs.deploy-k8s.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/integrations/notify-deploy
+        with:
+          environment: prd
+          version:     ${{ inputs.image-digest }}
+          git-sha:     ${{ github.sha }}
+          app-name:    ${{ inputs.app-name }}
+          enable-sentry:     ${{ vars.ENABLE_SENTRY    || 'false' }}
+          enable-datadog:    ${{ vars.ENABLE_DATADOG   || 'false' }}
+          enable-posthog:    ${{ vars.ENABLE_POSTHOG   || 'false' }}
+          enable-langsmith:  ${{ vars.ENABLE_LANGSMITH || 'false' }}
+          enable-axiom:      ${{ vars.ENABLE_AXIOM     || 'false' }}
+          sentry-token:      ${{ secrets.sentry-token }}
+          sentry-org:        ${{ vars.SENTRY_ORG }}
+          sentry-project:    ${{ vars.SENTRY_PROJECT }}
+          datadog-api-key:   ${{ secrets.datadog-api-key }}
+          datadog-site:      ${{ vars.DATADOG_SITE     || 'datadoghq.com' }}
+          posthog-api-key:   ${{ secrets.posthog-api-key }}
+          posthog-host:      ${{ vars.POSTHOG_HOST     || 'app.posthog.com' }}
+          langsmith-api-key: ${{ secrets.langsmith-api-key }}
+          langsmith-project: ${{ vars.LANGSMITH_PROJECT }}
+          axiom-token:       ${{ secrets.axiom-token }}
+          axiom-dataset:     ${{ vars.AXIOM_DATASET }}
 
   notify-deployed:
     name: Notify Deployed

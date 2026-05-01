@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/axiom-event — ingest a deploy event row into Axiom.
+# ─────────────────────────────────────────────────────────────────────────────
+# Axiom ingests NDJSON. This atom emits exactly one line to a dataset of
+# the consumer's choosing, tagging it for downstream queries.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Axiom Event (atom)
+description: Send a deploy event to Axiom.
+
+inputs:
+  token:
+    description: Axiom API token. Empty → skip.
+    required: false
+    default: ""
+  dataset:
+    description: Target dataset name.
+    required: true
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release version.
+    required: true
+  git-sha:
+    description: Git sha.
+    required: true
+  app-name:
+    description: Application identifier.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check token
+      id: check
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -z "$TOKEN" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Axiom Skipped::token not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Send event
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      timeout-minutes: 1
+      env:
+        TOKEN:   ${{ inputs.token }}
+        DATASET: ${{ inputs.dataset }}
+        ENV:     ${{ inputs.environment }}
+        VERSION: ${{ inputs.version }}
+        SHA:     ${{ inputs.git-sha }}
+        APP:     ${{ inputs.app-name }}
+      run: |
+        set -euo pipefail
+        body="$(jq -nc \
+          --arg env "$ENV" \
+          --arg ver "$VERSION" \
+          --arg sha "$SHA" \
+          --arg app "$APP" \
+          '{_time: now | todate, kind: "deploy", environment: $env, version: $ver, git_sha: $sha, app: $app}')"
+        # Axiom ingest expects newline-delimited JSON; one record is fine.
+        curl -sS --max-time 25 -X POST \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-Type: application/x-ndjson" \
+          "https://api.axiom.co/v1/datasets/${DATASET}/ingest" \
+          --data-binary "$body" >/dev/null || {
+            echo "::warning title=Axiom Event::POST failed (continuing)"
+          }
+        echo "::notice title=Axiom Event::version=${VERSION} env=${ENV}"

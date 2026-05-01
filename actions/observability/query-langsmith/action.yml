@@ -1,0 +1,42 @@
+# Skeleton — same contract as query-sentry.
+# Real impl: LangSmith /runs?session=... aggregations: total runs, p95 latency,
+# token cost.
+name: Observability · Query LangSmith
+description: Fetch LLM run statistics from LangSmith.
+
+inputs:
+  api-key:  { required: false, default: "", description: LangSmith API key }
+  endpoint: { required: false, default: "https://api.smith.langchain.com", description: "" }
+  project:  { required: false, default: "", description: LangSmith project name }
+  window-hours: { required: false, default: "24", description: "" }
+
+outputs:
+  data:
+    description: JSON blob.
+    value: ${{ steps.query.outputs.data }}
+
+runs:
+  using: composite
+  steps:
+    - id: query
+      shell: bash
+      timeout-minutes: 2
+      env:
+        KEY:     ${{ inputs.api-key }}
+        URL:     ${{ inputs.endpoint }}
+        PROJECT: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+        emit() {
+          {
+            echo "data<<__OPENCI_EOF__"
+            echo "$1"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+        }
+        if [ -z "$KEY" ] || [ -z "$PROJECT" ]; then
+          emit "$(jq -n '{service: "langsmith", _error: "credentials missing", _partial: true}')"
+          exit 0
+        fi
+        emit "$(jq -n '{service: "langsmith", metrics: {runs: null, p95_latency_ms: null, total_cost_usd: null}, _partial: true, _error: "TODO live query"}')"
+        echo "::warning title=Query LangSmith::placeholder data"

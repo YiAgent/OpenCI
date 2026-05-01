@@ -1,48 +1,61 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# pr/check-coverage — upload coverage to Codecov + soft-enforce a threshold.
+# pr/check-coverage — local coverage gate + Codecov upload.
 # ─────────────────────────────────────────────────────────────────────────────
-# Codecov posts the actual gating PR check; this atom uploads the report and
-# fails the action only if the file is missing (real coverage gating happens
-# on Codecov). `coverage-threshold` is forwarded purely for observability:
-# we annotate the threshold so reviewers see it without leaving GitHub.
+# Two responsibilities:
+#   1. Local gate via compute.sh — reads the coverage report on disk,
+#      computes %, and gates by `mode` (pr=warn, stg/prd=block).
+#   2. Hand-off to Codecov for visibility.
+#
+# Why split? The local gate gives stage-specific thresholds (PR 80% advisory,
+# stg 60% blocking). Codecov tracks long-term trend but cannot apply
+# different thresholds to the same project at different stages.
 # ─────────────────────────────────────────────────────────────────────────────
 name: PR · Check Coverage
-description: Upload coverage report to Codecov.
+description: Compute coverage %, gate by mode, then upload to Codecov.
 
 inputs:
   coverage-file:
-    description: Path to the coverage report (lcov.info | coverage.xml | coverage.json).
+    description: Path to the coverage report (lcov.info | coverage.xml | coverage.out | coverage.json).
     required: true
   flags:
     description: Comma-separated Codecov flag set, e.g. "unit,backend".
     required: false
     default: ""
   coverage-threshold:
-    description: Display-only threshold; gating is configured in codecov.yml.
+    description: Required coverage percentage (0–100).
     required: false
     default: "80"
+  mode:
+    description: pr (warn) | stg (block) | prd (block).
+    required: false
+    default: pr
   codecov-token:
     description: Codecov upload token (private repos require it).
     required: false
     default: ""
 
+outputs:
+  coverage-percent:
+    description: Computed coverage percentage.
+    value: ${{ steps.compute.outputs.coverage-percent }}
+  passed:
+    description: "true | false"
+    value: ${{ steps.compute.outputs.passed }}
+
 runs:
   using: composite
   steps:
-    - name: Verify coverage file exists
+    - name: Compute + gate
+      id: compute
       shell: bash
       env:
-        FILE: ${{ inputs.coverage-file }}
-        THRESHOLD: ${{ inputs.coverage-threshold }}
-      run: |
-        set -euo pipefail
-        if [ ! -f "$FILE" ]; then
-          echo "::error title=Coverage Missing::Expected coverage report at $FILE"
-          exit 1
-        fi
-        echo "::notice title=Coverage Threshold::display=${THRESHOLD}% (real gate lives in codecov.yml)"
+        COVERAGE_FILE: ${{ inputs.coverage-file }}
+        THRESHOLD:     ${{ inputs.coverage-threshold }}
+        MODE:          ${{ inputs.mode }}
+      run: bash "${{ github.action_path }}/compute.sh"
 
     - name: Upload to Codecov
+      if: always() && inputs.codecov-token != ''
       uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4bb7dd5ced  # v5.4.0
       with:
         files: ${{ inputs.coverage-file }}

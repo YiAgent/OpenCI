@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# security/scorecard — OpenSSF Scorecard upload.
+# ─────────────────────────────────────────────────────────────────────────────
+# Uses the verified ossf/scorecard-action SHA. Results go to the OpenSSF
+# public dashboard at https://api.securityscorecards.dev/projects/...
+# ─────────────────────────────────────────────────────────────────────────────
+name: Security · OpenSSF Scorecard
+description: Run OpenSSF Scorecard and upload to its public dashboard.
+
+inputs:
+  publish-results:
+    description: Publish to securityscorecards.dev (requires public repo).
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Run Scorecard
+      uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75b087d84f  # v2.4.0
+      with:
+        results_file:    results.sarif
+        results_format:  sarif
+        publish_results: ${{ inputs.publish-results }}
+
+    - name: Upload SARIF to GitHub
+      uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      if: always()
+      with:
+        sarif_file: results.sarif

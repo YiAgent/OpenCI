@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# security/scan-codeql — CodeQL SAST scan + SARIF upload.
+# ─────────────────────────────────────────────────────────────────────────────
+# Three-step convention: init → autobuild → analyze. CodeQL's actions are
+# all in the same `github/codeql-action` repo (verified SHA in manifest).
+# We use sub-action references: `github/codeql-action/init@<SHA>` etc.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Security · Scan CodeQL
+description: Run CodeQL SAST scan and upload SARIF.
+
+inputs:
+  language:
+    description: CodeQL language (javascript | python | go | java | csharp | cpp | ruby).
+    required: true
+  config-file:
+    description: Optional CodeQL config file path.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Init
+      uses: github/codeql-action/init@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      with:
+        languages: ${{ inputs.language }}
+        config-file: ${{ inputs.config-file }}
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+
+    - name: Analyze
+      uses: github/codeql-action/analyze@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      with:
+        category: "/language:${{ inputs.language }}"

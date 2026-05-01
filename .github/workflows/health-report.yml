@@ -1,0 +1,214 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# health-report.yml — daily synthesised observability digest (SPEC §7.8.2).
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline:
+#   collect (5 query-* in parallel) → merge → synthesise (Claude via the
+#   reusable claude-harness workflow) → publish (issue + Slack).
+#
+# Concurrency: global singleton — schedule + manual + retries don't double
+# up. Each query-* atom returns either real data or {_partial: true} so the
+# downstream merge step never breaks because one SaaS is unreachable.
+#
+# Security: workflow accepts only repo-vars / secrets; no PR fields.
+# ─────────────────────────────────────────────────────────────────────────────
+name: health-report
+
+on:
+  schedule:
+    # Workdays Beijing 09:00 = UTC 01:00.
+    - cron: "0 1 * * 1-5"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: health-report
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Probe secrets
+        env:
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          SENTRY_TOKEN:       ${{ secrets.SENTRY_TOKEN }}
+          DATADOG_API_KEY:    ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY:    ${{ secrets.DATADOG_APP_KEY }}
+          POSTHOG_API_KEY:    ${{ secrets.POSTHOG_API_KEY }}
+          LANGSMITH_API_KEY:  ${{ secrets.LANGSMITH_API_KEY }}
+          AXIOM_TOKEN:        ${{ secrets.AXIOM_TOKEN }}
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "ANTHROPIC_API_KEY" \
+            --optional "SENTRY_TOKEN,DATADOG_API_KEY,DATADOG_APP_KEY,POSTHOG_API_KEY,LANGSMITH_API_KEY,AXIOM_TOKEN,SLACK_WEBHOOK_URL"
+
+  collect:
+    name: Collect (${{ matrix.service }})
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [sentry, datadog, posthog, langsmith, axiom]
+    outputs:
+      sentry:    ${{ steps.run.outputs.sentry }}
+      datadog:   ${{ steps.run.outputs.datadog }}
+      posthog:   ${{ steps.run.outputs.posthog }}
+      langsmith: ${{ steps.run.outputs.langsmith }}
+      axiom:     ${{ steps.run.outputs.axiom }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Query Sentry
+        if: matrix.service == 'sentry'
+        id: q-sentry
+        uses: ./actions/observability/query-sentry
+        with:
+          token:   ${{ secrets.SENTRY_TOKEN }}
+          org:     ${{ vars.SENTRY_ORG }}
+          project: ${{ vars.SENTRY_PROJECT }}
+
+      - name: Query Datadog
+        if: matrix.service == 'datadog'
+        id: q-datadog
+        uses: ./actions/observability/query-datadog
+        with:
+          api-key: ${{ secrets.DATADOG_API_KEY }}
+          app-key: ${{ secrets.DATADOG_APP_KEY }}
+          site:    ${{ vars.DATADOG_SITE || 'datadoghq.com' }}
+
+      - name: Query PostHog
+        if: matrix.service == 'posthog'
+        id: q-posthog
+        uses: ./actions/observability/query-posthog
+        with:
+          api-key:    ${{ secrets.POSTHOG_API_KEY }}
+          project-id: ${{ vars.POSTHOG_PROJECT_ID }}
+          host:       ${{ vars.POSTHOG_HOST || 'app.posthog.com' }}
+
+      - name: Query LangSmith
+        if: matrix.service == 'langsmith'
+        id: q-langsmith
+        uses: ./actions/observability/query-langsmith
+        with:
+          api-key: ${{ secrets.LANGSMITH_API_KEY }}
+          project: ${{ vars.LANGSMITH_PROJECT }}
+
+      - name: Query Axiom
+        if: matrix.service == 'axiom'
+        id: q-axiom
+        uses: ./actions/observability/query-axiom
+        with:
+          token:   ${{ secrets.AXIOM_TOKEN }}
+          dataset: ${{ vars.AXIOM_DATASET }}
+
+      - name: Stash result
+        id: run
+        shell: bash
+        env:
+          SVC:       ${{ matrix.service }}
+          SENTRY:    ${{ steps.q-sentry.outputs.data    }}
+          DATADOG:   ${{ steps.q-datadog.outputs.data   }}
+          POSTHOG:   ${{ steps.q-posthog.outputs.data   }}
+          LANGSMITH: ${{ steps.q-langsmith.outputs.data }}
+          AXIOM:     ${{ steps.q-axiom.outputs.data     }}
+        run: |
+          set -euo pipefail
+          case "$SVC" in
+            sentry)    val="$SENTRY"   ;;
+            datadog)   val="$DATADOG"  ;;
+            posthog)   val="$POSTHOG"  ;;
+            langsmith) val="$LANGSMITH";;
+            axiom)     val="$AXIOM"    ;;
+          esac
+          {
+            echo "${SVC}<<__OPENCI_EOF__"
+            echo "${val:-{}}"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+  merge:
+    name: Merge
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      context: ${{ steps.merge.outputs.context }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - id: merge
+        shell: bash
+        env:
+          SENTRY:    ${{ needs.collect.outputs.sentry    }}
+          DATADOG:   ${{ needs.collect.outputs.datadog   }}
+          POSTHOG:   ${{ needs.collect.outputs.posthog   }}
+          LANGSMITH: ${{ needs.collect.outputs.langsmith }}
+          AXIOM:     ${{ needs.collect.outputs.axiom     }}
+        run: |
+          set -euo pipefail
+          ctx="$(jq -nc \
+            --argjson s "${SENTRY:-{}}" \
+            --argjson d "${DATADOG:-{}}" \
+            --argjson p "${POSTHOG:-{}}" \
+            --argjson l "${LANGSMITH:-{}}" \
+            --argjson a "${AXIOM:-{}}" \
+            '{ sentry: $s, datadog: $d, posthog: $p, langsmith: $l, axiom: $a }')"
+          {
+            echo "context<<__OPENCI_EOF__"
+            echo "$ctx"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+  synthesise:
+    name: Synthesise
+    needs: merge
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/claude-harness.yml
+    with:
+      task:    observability/daily-health-report
+      context: ${{ needs.merge.outputs.context }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  publish:
+    name: Publish
+    needs: synthesise
+    if: always() && needs.synthesise.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/observability/publish-report
+        with:
+          body:              ${{ needs.synthesise.outputs.result }}
+          date:              ${{ github.event.repository.updated_at }}
+          github-token:      ${{ github.token }}
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

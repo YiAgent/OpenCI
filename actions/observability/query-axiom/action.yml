@@ -1,0 +1,39 @@
+# Skeleton — same contract as query-sentry.
+# Real impl: Axiom APL query for top error log fingerprints.
+name: Observability · Query Axiom
+description: Pull top error logs from Axiom.
+
+inputs:
+  token:   { required: false, default: "", description: Axiom API token }
+  dataset: { required: false, default: "", description: Axiom dataset }
+  window-hours: { required: false, default: "24", description: "" }
+
+outputs:
+  data:
+    description: JSON blob.
+    value: ${{ steps.query.outputs.data }}
+
+runs:
+  using: composite
+  steps:
+    - id: query
+      shell: bash
+      timeout-minutes: 2
+      env:
+        TOKEN:   ${{ inputs.token }}
+        DATASET: ${{ inputs.dataset }}
+      run: |
+        set -euo pipefail
+        emit() {
+          {
+            echo "data<<__OPENCI_EOF__"
+            echo "$1"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+        }
+        if [ -z "$TOKEN" ] || [ -z "$DATASET" ]; then
+          emit "$(jq -n '{service: "axiom", _error: "credentials missing", _partial: true}')"
+          exit 0
+        fi
+        emit "$(jq -n '{service: "axiom", logs: [], _partial: true, _error: "TODO live query"}')"
+        echo "::warning title=Query Axiom::placeholder data"

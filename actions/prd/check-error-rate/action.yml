@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/check-error-rate — query Sentry Stats v2, fail if rate > threshold.
+# ─────────────────────────────────────────────────────────────────────────────
+# Implementation split:
+#   • Step 1 fetches both queries (total + errors-only) and stores them in
+#     env-vars for step 2.
+#   • Step 2 (evaluate.sh) does the math + emit decision. Splitting lets us
+#     unit-test the math in isolation with bats fixtures.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Check Error Rate
+description: Block prd deploys when staging error rate exceeds threshold.
+
+inputs:
+  sentry-token:
+    description: Sentry auth token (Bearer).
+    required: true
+  sentry-org:
+    description: Sentry organisation slug.
+    required: true
+  sentry-project:
+    description: Sentry project slug.
+    required: true
+  environment:
+    description: Sentry environment to query (default `staging`).
+    required: false
+    default: staging
+  window-minutes:
+    description: How far back to query (minutes).
+    required: false
+    default: "30"
+  baseline-error-rate:
+    description: Baseline error rate (e.g. "0.005" = 0.5%).
+    required: false
+    default: "0.005"
+  threshold-multiplier:
+    description: real threshold = baseline * multiplier
+    required: false
+    default: "2.0"
+  min-events:
+    description: Skip the gate when total events < this number.
+    required: false
+    default: "100"
+
+outputs:
+  error-rate:
+    description: Computed error rate.
+    value: ${{ steps.evaluate.outputs.error-rate }}
+  total-events:
+    description: Total accepted events in the window.
+    value: ${{ steps.evaluate.outputs.total-events }}
+  passed:
+    description: "true | false"
+    value: ${{ steps.evaluate.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Query Sentry stats
+      id: query
+      shell: bash
+      env:
+        TOKEN:    ${{ inputs.sentry-token }}
+        ORG:      ${{ inputs.sentry-org }}
+        PROJECT:  ${{ inputs.sentry-project }}
+        ENV_NAME: ${{ inputs.environment }}
+        WINDOW:   ${{ inputs.window-minutes }}
+      run: |
+        set -euo pipefail
+        end_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        # GNU date / BSD date split — same trick as observe-window/check.sh.
+        if start_ts="$(date -u -v "-${WINDOW}M" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then :;
+        else start_ts="$(date -u -d "-${WINDOW} minutes" +%Y-%m-%dT%H:%M:%SZ)"; fi
+
+        endpoint="https://sentry.io/api/0/organizations/${ORG}/stats_v2/"
+        common="field=sum(quantity)&groupBy=outcome&project=${PROJECT}&environment=${ENV_NAME}&start=${start_ts}&end=${end_ts}&interval=1m"
+
+        total="$(curl -sS --max-time 30 -H "Authorization: Bearer ${TOKEN}" \
+          "${endpoint}?${common}")"
+        errors="$(curl -sS --max-time 30 -H "Authorization: Bearer ${TOKEN}" \
+          "${endpoint}?${common}&category=error")"
+
+        # Forward via env-var multiline output guard.
+        {
+          echo "total<<__OPENCI_EOF__"
+          echo "$total"
+          echo "__OPENCI_EOF__"
+          echo "errors<<__OPENCI_EOF__"
+          echo "$errors"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Evaluate threshold
+      id: evaluate
+      shell: bash
+      env:
+        STATS_TOTAL_JSON:     ${{ steps.query.outputs.total }}
+        STATS_ERROR_JSON:     ${{ steps.query.outputs.errors }}
+        BASELINE_ERROR_RATE:  ${{ inputs.baseline-error-rate }}
+        THRESHOLD_MULTIPLIER: ${{ inputs.threshold-multiplier }}
+        MIN_EVENTS:           ${{ inputs.min-events }}
+      run: bash "${{ github.action_path }}/evaluate.sh"

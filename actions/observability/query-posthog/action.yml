@@ -1,0 +1,41 @@
+# Skeleton — same contract as query-sentry.
+# Real impl: PostHog HogQL (DAU + key conversion funnel).
+name: Observability · Query PostHog
+description: Fetch DAU + funnel metrics from PostHog.
+
+inputs:
+  api-key:    { required: false, default: "", description: PostHog personal API key }
+  project-id: { required: false, default: "", description: PostHog project id }
+  host:       { required: false, default: "app.posthog.com", description: "" }
+  window-hours: { required: false, default: "24", description: "" }
+
+outputs:
+  data:
+    description: JSON blob.
+    value: ${{ steps.query.outputs.data }}
+
+runs:
+  using: composite
+  steps:
+    - id: query
+      shell: bash
+      timeout-minutes: 2
+      env:
+        KEY:        ${{ inputs.api-key }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        HOST:       ${{ inputs.host }}
+      run: |
+        set -euo pipefail
+        emit() {
+          {
+            echo "data<<__OPENCI_EOF__"
+            echo "$1"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+        }
+        if [ -z "$KEY" ] || [ -z "$PROJECT_ID" ]; then
+          emit "$(jq -n '{service: "posthog", _error: "credentials missing", _partial: true}')"
+          exit 0
+        fi
+        emit "$(jq -n '{service: "posthog", metrics: {dau: null, funnel: null}, _partial: true, _error: "TODO live query"}')"
+        echo "::warning title=Query PostHog::placeholder data"

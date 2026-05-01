@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# security/generate-sbom — Trivy SBOM (SPDX-JSON) artifact.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton (trivy-action SHA pending). Output is uploaded as a
+# workflow artifact so consumers can attach it to releases or feed it into
+# their SBOM-tracking tool of choice.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Security · Generate SBOM
+description: Produce an SPDX SBOM and upload as artifact.
+
+inputs:
+  image-ref:
+    description: Image reference. When empty, generates a filesystem SBOM of the repo.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: TODO — invoke Trivy SBOM
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: |
+        echo "::warning title=generate-sbom skeleton::Trivy SBOM step not yet wired up; SHA pending verification (manifest-pending.yml: aquasecurity/trivy-action)."
+        # When verified, two flavours:
+        #   image-ref non-empty:
+        #     trivy image --format spdx-json --output sbom.spdx.json "$IMAGE_REF"
+        #   else:
+        #     trivy fs --format spdx-json --output sbom.spdx.json .
+        echo '{"placeholder": true}' > sbom.spdx.json
+
+    - name: Upload SBOM artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: sbom-spdx-json
+        path: sbom.spdx.json
+        if-no-files-found: warn
+        retention-days: 90

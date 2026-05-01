@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/datadog-event — POST a deploy marker to Datadog Events API.
+# ─────────────────────────────────────────────────────────────────────────────
+# Datadog Events show up in the Event Stream and in dashboards as overlay
+# markers, which lets you correlate a deploy with metric changes at-a-glance.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Datadog Event (atom)
+description: Send a deploy event to Datadog.
+
+inputs:
+  api-key:
+    description: Datadog API key. Empty → skip.
+    required: false
+    default: ""
+  site:
+    description: Datadog site (us1.datadoghq.com | us3.datadoghq.com | datadoghq.eu | ...).
+    required: false
+    default: datadoghq.com
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release version.
+    required: true
+  git-sha:
+    description: Git sha.
+    required: true
+  app-name:
+    description: Application identifier.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check api key
+      id: check
+      shell: bash
+      env:
+        KEY: ${{ inputs.api-key }}
+      run: |
+        if [ -z "$KEY" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Datadog Skipped::api-key not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Send event
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      timeout-minutes: 1
+      env:
+        KEY:     ${{ inputs.api-key }}
+        SITE:    ${{ inputs.site }}
+        ENV:     ${{ inputs.environment }}
+        VERSION: ${{ inputs.version }}
+        SHA:     ${{ inputs.git-sha }}
+        APP:     ${{ inputs.app-name }}
+      run: |
+        set -euo pipefail
+        body="$(jq -n \
+          --arg title "Deploy ${APP} ${VERSION} → ${ENV}" \
+          --arg text  "git sha: ${SHA}" \
+          --arg env   "env:${ENV}" \
+          --arg ver   "version:${VERSION}" \
+          --arg app   "app:${APP}" \
+          '{title: $title, text: $text, alert_type: "info", source_type_name: "github", tags: [$env, $ver, $app]}')"
+        curl -sS --max-time 25 -X POST \
+          -H "DD-API-KEY: ${KEY}" \
+          -H "Content-Type: application/json" \
+          "https://api.${SITE}/api/v1/events" \
+          -d "$body" >/dev/null || {
+            echo "::warning title=Datadog Event::POST failed (continuing)"
+          }
+        echo "::notice title=Datadog Event::version=${VERSION} env=${ENV}"

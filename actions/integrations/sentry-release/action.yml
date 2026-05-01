@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/sentry-release — annotate a Sentry release for the deploy.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — getsentry/action-release SHA is in manifest-pending.yml.
+# Until verified we shell out to a stub that calls the Sentry API directly
+# via curl. The downstream contract (release name, deploy event) matches
+# what the official action would produce.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Sentry Release (atom)
+description: Create / finalize a Sentry release + deploy event.
+
+inputs:
+  sentry-token:
+    description: Sentry auth token. Empty → graceful skip.
+    required: false
+    default: ""
+  sentry-org:
+    description: Sentry org slug.
+    required: true
+  sentry-project:
+    description: Sentry project slug.
+    required: true
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release name (typically the immutable tag :sha-xxxxxxx).
+    required: true
+  git-sha:
+    description: Full git sha for the release.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check token
+      id: check
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.sentry-token }}
+      run: |
+        if [ -z "$TOKEN" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Sentry Release Skipped::sentry-token not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Send release + deploy
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      timeout-minutes: 1
+      env:
+        TOKEN:    ${{ inputs.sentry-token }}
+        ORG:      ${{ inputs.sentry-org }}
+        PROJECT:  ${{ inputs.sentry-project }}
+        ENV:      ${{ inputs.environment }}
+        VERSION:  ${{ inputs.version }}
+        GIT_SHA:  ${{ inputs.git-sha }}
+      run: |
+        set -euo pipefail
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::warning title=Sentry Release::jq missing, cannot build payload"
+          exit 0
+        fi
+        # Create the release (idempotent — Sentry returns 208 on duplicate).
+        body="$(jq -n \
+          --arg version "$VERSION" \
+          --arg sha "$GIT_SHA" \
+          --arg env "$ENV" \
+          '{version: $version, projects: [], refs: [{repository: "github", commit: $sha}]}')"
+        curl -sS --max-time 25 -X POST \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-Type: application/json" \
+          "https://sentry.io/api/0/organizations/${ORG}/releases/" \
+          -d "$body" >/dev/null || {
+            echo "::warning title=Sentry Release::release create failed (continuing)"
+          }
+        # Mark the deploy event.
+        deploy_body="$(jq -n --arg env "$ENV" '{environment: $env}')"
+        curl -sS --max-time 25 -X POST \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-Type: application/json" \
+          "https://sentry.io/api/0/organizations/${ORG}/releases/${VERSION}/deploys/" \
+          -d "$deploy_body" >/dev/null || {
+            echo "::warning title=Sentry Deploy::deploy event failed (continuing)"
+          }
+        echo "::notice title=Sentry Release::version=$VERSION env=$ENV"

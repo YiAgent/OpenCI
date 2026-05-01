@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# integrations/langsmith-tag — annotate LangSmith with a deploy marker.
+# ─────────────────────────────────────────────────────────────────────────────
+# LangSmith doesn't have a first-class "deploy event" API, so we use Tags +
+# a synthetic run record. AI ops teams correlate trace volume / latency
+# against deploy timestamps via these tags.
+# ─────────────────────────────────────────────────────────────────────────────
+name: LangSmith Tag (atom)
+description: Send a deploy tag to LangSmith.
+
+inputs:
+  api-key:
+    description: LangSmith API key. Empty → skip.
+    required: false
+    default: ""
+  endpoint:
+    description: LangSmith API base URL.
+    required: false
+    default: https://api.smith.langchain.com
+  project:
+    description: LangSmith project name.
+    required: true
+  environment:
+    description: dev | stg | prd
+    required: true
+  version:
+    description: Release version.
+    required: true
+  git-sha:
+    description: Git sha.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check api key
+      id: check
+      shell: bash
+      env:
+        KEY: ${{ inputs.api-key }}
+      run: |
+        if [ -z "$KEY" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=LangSmith Skipped::api-key not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Send tag
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      timeout-minutes: 1
+      env:
+        KEY:     ${{ inputs.api-key }}
+        URL:     ${{ inputs.endpoint }}
+        PROJECT: ${{ inputs.project }}
+        ENV:     ${{ inputs.environment }}
+        VERSION: ${{ inputs.version }}
+        SHA:     ${{ inputs.git-sha }}
+      run: |
+        set -euo pipefail
+        body="$(jq -n \
+          --arg name "deploy:${VERSION}" \
+          --arg project "$PROJECT" \
+          --arg env "$ENV" \
+          --arg ver "$VERSION" \
+          --arg sha "$SHA" \
+          '{
+             name: $name,
+             session_name: $project,
+             run_type: "tool",
+             extra: { metadata: { environment: $env, version: $ver, git_sha: $sha, kind: "deploy-marker" } }
+           }')"
+        curl -sS --max-time 25 -X POST \
+          -H "x-api-key: ${KEY}" \
+          -H "Content-Type: application/json" \
+          "${URL}/runs" \
+          -d "$body" >/dev/null || {
+            echo "::warning title=LangSmith Tag::POST failed (continuing)"
+          }
+        echo "::notice title=LangSmith Tag::version=${VERSION} env=${ENV}"
