@@ -1,15 +1,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # claude-harness.yml — reusable workflow form of the AI single-entry contract.
 # ─────────────────────────────────────────────────────────────────────────────
-# Use this when an entire job is "call Claude". For step-level embedding
-# inside another atom, use actions/_common/claude-harness/action.yml instead.
+# DESIGN GOAL: OpenCI is the single pre-configured entrypoint into Claude.
+# Callers only need to supply task + prompt/prompt-path + api-key.
+# All MCP servers, CI permissions, tool whitelists, and Slack env are
+# pre-configured here so every downstream service shares the same setup.
 #
 # Inputs / secrets / outputs MUST stay byte-identical to the composite — a
-# caller should be able to swap one for the other without changing wiring.
-#
-# Security: `context` is forwarded as `prompt_inputs` (JSON string) to
-# claude-code-action. We never interpolate it into shell, so the consumer is
-# responsible for sanitising any GitHub event data they put into it.
+# caller can swap one for the other without changing wiring.
 # ─────────────────────────────────────────────────────────────────────────────
 name: claude-harness
 
@@ -19,7 +17,13 @@ on:
       task:
         type: string
         required: true
+      prompt:
+        description: "Direct prompt text or slash command (e.g. /heartbeat). Takes precedence over prompt-path."
+        type: string
+        required: false
+        default: ""
       prompt-path:
+        description: "Path to prompt file (relative to caller repo). Falls back to built-in prompts/<task>.md."
         type: string
         required: false
         default: ""
@@ -35,9 +39,29 @@ on:
         type: number
         required: false
         default: 10
+      api-provider:
+        description: "API provider: anthropic (default). Reserved for future multi-provider support."
+        type: string
+        required: false
+        default: "anthropic"
+      timeout-minutes:
+        description: "Job timeout in minutes."
+        type: number
+        required: false
+        default: 15
     secrets:
-      anthropic-api-key:
+      api-key:
+        description: "Anthropic API key."
         required: true
+      api-base-url:
+        description: "Custom Anthropic API base URL (optional)."
+        required: false
+      github-token:
+        description: "GitHub token for MCP tool access and CI data queries. Defaults to GITHUB_TOKEN."
+        required: false
+      slack-webhook:
+        description: "Slack webhook URL available to Claude as SLACK_WEBHOOK_URL env var."
+        required: false
     outputs:
       result:
         description: AI output text.
@@ -72,18 +96,19 @@ jobs:
 
       - name: Check required secrets
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
-        run: bash .github/scripts/preflight-secrets.sh --required "ANTHROPIC_API_KEY" --optional ""
+          API_KEY: ${{ secrets.api-key }}
+        run: bash .github/scripts/preflight-secrets.sh --required "API_KEY" --optional ""
 
   ai-task:
     name: AI Task
     needs: preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
-      contents: read
-      pull-requests: write
-      issues: write
+      contents: write        # Claude can git commit memory updates
+      pull-requests: write   # Sticky comments on PRs
+      issues: write          # Claude can create/update GitHub Issues
+      actions: read          # Claude can query workflow runs & job logs (CI triage)
       id-token: write
     outputs:
       result:     ${{ steps.harness.outputs.result }}
@@ -98,14 +123,19 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           persist-credentials: false
+          token: ${{ secrets.github-token || github.token }}
 
       - name: Run claude-harness composite
         id: harness
         uses: ./actions/_common/claude-harness
         with:
-          task:               ${{ inputs.task }}
-          prompt-path:        ${{ inputs.prompt-path }}
-          context:            ${{ inputs.context }}
-          model:              ${{ inputs.model }}
-          max-turns:          ${{ inputs.max-turns }}
-          anthropic-api-key:  ${{ secrets.anthropic-api-key }}
+          task:           ${{ inputs.task }}
+          prompt:         ${{ inputs.prompt }}
+          prompt-path:    ${{ inputs.prompt-path }}
+          context:        ${{ inputs.context }}
+          model:          ${{ inputs.model }}
+          max-turns:      ${{ inputs.max-turns }}
+          api-key:        ${{ secrets.api-key }}
+          api-base-url:   ${{ secrets.api-base-url }}
+          github-token:   ${{ secrets.github-token || github.token }}
+          slack-webhook:  ${{ secrets.slack-webhook }}

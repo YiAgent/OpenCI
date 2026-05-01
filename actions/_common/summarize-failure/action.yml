@@ -61,7 +61,8 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               ops/summarize-failure
-        context:            ${{ steps.fetch.outputs.context }}
-        max-turns:          "3"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          ops/summarize-failure
+        context:       ${{ steps.fetch.outputs.context }}
+        max-turns:     "3"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}

@@ -43,10 +43,11 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               agents/docubot
-        context:            ${{ steps.ctx.outputs.context }}
-        max-turns:          "5"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          agents/docubot
+        context:       ${{ steps.ctx.outputs.context }}
+        max-turns:     "5"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: Post reply
       shell: bash

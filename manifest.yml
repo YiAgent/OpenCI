@@ -56,7 +56,7 @@ deps:
   codecov/codecov-action:                 "1e68e06f1dbfde0e4cefc87efeba9e4bb7dd5ced"  # v5.4.0
 
   # ── AI / Eval (verified) ───────────────────────────────────────────────
-  anthropics/claude-code-action:          "a4d5fe83c90d37e4f2fcbab2a0bf04e9c01e8ecf"  # v1.0.0
+  anthropics/claude-code-action:          "12310e4417c3473095c957cb311b3cf59a38d659"  # v1.0.99
   promptfoo/promptfoo-action:             "8e12b04e93d24ea43d7694d8f27dd86e7abd5a72"  # v1.0.0
 
   # ── Release (verified) ─────────────────────────────────────────────────

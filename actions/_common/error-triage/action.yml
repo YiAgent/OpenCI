@@ -61,10 +61,11 @@ runs:
       if: steps.gate.outputs.skip != 'true'
       uses: ./actions/_common/claude-harness
       with:
-        task:              ops/error-triage
-        context:           ${{ steps.fetch.outputs.context }}
-        max-turns:         "5"
-        anthropic-api-key: ${{ inputs.anthropic-api-key }}
+        task:          ops/error-triage
+        context:       ${{ steps.fetch.outputs.context }}
+        max-turns:     "5"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: Apply decisions
       if: steps.gate.outputs.skip != 'true'

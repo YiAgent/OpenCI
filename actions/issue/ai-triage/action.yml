@@ -44,9 +44,10 @@ runs:
       id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               issue/triage
-        context:            ${{ steps.ctx.outputs.context }}
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          issue/triage
+        context:       ${{ steps.ctx.outputs.context }}
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: Apply triage decision
       shell: bash

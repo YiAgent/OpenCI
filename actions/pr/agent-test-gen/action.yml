@@ -56,10 +56,11 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               pr/test-gen
-        context:            ${{ steps.ctx.outputs.context }}
-        max-turns:          "8"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          pr/test-gen
+        context:       ${{ steps.ctx.outputs.context }}
+        max-turns:     "8"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: Stage generated files (no auto-commit)
       shell: bash

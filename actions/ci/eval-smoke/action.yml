@@ -53,6 +53,6 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               ci/smoke-eval
-        context:            ${{ steps.ctx.outputs.context }}
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:     ci/smoke-eval
+        context:  ${{ steps.ctx.outputs.context }}
+        api-key:  ${{ inputs.anthropic-api-key }}

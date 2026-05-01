@@ -40,10 +40,10 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               stg/agent-test
-        context:            ${{ steps.ctx.outputs.context }}
-        max-turns:          "10"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:      stg/agent-test
+        context:   ${{ steps.ctx.outputs.context }}
+        max-turns: "10"
+        api-key:   ${{ inputs.anthropic-api-key }}
 
     - name: Stage findings
       shell: bash

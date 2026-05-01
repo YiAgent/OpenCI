@@ -86,10 +86,11 @@ runs:
       if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
       uses: ./actions/_common/claude-harness
       with:
-        task:               agents/ai-changelog
-        context:            ${{ steps.log.outputs.context }}
-        max-turns:          "5"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          agents/ai-changelog
+        context:       ${{ steps.log.outputs.context }}
+        max-turns:     "5"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: Create release
       if: steps.skip.outputs.skip != 'true'

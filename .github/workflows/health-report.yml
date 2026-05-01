@@ -190,7 +190,8 @@ jobs:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
     secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-key:       ${{ secrets.ANTHROPIC_API_KEY }}
+      slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   publish:
     name: Publish

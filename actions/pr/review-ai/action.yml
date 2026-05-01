@@ -54,9 +54,9 @@ runs:
     - name: Invoke claude-harness composite
       uses: ./actions/_common/claude-harness
       with:
-        task:               pr/review
-        prompt-path:        ${{ inputs.prompt-path }}
-        context:            ${{ steps.ctx.outputs.context }}
-        model:              ${{ inputs.model }}
-        max-turns:          ${{ inputs.max-turns }}
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:         pr/review
+        prompt-path:  ${{ inputs.prompt-path }}
+        context:      ${{ steps.ctx.outputs.context }}
+        model:        ${{ inputs.model }}
+        max-turns:    ${{ inputs.max-turns }}
+        api-key:      ${{ inputs.anthropic-api-key }}

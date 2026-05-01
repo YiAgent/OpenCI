@@ -58,10 +58,11 @@ runs:
     - id: harness
       uses: ./actions/_common/claude-harness
       with:
-        task:               ops/flag-audit
-        context:            ${{ steps.ctx.outputs.context }}
-        max-turns:          "5"
-        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+        task:          ops/flag-audit
+        context:       ${{ steps.ctx.outputs.context }}
+        max-turns:     "5"
+        api-key:       ${{ inputs.anthropic-api-key }}
+        github-token:  ${{ inputs.github-token }}
 
     - name: File audit issue
       shell: bash

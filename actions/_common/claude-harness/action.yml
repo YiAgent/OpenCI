@@ -1,33 +1,35 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # _common/claude-harness — composite wrapper around anthropics/claude-code-action.
 # ─────────────────────────────────────────────────────────────────────────────
-# This composite is the SINGLE entrypoint into Claude. Use cases:
-#   • Embedded inside an atom (e.g. actions/pr/review-ai) → use this composite.
-#   • Owns a whole job (e.g. health-report.synthesize) → use the sister
-#     reusable workflow .github/workflows/claude-harness.yml instead.
+# DESIGN GOAL: OpenCI is the single pre-configured entrypoint into Claude for
+# all downstream services. Callers (e.g. EvolveCI, OpenCI own workflows) only
+# need to supply: task, prompt/prompt-path, model, api-key, and optional
+# github-token / slack-webhook. Everything else — MCP servers, tool
+# permissions, CI data access, Slack env — is configured here.
 #
-# Both the reusable workflow and this composite share the same input/output
-# contract (see SPEC §5.1):
-#   inputs : task, prompt-path, context, model, max-turns, anthropic-api-key
-#   outputs: result, comment-id
-#
-# Sticky-comment marker: every invocation tags the comment with
-# `<!-- openCI:claude-harness:{task} -->` so claude-code-action updates the
-# same comment instead of stacking new ones across re-runs.
+# Prompt resolution priority:
+#   1. `prompt` input — direct text or /slash-command (resolved to a temp file)
+#      /slash-command → reads .claude/commands/<cmd>.md from the caller's repo
+#   2. `prompt-path` — file path relative to caller's checkout
+#   3. Built-in prompts/<task>.md shipped with OpenCI
 # ─────────────────────────────────────────────────────────────────────────────
 name: Claude Harness (composite)
-description: Single entrypoint composite for Claude calls.
+description: Single pre-configured entrypoint composite for Claude calls.
 
 inputs:
   task:
-    description: Logical task name; controls default prompt and sticky-comment scope.
+    description: Logical task name; controls prompt resolution and sticky-comment scope.
     required: true
+  prompt:
+    description: Direct prompt text or slash command (e.g. /heartbeat). Takes precedence over prompt-path.
+    required: false
+    default: ""
   prompt-path:
-    description: Caller-supplied prompt path (relative to consumer repo). Empty falls back to built-in prompts/<task>.md.
+    description: Caller-supplied prompt path (relative to consumer repo). Falls back to built-in prompts/<task>.md.
     required: false
     default: ""
   context:
-    description: JSON-encoded variables interpolated into the prompt template.
+    description: JSON-encoded variables injected into the prompt template.
     required: false
     default: "{}"
   model:
@@ -38,9 +40,21 @@ inputs:
     description: Maximum agent turns.
     required: false
     default: "10"
-  anthropic-api-key:
-    description: ANTHROPIC_API_KEY (passed via with: from caller — composites cannot read secrets directly).
+  api-key:
+    description: Anthropic API key.
     required: true
+  api-base-url:
+    description: Custom Anthropic API base URL (optional).
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token for MCP tool access and CI data queries.
+    required: false
+    default: ""
+  slack-webhook:
+    description: Slack webhook URL available to Claude via SLACK_WEBHOOK_URL env var.
+    required: false
+    default: ""
 
 outputs:
   result:
@@ -50,7 +64,7 @@ outputs:
     description: Sticky PR/Issue comment id.
     value: ${{ steps.invoke.outputs.comment-id }}
   prompt-source:
-    description: Where the prompt came from — "caller" or "builtin".
+    description: Where the prompt came from — "direct", "slash-command", "caller", or "builtin".
     value: ${{ steps.resolve.outputs.prompt-source }}
 
 runs:
@@ -62,6 +76,7 @@ runs:
       run: |
         bash "${{ github.action_path }}/resolve-prompt.sh" \
           "${{ inputs.task }}" \
+          "${{ inputs.prompt }}" \
           "${{ inputs.prompt-path }}" \
           "${{ github.action_path }}"
 
@@ -74,15 +89,76 @@ runs:
       run: |
         echo "::notice title=AI Task::task=$TASK model=$MODEL turns=$MAX_TURNS"
 
-    # NOTE: we pin via the manifest. Bumping the SHA must also update manifest.yml.
+    # ─── claude-code-action v1.0.99 ──────────────────────────────────────────
+    # Pre-configured for all OpenCI use cases:
+    #   • GitHub MCP:       built-in via github_token (repo, issues, PRs)
+    #   • CI/CD data:       additional_permissions: actions: read
+    #   • Git commit:       Bash(git add), Bash(git commit), Bash(git push)
+    #   • Slack notify:     Bash(curl) + SLACK_WEBHOOK_URL env var
+    #   • File ops:         Read, Edit, Write, Glob, Grep (default)
+    #   • Sticky comments:  use_sticky_comment for PR/Issue dedup
+    #
+    # Callers should NOT need to override claude_args or settings —
+    # adjust them here when new capabilities are required project-wide.
+    # ─────────────────────────────────────────────────────────────────────────
     - name: Run claude-code-action
       id: invoke
-      uses: anthropics/claude-code-action@a4d5fe83c90d37e4f2fcbab2a0bf04e9c01e8ecf  # v1.0.0
+      uses: anthropics/claude-code-action@12310e4417c3473095c957cb311b3cf59a38d659  # v1.0.99
+      env:
+        SLACK_WEBHOOK_URL:  ${{ inputs.slack-webhook }}
+        ANTHROPIC_BASE_URL: ${{ inputs.api-base-url }}
       with:
-        prompt_file:        ${{ steps.resolve.outputs.resolved-prompt }}
+        prompt_file:        ${{ steps.resolve.outputs.resolved-prompt-file }}
         prompt_inputs:      ${{ inputs.context }}
-        model:              ${{ inputs.model }}
-        max_turns:          ${{ inputs.max-turns }}
-        use_sticky_comment: "true"
-        sticky_comment_marker: "openCI:claude-harness:${{ inputs.task }}"
-        anthropic_api_key:  ${{ inputs.anthropic-api-key }}
+        anthropic_api_key:  ${{ inputs.api-key }}
+        github_token:       ${{ inputs.github-token }}
+
+        # ── Model & turn limits ───────────────────────────────────────────────
+        claude_args: |
+          --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max-turns }}
+          --allowedTools "Bash(git add),Bash(git commit),Bash(git push origin),Bash(git status),Bash(git log),Bash(curl -s),Bash(curl -X),Bash(jq),Bash(ls),Bash(cat),Bash(date),Bash(mkdir),Bash(cp),Bash(mv),Bash(find)"
+
+        # ── CI/CD access — lets Claude query workflow runs & job logs ─────────
+        additional_permissions: |
+          actions: read
+
+        # ── Claude Code Settings ──────────────────────────────────────────────
+        # env: make Slack webhook available inside Claude's bash tool context.
+        # permissions: explicit allowlist matches the allowedTools above.
+        settings: |
+          {
+            "env": {
+              "SLACK_WEBHOOK_URL": "${{ inputs.slack-webhook }}",
+              "ANTHROPIC_BASE_URL": "${{ inputs.api-base-url }}"
+            },
+            "permissions": {
+              "allow": [
+                "Bash(git add)",
+                "Bash(git commit)",
+                "Bash(git push origin)",
+                "Bash(git status)",
+                "Bash(git log)",
+                "Bash(curl -s)",
+                "Bash(curl -X)",
+                "Bash(jq)",
+                "Bash(ls)",
+                "Bash(cat)",
+                "Bash(date)",
+                "Bash(mkdir)",
+                "Bash(cp)",
+                "Bash(mv)",
+                "Bash(find)",
+                "Read",
+                "Edit",
+                "Write",
+                "Glob",
+                "Grep"
+              ],
+              "deny": []
+            }
+          }
+
+        # ── Sticky comments — deduplicate across re-runs ───────────────────────
+        use_sticky_comment:     "true"
+        sticky_comment_marker:  "openCI:claude-harness:${{ inputs.task }}"
