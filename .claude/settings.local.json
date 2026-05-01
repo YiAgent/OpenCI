@@ -24,7 +24,9 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('full_name','N/A'\\), d.get\\('description','N/A'\\), d.get\\('html_url','N/A'\\)\\)\")",
       "Bash(curl -s \"https://api.github.com/repos/gitleaks/gitleaks-action/releases/latest\")",
       "Bash(curl -s https://api.github.com/repos/super-linter/super-linter)",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api *)"
     ]
   }
 }

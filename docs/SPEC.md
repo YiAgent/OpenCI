@@ -1,6 +1,6 @@
 # OpenCI 共享工作流库 — 设计规格文档
 
-**版本**：v1.3
+**版本**：v1.4
 **用途**：可直接交给 Claude Code 实施的完整设计规格
 **仓库定位**：公开 GitHub 仓库，供自己多个项目及外部项目通过 `uses:` 引用
 
@@ -10,6 +10,7 @@
 
 | 版本 | 变更内容 |
 |------|---------|
+| v1.4 | Aicert 对比分析：新增十六章（29 项差距），涵盖架构(workflow_run 聚合/concurrency/ops 工作流)、安全(graceful-skip/secrets preflight)、部署(回滚/canary/tag 触发)、可观测性(多源健康报告/deployment markers)、开发体验(lefthook/PR templates/dependabot auto-merge)、AI Agent 增强(6 项) |
 | v1.3 | Action Marketplace 升级审计：补全 manifest.yml 缺失 action；新增 dependency-review-action、trivy-action、semantic-pull-request、paths-filter；linter 升级为 MegaLinter 多语言统一方案；淘汰 semgrep-action/vercel-action；新增六(Issue 管理体系)、七(外部服务集成:Sentry/SonarCloud/PostHog/Slack/Snyk/Linear)、十一(MegaLinter)、十二(容器安全扫描)章节；pr.yml 扩展 SonarCloud + PR 描述校验；prd.yml 扩展 Sentry release + PostHog 事件 + check-error-rate |
 | v1.2 | 合并 v1.0 简洁哲学与 v1.1 实施细节；原则部分回归 prose-first 表达；保留全部 v1.1 实施规格、manifest、pre-check、附录 |
 | v1.1 | 新增 Action Manifest 注册表；语言检测单一来源；市场服务深度集成（Codecov / CodeQL / harden-runner）；STG→PRD 强化 pre-check（版本对齐 + 观察窗口）；可观测性 annotation 规范 |
@@ -1650,6 +1651,240 @@ jobs:
 
 ---
 
+## 十六、Aicert CI/CD 对比分析(v1.4 新增)
+
+本章基于 [aicert](https://github.com/YiAgent/aicert) 仓库的 `CI-CD-FLOW-MAP.md` 和 `CICD_PIPELINE_DESIGN.md` 设计文档,逐项对比 OpenCI 当前能力,列出可补充或升级的功能差距。每项标注优先级(P0 立即补充/P1 高价值扩展/P2 按需引入)。
+
+### 16.1 架构层差距
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Issue→Branch 自动化 | `pr-branch-from-issue.yml` 由 Linear webhook `repository_dispatch` 触发,自动创建 `feat/aic-NNN-slug` 分支并回写 Linear 评论 | 无此流程 | 开发者不用手动建分支,issue 状态驱动分支创建 | P2 |
+| 2 | workflow_run 跨工作流聚合 | `pr-agent-summary` 订阅 8 个 workflow 的 `workflow_run` 完成事件 + 外部 App 的 `check_suite`,upsert 单条带 `<!-- pr-summary-bot -->` marker 的滚动评论 | 各 workflow 独立报告,无聚合机制 | PR 上只有一条汇总评论,不刷屏;开发者一眼看到所有检查结果 | P1 |
+| 3 | Concurrency Groups 完整策略 | 每个 workflow 定义 `concurrency.group` + `cancel-in-progress` 策略:PR 类=cancel(yes),deploy/ops 类=no(避免中断部署) | 未定义 concurrency 策略 | 避免同一 PR 多次 push 产生重复 run 浪费 runner 分钟 | P0 |
+| 4 | Ops 运维工作流 | `ops-flag-audit`(周一 15:00)、`ops-health-report`(每日 09:00)、`ops-agent-triage`(每小时)三个 cron 工作流持续监控 | 无 ops 层工作流 | 持续监控生产环境健康、自动分诊错误、审计 feature flag | P1 |
+| 5 | Agent 反馈闭环 | `pr-agent-feedback` 识别 PR 作者是 `copilot-swe-agent[bot]` 或分支名 `codex/` 前缀 → CI 失败时自动 @-mention agent 附失败日志让其修复 | 无 agent 识别和自动修复 | AI agent 开的 PR 能自愈,减少人工干预 | P2 |
+
+#### 16.1.1 Concurrency Groups 规格参考
+
+```yaml
+# PR 类 workflow: 同一 PR 新 push 取消旧 run
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Deploy 类 workflow: 不取消,避免中断正在进行的部署
+concurrency:
+  group: deploy-stg-${{ github.ref }}
+  cancel-in-progress: false
+
+# Ops 类 workflow: 不取消,确保每次 cron 都执行
+concurrency:
+  group: error-triage
+  cancel-in-progress: false
+```
+
+#### 16.1.2 workflow_run 聚合规格参考
+
+```yaml
+on:
+  workflow_run:
+    workflows:
+      - "PR: Verify"
+      - "PR: Security Scan"
+      - "PR: Code Quality"
+      - "PR: Build Check"
+      - "Stg: Deploy"
+      - "Prd: Deploy"
+    types: [completed]
+  check_suite:
+    types: [completed]
+```
+
+聚合逻辑:poll 直到所有 check settle(10 分钟上限),构建综合摘要,upsert 单条滚动评论。
+
+### 16.2 安全与质量门禁
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 6 | Secrets Preflight | `preflight-secrets.sh` → `preflight-secrets.py` 在每个 workflow 开头 live-probe 所有必需 secret,缺失则快速 fail | 无预检机制 | 缺 secret 时快速 fail,不浪费 runner 时间跑一半才发现 | P0 |
+| 7 | graceful-skip 模式 | 7 个安全扫描器全部支持 token 缺席 → exit 0,PR 不被无关原因阻塞 | 未定义 graceful-skip | 新环境没配好 GITGUARDIAN_API_KEY/SNYK_TOKEN 时 PR 不卡住 | P0 |
+| 8 | coverage 阶段门槛 | PR 阶段警告不阻塞(允许新功能先合),Stg 阶段 < 60% 阻塞部署 | 只有 PR 阶段 coverage | 防止覆盖率持续下降,同时不阻塞开发速度 | P1 |
+| 9 | 环境变量漂移守卫 | CI 校验 `validate-env.sh` 覆盖所有 `@groups:heroku` 变量,确保 CI 和运行时环境变量一致 | 无漂移检测 | 防止部署时缺环境变量导致启动失败 | P1 |
+| 10 | Gitleaks artifact 扫描 | `stg-agent-test` reporter 用 gitleaks 扫描 triage 产物是否泄漏 secret | 无 artifact 扫描 | AI agent 产物可能包含敏感信息,需在开 issue 前检查 | P2 |
+
+#### 16.2.1 graceful-skip 模式规格
+
+```yaml
+# 每个安全扫描 job 开头检查 token
+- name: Check token
+  id: check
+  run: |
+    if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+      echo "skip=true" >> $GITHUB_OUTPUT
+    fi
+
+- name: Run Snyk
+  if: steps.check.outputs.skip != 'true'
+  run: snyk test
+```
+
+#### 16.2.2 Secrets Preflight 规格
+
+```yaml
+- name: Preflight secrets
+  run: |
+    bash .github/scripts/preflight-secrets.sh \
+      --required "DOPPLER_TOKEN,EC2_SSH_KEY,CODECOV_TOKEN" \
+      --optional "GITGUARDIAN_API_KEY,SNYK_TOKEN"
+```
+
+### 16.3 部署与自愈
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 11 | 部署回滚机制 | prd smoke/e2e 失败 → SSH `git reset` 到 snapshot SHA + `systemctl restart` + 开 Linear P1 incident | 无自动回滚 | 部署失败自动恢复,不等人工介入 | P1 |
+| 12 | Canary Watch | `prd-canary-watch.yml` 每 15 分钟 Sentry 错误率 3σ 偏离 + ≥5 绝对量 → 自动回滚 + Linear P1 | 无 canary 监控 | 部署后 30 分钟内的持续保护,捕获延迟暴露的问题 | P2 |
+| 13 | Prd Verify Fix | `prd-verify-fix.yml` 在 prd 部署成功后,对照 PR body 中 `Fixes #N` 标记去 Sentry 验证错误是否真的不再出现 | 无修复验证 | 区分"声称修了"和"真的修了",闭环 bug 修复 | P2 |
+| 14 | Terraform Drift Check | prd 部署时 Stage 3.5 跑 `terraform plan` 只读检查基础设施漂移,advisory 模式 | 无基础设施漂移检测 | 发现手动改过的基础设施配置,防止配置偏移 | P2 |
+| 15 | Tag 触发 prd | `git tag v*.*.*` = 发布意图,不用自动 promotion 也不用手工 approval;开发者显式决定发布时机 | 未定义 prd 触发策略 | 开发者控制发布节奏,避免 stg 全绿后意外推上 prd | P1 |
+
+#### 16.3.1 回滚机制规格
+
+```yaml
+- name: Snapshot current prod SHA
+  id: snapshot
+  run: echo "sha=$(ssh $HOST 'git -C /app rev-parse HEAD')" >> $GITHUB_OUTPUT
+
+- name: Rollback on failure
+  if: failure()
+  run: |
+    ssh $HOST "cd /app && git reset --hard ${{ steps.snapshot.outputs.sha }} && systemctl restart app"
+    gh issue create --title "P1: Production rollback" --label "incident,P1"
+```
+
+#### 16.3.2 Tag 触发策略
+
+```yaml
+on:
+  push:
+    tags:
+      - "v*"
+
+# 不用: on: workflow_run (auto-promotion)
+# 不用: environment: production (manual approval)
+# 打 tag 本身就是有意识的人工决策
+```
+
+### 16.4 可观测性
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 16 | 多源健康报告 | `ops-health-report.yml` 每日从 Sentry + Axiom + Datadog + PostHog + LangSmith 采集 → HTML 邮件 + 飞书 webhook | 只有 Sentry 集成 | 全栈可观测,一张报告看全局 | P2 |
+| 17 | 部署 markers | 每次 stg/prd 部署在 Stage 2 末尾同时打 Sentry release / Axiom annotation / PostHog annotation / Datadog deployment event 4 个标记 | 只有 Sentry release | dashboard 上直接定位"什么 commit 引入哪条曲线" | P1 |
+| 18 | LLM 成本追踪 | LangSmith 追踪 LLM 调用次数、token 消耗、P95 延迟、预估成本;纳入每日健康报告 | 无 LLM 成本追踪 | AI 功能运营成本可视化,防止成本失控 | P2 |
+| 19 | Error Triage 自动化 | `ops-agent-triage.yml` 每小时 Sentry 新错误 → AI 分诊 → 自动开 GitHub Issue + 邮件告警 | 无自动分诊 | 生产错误自动发现和分诊,不依赖人工巡检 | P2 |
+
+#### 16.4.1 部署 markers 规格
+
+```yaml
+- name: Mark deployment in observability
+  continue-on-error: true
+  run: |
+    # Sentry release
+    sentry-cli releases new -p $SENTRY_PROJECT $VERSION
+    sentry-cli releases set-commits $VERSION --auto
+    sentry-cli releases finalize $VERSION
+
+    # Axiom annotation
+    curl -X POST "https://api.axiom.co/v1/datasets/$DATASET/ingest" \
+      -H "Authorization: Bearer $AXIOM_TOKEN" \
+      -d '[{"event":"deploy","version":"'$VERSION'","env":"'$ENV'"}]'
+
+    # PostHog annotation
+    curl -X POST "https://app.posthog.com/api/projects/@current/annotations/" \
+      -H "Authorization: Bearer $POSTHOG_KEY" \
+      -d '{"content":"Deploy '$VERSION'","scope":"deployment"}'
+
+    # Datadog event
+    curl -X POST "https://api.datadoghq.com/api/v1/events" \
+      -H "DD-API-KEY: $DD_KEY" \
+      -d '{"title":"Deploy '$VERSION'","tags":["env:'$ENV'","version:'$VERSION'"]}'
+```
+
+### 16.5 开发体验
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 20 | Local Git Hooks (lefthook) | `lefthook.yml` 定义 pre-commit(ruff/eslint/mypy/tsc + guard-no-main + guard-dotenv + guard-large-files)、commit-msg(conventional commit)、pre-push(env 校验) | 无本地 hook | 90% lint 问题在 push 前消灭,节省 CI 等待时间 | P0 |
+| 21 | PR Templates | `.github/PULL_REQUEST_TEMPLATE/default.md` + `cherry_pick.md` 标准化 PR 描述 | 无 PR 模板 | PR 描述标准化,AI 和人工审查都能获取结构化上下文 | P0 |
+| 22 | Dependabot Auto-Merge | `dep-auto-merge.yml` 对 Dependabot PR 分级:patch/dev-minor 自动合并,major/runtime-minor 人工审查 | 无自动合并 | 低风险依赖升级零干预,高风险升级保留人工审查 | P1 |
+| 23 | 性能基线 (Blackfire) | Stg 部署 Stage 1.5 跑 `tests/perf/` perf scenario,`continue-on-error: true` soft-gate,3-4 周后阈值稳定切硬门槛 | 无性能基线 | 性能回归早期发现,不阻塞当前部署 | P2 |
+| 24 | Environment Matrix | 集中管理所有环境变量:Doppler 管应用变量,GitHub Secrets 只存 CI infra 变量,`infra/ENV_MATRIX.md` 文档化 | 未定义变量管理策略 | 避免 secret 散落各处,新人入职一目了然 | P1 |
+
+#### 16.5.1 lefthook.yml 规格参考
+
+```yaml
+pre-commit:
+  parallel: true
+  commands:
+    guard-no-main-commit:
+      run: test "$(git branch --show-current)" != "main" || exit 1
+    guard-dotenv:
+      run: git diff --cached --name-only | grep -q '\.env$' && exit 1 || exit 0
+    guard-large-files:
+      run: git diff --cached --name-only --diff-filter=A | xargs -I{} sh -c 'test $(wc -c < "{}") -gt 512000 && exit 1'
+    ruff-check:
+      run: ruff check --fix {staged_files}
+    ruff-format:
+      run: ruff format {staged_files}
+    eslint:
+      run: eslint --fix {staged_files}
+    mypy:
+      run: mypy app/
+    tsc:
+      run: tsc --noEmit
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: head -1 "$1" | grep -qE '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style)(\(.+\))?: .{1,}' || exit 1
+```
+
+#### 16.5.2 PR Template 规格
+
+```markdown
+## Summary
+<!-- 1-3 bullet points describing what this PR does -->
+
+## Test plan
+- [ ] Unit tests added/updated
+- [ ] Manual testing completed
+
+## Related issues
+<!-- Fixes #N / Closes #N -->
+```
+
+### 16.6 AI Agent 增强
+
+| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 25 | Agent Test Gen | `pr-agent-test-gen.yml` 读 PR diff → AI 生成单测骨架并 commit 到 PR 分支 | 无自动测试生成 | 自动补测试,提高覆盖率 | P2 |
+| 26 | Stg Autonomous Test | `stg-agent-test.yml` 在 stg 部署成功后 `workflow_run` 触发,L1-L4 AI agent 对 live stg 跑自主测试(schema fuzz/property test/scenario/browser-use) | 无 staging 自主测试 | staging 环境智能验证,发现集成问题 | P2 |
+| 27 | AI Changelog | prd 部署时 Stage 6 读 `prev_semver_tag..HEAD` commit range,按 conventional-commit 类型分组,AI 生成用户向 changelog → `gh release create` | 无自动 changelog | 发布说明自动化,减少手工编写 | P2 |
+| 28 | @Docubot | `pr-agent-docubot.yml` 监听 `issue_comment` 中 `@docubot` mention → AI 回答代码库问题 | 无代码库问答 | 降低新人上手门槛,减少重复问题 | P2 |
+| 29 | Agent Review | `pr-agent-review.yml` 用 `RELEASE_PAT`(含 copilot scope)把 `@copilot` 加为 reviewer 自动 review | 无 AI 代码审查 | AI 辅助代码审查,发现人工容易遗漏的问题 | P2 |
+
+#### 16.6.1 AI Agent 安全约束
+
+所有 AI agent 遵循最小权限原则:
+
+- **Agent 只读,Reporter 只写**:test-gen agent 写 finding 到 `triage/` 目录;reporter 独立 job 读 `triage/` 后用 `gh issue create` 入仓,reporter 没有 LLM 写权限
+- **Gitleaks 扫描**:reporter 在开 issue 前用 gitleaks 扫描 triage 产物,防止 agent 泄漏 secret
+- **LLM 从不持有 `issues:write`**:分离 agent(research)和 reporter(action)职责
+
+---
+
 ## 附录 A:实施优先级
 
 Claude Code 按以下顺序实施,每阶段可独立验证:
@@ -1665,6 +1900,7 @@ Claude Code 按以下顺序实施,每阶段可独立验证:
 | P3 | `prd.yml` + `pre-check`（version-align + observe-window） | 验证版本不对齐时正确失败 |
 | P3 | `security-schedule.yml` + CodeQL + SBOM | 手动触发验证 Security tab |
 | P4 | `community.yml` / `stale.yml` / `docs-*.yml` | 辅助功能,最后实施 |
+| P5 | 十六章 Aicert 差距实施（按 P0/P1/P2 分批） | 参见 16.x 各子节验证方式 |
 
 ---
 
