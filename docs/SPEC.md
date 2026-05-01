@@ -1588,214 +1588,33 @@ interval=1m" | jq '
 
 ### 7.3 SonarCloud 集成
 
-SonarCloud 提供代码质量分析,在 pr.yml 中作为质量门,在 PR 上做 decoration(覆盖率、新增 bug、code smell)。
+`actions/pr/scan-sonarcloud/action.yml` — graceful-skip 模式:`SONAR_TOKEN` 缺失则 skip(注 annotation),否则用 `SonarSource/sonarcloud-github-action` 跑分析。
 
-`actions/pr/scan-sonarcloud/action.yml`:
+**Inputs**:`sonar-organization`(必需) / `sonar-project-key`(必需) / `sonar-host-url`(默认 `https://sonarcloud.io`) / `sonar-token`(可选)。
 
-```yaml
-inputs:
-  sonar-organization: { required: true }
-  sonar-project-key:  { required: true }
-  sonar-host-url:     { required: false, default: "https://sonarcloud.io" }
-  sonar-token:        { required: false }
+**与 Codecov 的分工**:Codecov 管覆盖率,SonarCloud 管 code smell + 漏洞 + quality gate。两者均对开源仓库免费,通常并行启用。
 
-runs:
-  using: composite
-  steps:
-    - name: Check Sonar token
-      id: check
-      shell: bash
-      run: |
-        if [ -z "${{ inputs.sonar-token }}" ]; then
-          echo "skip=true" >> $GITHUB_OUTPUT
-          echo "::notice title=SonarCloud Skipped::SONAR_TOKEN not configured, graceful skip"
-        fi
+### 7.4 PostHog 集成(AI 项目推荐)
 
-    - uses: SonarSource/sonarcloud-github-action@{SHA}
-      if: steps.check.outputs.skip != 'true'
-      env:
-        GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN:   ${{ inputs.sonar-token }}
-      with:
-        args: >
-          -Dsonar.organization=${{ inputs.sonar-organization }}
-          -Dsonar.projectKey=${{ inputs.sonar-project-key }}
-          -Dsonar.host.url=${{ inputs.sonar-host-url }}
-```
+`actions/integrations/posthog-event/action.yml` — `curl POST https://app.posthog.com/capture/` 发自定义事件。**Inputs**:`api-key` / `event`(deploy / release / hotfix) / `environment` / `version` / `properties`(可选 JSON)。Body 用 `jq -n --arg` 构造避免注入。
 
-**PR 效果**:SonarCloud bot 评论显示 New Code 的 quality gate 状态、新增 bug/vulnerability/code smell,链接到详情页。
-
-**与 Codecov 的关系**:
-
-| 关注点 | Codecov | SonarCloud |
-|--------|---------|------------|
-| 覆盖率 | 强 | 一般 |
-| 代码异味 | x | ✓ |
-| 安全漏洞 | x | ✓ |
-| Quality gate | 有 | 更复杂 |
-| 公开仓库 | 免费 | 免费 |
-
-两者职责重叠不多,通常一起用:Codecov 管覆盖率,SonarCloud 管代码异味 + 漏洞。
-
-### 7.4 PostHog 集成(AI 项目特别推荐)
-
-PostHog 是产品分析 + LLM 可观测性平台,对 AI 项目有独特价值:
-
-- 产品分析(用户行为)
-- LLM 调用追踪(token 用量、延迟、错误率)
-- Feature flag 管理
-- A/B 测试
-
-`actions/integrations/posthog-event/action.yml`:
-
-```yaml
-inputs:
-  api-key:     { required: true }
-  event:       { required: true }    # deploy / release / hotfix
-  environment: { required: true }
-  version:     { required: true }
-  properties:  { required: false }   # 额外 JSON 属性
-
-runs:
-  using: composite
-  steps:
-    - shell: bash
-      run: |
-        BODY=$(jq -n \
-          --arg key "${{ inputs.api-key }}" \
-          --arg event "${{ inputs.event }}" \
-          --arg env "${{ inputs.environment }}" \
-          --arg ver "${{ inputs.version }}" \
-          --argjson extra '${{ inputs.properties || "{}" }}' \
-          '{
-            api_key: $key,
-            event: $event,
-            distinct_id: "ci-system",
-            properties: ($extra + {
-              environment: $env,
-              version: $ver,
-              source: "github-actions"
-            })
-          }')
-
-        curl -X POST https://app.posthog.com/capture/ \
-          -H "Content-Type: application/json" \
-          -d "$BODY"
-
-        echo "::notice title=PostHog Event::event=${{ inputs.event }} env=${{ inputs.environment }}"
-```
-
-**集成点**:**不再作为独立 jobs**,统一通过 7.8.1 节的 `notify-deploy` composite 调用。posthog-event 原子由 composite 在 stg/prd 末尾的 `notify-observability` job 中按 `enable-posthog` 开关启用。
-
-**效果**:PostHog 时间线上标记 deployment,后续可将 user behavior change 与 deployment 时间点关联分析。
+**集成点**:不作独立 job,由 `notify-deploy` composite(7.8.1)按 `enable-posthog` 开关在 `notify-observability` job 中调用。**效果**:PostHog 时间线打 deployment 标记,后续将用户行为变化与部署时间点关联分析。
 
 ### 7.5 Slack 通知集成
 
-部署、发布、CI 失败的通知统一通过 Slack。
+`actions/integrations/slack-notify/action.yml` 包装 `slackapi/slack-github-action`,Block Kit payload(header / section / context with run link)。**Inputs**:`webhook-url` / `status`(success/failure/warning) / `title` / `message` / `context`(可选)。
 
-`actions/integrations/slack-notify/action.yml`:
-
-```yaml
-inputs:
-  webhook-url: { required: true }
-  status:      { required: true }    # success | failure | warning
-  title:       { required: true }
-  message:     { required: true }
-  context:     { required: false }   # 额外 key-value 字段
-
-runs:
-  using: composite
-  steps:
-    - uses: slackapi/slack-github-action@{SHA}
-      with:
-        webhook: ${{ inputs.webhook-url }}
-        webhook-type: incoming-webhook
-        payload: |
-          {
-            "blocks": [
-              {
-                "type": "header",
-                "text": { "type": "plain_text", "text": "${{ inputs.title }}" }
-              },
-              {
-                "type": "section",
-                "text": { "type": "mrkdwn", "text": "${{ inputs.message }}" }
-              },
-              {
-                "type": "context",
-                "elements": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "Repo: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}> · Run: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>"
-                  }
-                ]
-              }
-            ]
-          }
-```
-
-**集成点**(按需通知,避免噪音):
-
-- pr.yml 失败:不通知(开发者自己看)
-- ci.yml 失败: `#ci-alerts`
-- stg.yml 完成: `#deploys`
-- prd.yml 完成: `#releases` + `#engineering`
-- security-schedule 发现高危 CVE: `#security`
+**触发策略**(按需,避免噪音):pr.yml 失败 → 不通知(开发者自己看);ci.yml 失败 → `#ci-alerts`;stg 完成 → `#deploys`;prd 完成 → `#releases` + `#engineering`;security-schedule 高危 CVE → `#security`。
 
 ### 7.6 Snyk 集成(可选)
 
-Snyk 是 dependency-review + Trivy 的替代/补充。如果团队已有 Snyk 订阅,可以加上获得更高质量的漏洞数据库和修复建议。
+`actions/pr/scan-snyk/action.yml` — graceful-skip 模式;`SNYK_TOKEN` 缺失则 skip,否则跑 `snyk/actions/<language>@<SHA>`。**Inputs**:`language`(node/python/java/go) / `severity`(默认 high) / `snyk-token`(可选)。
 
-`actions/pr/scan-snyk/action.yml`:
+**定位**:开源项目用 dependency-review + Trivy 已足够;商业项目加 Snyk 获更好的漏洞数据库与修复建议。
 
-```yaml
-inputs:
-  language:    { required: true }    # node | python | java | go
-  severity:    { required: false, default: "high" }
-  snyk-token:  { required: false }
+### 7.7 Linear 集成
 
-runs:
-  using: composite
-  steps:
-    - name: Check Snyk token
-      id: check
-      shell: bash
-      run: |
-        if [ -z "${{ inputs.snyk-token }}" ]; then
-          echo "skip=true" >> $GITHUB_OUTPUT
-          echo "::notice title=Snyk Skipped::SNYK_TOKEN not configured, graceful skip"
-        fi
-
-    - uses: snyk/actions/${{ inputs.language }}@{SHA}
-      if: steps.check.outputs.skip != 'true'
-      env:
-        SNYK_TOKEN: ${{ inputs.snyk-token }}
-      with:
-        args: --severity-threshold=${{ inputs.severity }}
-```
-
-**与原有扫描工具关系**:
-
-| 工具 | 扫描对象 | 数据库质量 | 价格 |
-|------|---------|-----------|------|
-| dependency-review | PR diff 的依赖 | GitHub Advisory | 免费 |
-| Trivy | 文件系统 + 镜像 | 多源 | 免费 |
-| Snyk | 依赖 + IaC + 容器 | 自有数据库,质量高 | 收费(开源免费) |
-
-推荐策略:开源项目用 dependency-review + Trivy 足够;商业项目加 Snyk 获得更好的修复建议。
-
-### 7.7 Linear 集成(若使用)
-
-Linear 是 issue tracker,与 GitHub 双向同步通常通过 Linear 官方 GitHub App 实现,OpenCI 不需要重复造轮子。
-
-但可以在 `community.yml` 中加一个 link 检查:
-
-`actions/integrations/linear-link/action.yml`:
-
-```yaml
-# 检查 PR 描述或 branch name 中是否包含 LIN-XXX 编号
-# 不包含则评论提醒
-```
+GitHub 与 Linear 双向同步走官方 Linear GitHub App,OpenCI 不重造。仅 `community.yml` 调用 `actions/integrations/linear-link/` 检查 PR 描述/分支名是否含 LIN-XXX 编号,缺失则评论提醒。
 
 ### 7.8 可观测性双模式架构
 
@@ -1975,28 +1794,7 @@ jobs:
 | LangSmith | LLM 调用量 / 总成本 USD / token 用量 / Top 失败 prompt |
 | Axiom | 错误日志条数 / Top error pattern |
 
-**Claude 输出结构**(固定格式,便于 issue 标题摘录、Slack 卡片渲染):
-
-```markdown
-# Daily Health Report - {{date}}
-
-## TL;DR
-- (3-5 条最重要的事)
-
-## 需要关注
-- (异常/退化项)
-
-## 关键指标
-| 指标 | 今日 | 昨日 | 趋势 |
-| --- | --- | --- | --- |
-| ... |
-
-## LLM 用量与成本
-- 总成本 / token 分布 / Top 失败
-
-## 建议行动项
-1. ...
-```
+**Claude 输出结构**:固定 markdown 模板(TL;DR / 需要关注 / 关键指标 / LLM 用量与成本 / 建议行动项),便于 issue 标题摘录与 Slack 卡片渲染。完整模板见 `prompts/observability/daily-health-report.md`。
 
 ---
 
@@ -2045,22 +1843,7 @@ jobs:
 | `GITLEAKS_LICENSE` | — | — | — | — | — | ○ | — |
 | `LINEAR_API_KEY` | — | ○(community) | — | — | — | — | — |
 
-**说明**:
-
-- **✓** 必需:缺失时 `preflight-secrets.sh` 立即 fail
-- **○** 可选:启用对应功能时才需要(graceful-skip 模式自动跳过)
-- **—** 不使用
-- `GITHUB_TOKEN` 是 GitHub 自动提供,消费方无需手动配置
-
-**接入清单**(新消费方按顺序配置):
-
-1. **必备**(任何使用都需要):无(GITHUB_TOKEN 自动注入)
-2. **CI/CD 链路**:`REGISTRY_TOKEN`、`KUBECONFIG_STG`、`KUBECONFIG_PRD`
-3. **质量门**:`CODECOV_TOKEN`(私仓)、`SONAR_TOKEN`(开启 SonarCloud)
-4. **AI 功能**:`ANTHROPIC_API_KEY`(开启 AI review / triage / smoke / health-report)
-5. **可观测性**:按需开启 `SENTRY_TOKEN` / `DATADOG_API_KEY` / `POSTHOG_API_KEY` / `LANGSMITH_API_KEY` / `AXIOM_TOKEN`
-6. **通知**:`SLACK_WEBHOOK_URL`
-7. **额外安全扫描**:`SNYK_TOKEN`、`GITGUARDIAN_API_KEY`、`GITLEAKS_LICENSE`(可选)
+**图例**:✓ 必需(缺失即 fail) / ○ 可选(graceful-skip 自动跳过) / — 不使用。`GITHUB_TOKEN` 由 GitHub 自动注入。
 
 ---
 
@@ -2130,17 +1913,9 @@ npx pin-github-action .github/workflows/*.yml actions/**/*.yml
 
 **全局默认**:工作流顶层 `permissions: {}` 拒绝所有,job 级别精确授权。
 
-### 9.3 已淘汰 action 处理
+### 9.3 已淘汰 action
 
-以下 action 因安全或维护原因被淘汰,禁止在新工作流中使用:
-
-| action | 淘汰原因 | 替代方案 |
-|--------|---------|---------|
-| `semgrep/semgrep-action` | 2020 年停更,不再维护 | CLI: `pip install semgrep && semgrep ci` |
-| `amondnet/vercel-action` | 版本严重滞后(v25 vs 最新 v42.3.0) | 官方 Vercel CLI: `npm i -g vercel && vercel deploy --prod` |
-| `trufflesecurity/trufflehog@main` | 引用 `main` 分支,供应链风险 | 固定到发布版本 SHA(`manifest.yml` 中维护) |
-
-**迁移策略**:已有工作流中的淘汰 action 逐步替换,优先级 P0（安全相关）> P1（功能替代）。替换时同步更新 `manifest.yml` 中的 SHA。
+完整列表与替代方案见 **附录 B.2**。新工作流不得使用,旧工作流逐步替换(P0 安全相关 > P1 功能替代)。
 
 ### 9.4 harden-runner 统一配置
 
@@ -2478,206 +2253,9 @@ jobs:
 
 ---
 
-## 十六、Aicert CI/CD 对比分析
+## 十六、Aicert 差距来源
 
-本章基于 [aicert](https://github.com/YiAgent/aicert) 仓库的 `CI-CD-FLOW-MAP.md` 和 `CICD_PIPELINE_DESIGN.md` 设计文档,逐项对比 OpenCI 当前能力,列出可补充或升级的功能差距。每项标注优先级(P0 立即补充/P1 高价值扩展/P2 按需引入)。
-
-### 16.1 架构层差距
-
-| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Issue→Branch 自动化 | `pr-branch-from-issue.yml` 由 Linear webhook `repository_dispatch` 触发,自动创建 `feat/aic-NNN-slug` 分支并回写 Linear 评论 | 无此流程 | 开发者不用手动建分支,issue 状态驱动分支创建 | P2 |
-| 2 | workflow_run 跨工作流聚合 | `pr-agent-summary` 订阅 8 个 workflow 的 `workflow_run` 完成事件 + 外部 App 的 `check_suite`,upsert 单条带 `<!-- pr-summary-bot -->` marker 的滚动评论 | 各 workflow 独立报告,无聚合机制 | PR 上只有一条汇总评论,不刷屏;开发者一眼看到所有检查结果 | P1 |
-| 3 | Concurrency Groups 完整策略 | 每个 workflow 定义 `concurrency.group` + `cancel-in-progress` 策略:PR 类=cancel(yes),deploy/ops 类=no(避免中断部署) | 未定义 concurrency 策略 | 避免同一 PR 多次 push 产生重复 run 浪费 runner 分钟 | P0 |
-| 4 | Ops 运维工作流 | `ops-flag-audit`(周一 15:00)、`ops-health-report`(每日 09:00)、`ops-agent-triage`(每小时)三个 cron 工作流持续监控 | 无 ops 层工作流 | 持续监控生产环境健康、自动分诊错误、审计 feature flag | P1 |
-| 5 | Agent 反馈闭环 | `pr-agent-feedback` 识别 PR 作者是 `copilot-swe-agent[bot]` 或分支名 `codex/` 前缀 → CI 失败时自动 @-mention agent 附失败日志让其修复 | 无 agent 识别和自动修复 | AI agent 开的 PR 能自愈,减少人工干预 | P2 |
-
-#### 16.1.1 Concurrency Groups 规格参考
-
-```yaml
-# PR 类 workflow: 同一 PR 新 push 取消旧 run
-concurrency:
-  group: pr-verify-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
-# Deploy 类 workflow: 不取消,避免中断正在进行的部署
-concurrency:
-  group: deploy-stg-${{ github.ref }}
-  cancel-in-progress: false
-
-# Ops 类 workflow: 不取消,确保每次 cron 都执行
-concurrency:
-  group: error-triage
-  cancel-in-progress: false
-```
-
-#### 16.1.2 workflow_run 聚合规格参考
-
-```yaml
-on:
-  workflow_run:
-    workflows:
-      - "PR: Verify"
-      - "PR: Security Scan"
-      - "PR: Code Quality"
-      - "PR: Build Check"
-      - "Stg: Deploy"
-      - "Prd: Deploy"
-    types: [completed]
-  check_suite:
-    types: [completed]
-```
-
-聚合逻辑:poll 直到所有 check settle(10 分钟上限),构建综合摘要,upsert 单条滚动评论。
-
-### 16.2 安全与质量门禁
-
-| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
-| --- | --- | --- | --- | --- | --- |
-| 6 | Secrets Preflight | `preflight-secrets.sh` → `preflight-secrets.py` 在每个 workflow 开头 live-probe 所有必需 secret,缺失则快速 fail | 无预检机制 | 缺 secret 时快速 fail,不浪费 runner 时间跑一半才发现 | P0 |
-| 7 | graceful-skip 模式 | 7 个安全扫描器全部支持 token 缺席 → exit 0,PR 不被无关原因阻塞 | 未定义 graceful-skip | 新环境没配好 GITGUARDIAN_API_KEY/SNYK_TOKEN 时 PR 不卡住 | P0 |
-| 8 | coverage 阶段门槛 | PR 阶段警告不阻塞(允许新功能先合),Stg 阶段 < 60% 阻塞部署 | 只有 PR 阶段 coverage | 防止覆盖率持续下降,同时不阻塞开发速度 | P1 |
-| 9 | 环境变量漂移守卫 | CI 校验 `validate-env.sh` 覆盖所有 `@groups:heroku` 变量,确保 CI 和运行时环境变量一致 | 无漂移检测 | 防止部署时缺环境变量导致启动失败 | P1 |
-| 10 | Gitleaks artifact 扫描 | `stg-agent-test` reporter 用 gitleaks 扫描 triage 产物是否泄漏 secret | 无 artifact 扫描 | AI agent 产物可能包含敏感信息,需在开 issue 前检查 | P2 |
-
-#### 16.2.1 graceful-skip 模式规格
-
-```yaml
-# 每个安全扫描 job 开头检查 token
-- name: Check token
-  id: check
-  run: |
-    if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
-      echo "skip=true" >> $GITHUB_OUTPUT
-    fi
-
-- name: Run Snyk
-  if: steps.check.outputs.skip != 'true'
-  run: snyk test
-```
-
-#### 16.2.2 Secrets Preflight 规格
-
-```yaml
-- name: Preflight secrets
-  run: |
-    bash .github/scripts/preflight-secrets.sh \
-      --required "DOPPLER_TOKEN,EC2_SSH_KEY,CODECOV_TOKEN" \
-      --optional "GITGUARDIAN_API_KEY,SNYK_TOKEN"
-```
-
-### 16.3 部署与自愈
-
-| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
-| --- | --- | --- | --- | --- | --- |
-| 11 | 部署回滚机制 | prd smoke/e2e 失败 → SSH `git reset` 到 snapshot SHA + `systemctl restart` + 开 Linear P1 incident | 无自动回滚 | 部署失败自动恢复,不等人工介入 | P1 |
-| 12 | Canary Watch | `prd-canary-watch.yml` 每 15 分钟 Sentry 错误率 3σ 偏离 + ≥5 绝对量 → 自动回滚 + Linear P1 | 无 canary 监控 | 部署后 30 分钟内的持续保护,捕获延迟暴露的问题 | P2 |
-| 13 | Prd Verify Fix | `prd-verify-fix.yml` 在 prd 部署成功后,对照 PR body 中 `Fixes #N` 标记去 Sentry 验证错误是否真的不再出现 | 无修复验证 | 区分"声称修了"和"真的修了",闭环 bug 修复 | P2 |
-| 14 | Terraform Drift Check | prd 部署时 Stage 3.5 跑 `terraform plan` 只读检查基础设施漂移,advisory 模式 | 无基础设施漂移检测 | 发现手动改过的基础设施配置,防止配置偏移 | P2 |
-| 15 | Tag 触发 prd | `git tag v*.*.*` = 发布意图,不用自动 promotion 也不用手工 approval;开发者显式决定发布时机 | 未定义 prd 触发策略 | 开发者控制发布节奏,避免 stg 全绿后意外推上 prd | P1 |
-
-#### 16.3.1 回滚机制规格
-
-```yaml
-- name: Snapshot current prod SHA
-  id: snapshot
-  run: echo "sha=$(ssh $HOST 'git -C /app rev-parse HEAD')" >> $GITHUB_OUTPUT
-
-- name: Rollback on failure
-  if: failure()
-  run: |
-    ssh $HOST "cd /app && git reset --hard ${{ steps.snapshot.outputs.sha }} && systemctl restart app"
-    gh issue create --title "P1: Production rollback" --label "incident,P1"
-```
-
-#### 16.3.2 Tag 触发策略
-
-```yaml
-on:
-  push:
-    tags:
-      - "v*"
-
-# 不用: on: workflow_run (auto-promotion)
-# 不用: environment: production (manual approval)
-# 打 tag 本身就是有意识的人工决策
-```
-
-### 16.4 可观测性
-
-OpenCI 在可观测性方面已覆盖 Aicert 的所有能力,且扩展了 Datadog / PostHog / LangSmith / Axiom 集成与定时健康日报(`health-report.yml`)。架构与所有原子规格详见 **7.8 节**。
-
-
-### 16.5 开发体验
-
-| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
-| --- | --- | --- | --- | --- | --- |
-| 20 | Local Git Hooks (lefthook) | `lefthook.yml` 定义 pre-commit(ruff/eslint/mypy/tsc + guard-no-main + guard-dotenv + guard-large-files)、commit-msg(conventional commit)、pre-push(env 校验) | 无本地 hook | 90% lint 问题在 push 前消灭,节省 CI 等待时间 | P0 |
-| 21 | PR Templates | `.github/PULL_REQUEST_TEMPLATE/default.md` + `cherry_pick.md` 标准化 PR 描述 | 无 PR 模板 | PR 描述标准化,AI 和人工审查都能获取结构化上下文 | P0 |
-| 22 | Dependabot Auto-Merge | `dep-auto-merge.yml` 对 Dependabot PR 分级:patch/dev-minor 自动合并,major/runtime-minor 人工审查 | 无自动合并 | 低风险依赖升级零干预,高风险升级保留人工审查 | P1 |
-| 23 | 性能基线 (Blackfire) | Stg 部署 Stage 1.5 跑 `tests/perf/` perf scenario,`continue-on-error: true` soft-gate,3-4 周后阈值稳定切硬门槛 | 无性能基线 | 性能回归早期发现,不阻塞当前部署 | P2 |
-| 24 | Environment Matrix | 集中管理所有环境变量:Doppler 管应用变量,GitHub Secrets 只存 CI infra 变量,`infra/ENV_MATRIX.md` 文档化 | 未定义变量管理策略 | 避免 secret 散落各处,新人入职一目了然 | P1 |
-
-#### 16.5.1 lefthook.yml 规格参考
-
-```yaml
-pre-commit:
-  parallel: true
-  commands:
-    guard-no-main-commit:
-      run: test "$(git branch --show-current)" != "main" || exit 1
-    guard-dotenv:
-      run: git diff --cached --name-only | grep -q '\.env$' && exit 1 || exit 0
-    guard-large-files:
-      run: git diff --cached --name-only --diff-filter=A | xargs -I{} sh -c 'test $(wc -c < "{}") -gt 512000 && exit 1'
-    ruff-check:
-      run: ruff check --fix {staged_files}
-    ruff-format:
-      run: ruff format {staged_files}
-    eslint:
-      run: eslint --fix {staged_files}
-    mypy:
-      run: mypy app/
-    tsc:
-      run: tsc --noEmit
-
-commit-msg:
-  commands:
-    conventional-commit:
-      run: head -1 "$1" | grep -qE '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style)(\(.+\))?: .{1,}' || exit 1
-```
-
-#### 16.5.2 PR Template 规格
-
-```markdown
-## Summary
-<!-- 1-3 bullet points describing what this PR does -->
-
-## Test plan
-- [ ] Unit tests added/updated
-- [ ] Manual testing completed
-
-## Related issues
-<!-- Fixes #N / Closes #N -->
-```
-
-### 16.6 AI Agent 增强
-
-| # | 特性 | Aicert 实现 | OpenCI 现状 | 价值 | 优先级 |
-| --- | --- | --- | --- | --- | --- |
-| 25 | Agent Test Gen | `pr-agent-test-gen.yml` 读 PR diff → AI 生成单测骨架并 commit 到 PR 分支 | 无自动测试生成 | 自动补测试,提高覆盖率 | P2 |
-| 26 | Stg Autonomous Test | `stg-agent-test.yml` 在 stg 部署成功后 `workflow_run` 触发,L1-L4 AI agent 对 live stg 跑自主测试(schema fuzz/property test/scenario/browser-use) | 无 staging 自主测试 | staging 环境智能验证,发现集成问题 | P2 |
-| 27 | AI Changelog | prd 部署时 Stage 6 读 `prev_semver_tag..HEAD` commit range,按 conventional-commit 类型分组,AI 生成用户向 changelog → `gh release create` | 无自动 changelog | 发布说明自动化,减少手工编写 | P2 |
-| 28 | @Docubot | `pr-agent-docubot.yml` 监听 `issue_comment` 中 `@docubot` mention → AI 回答代码库问题 | 无代码库问答 | 降低新人上手门槛,减少重复问题 | P2 |
-| 29 | Agent Review | `pr-agent-review.yml` 用 `RELEASE_PAT`(含 copilot scope)把 `@copilot` 加为 reviewer 自动 review | 无 AI 代码审查 | AI 辅助代码审查,发现人工容易遗漏的问题 | P2 |
-
-#### 16.6.1 AI Agent 安全约束
-
-所有 AI agent 遵循最小权限原则:
-
-- **Agent 只读,Reporter 只写**:test-gen agent 写 finding 到 `triage/` 目录;reporter 独立 job 读 `triage/` 后用 `gh issue create` 入仓,reporter 没有 LLM 写权限
-- **Gitleaks 扫描**:reporter 在开 issue 前用 gitleaks 扫描 triage 产物,防止 agent 泄漏 secret
-- **LLM 从不持有 `issues:write`**:分离 agent(research)和 reporter(action)职责
+OpenCI 的实施优先级表(附录 A)中的 P0–P4 项均源自对 [aicert](https://github.com/YiAgent/aicert) `CI-CD-FLOW-MAP.md` 与 `CICD_PIPELINE_DESIGN.md` 的逐项差距分析。29 项差距已分别落地为本规格的对应章节(Concurrency → 5.7、Secrets Preflight → 5.x preflight 段、graceful-skip → 7.3/7.6、回滚 → 5.5、Tag 触发 → 5.5、PR Template → 17.2、CODEOWNERS → 17.3、lefthook → 17.7),不再单独维护对比表;具体来源见原始 aicert 文档与附录 A 各项标注。
 
 ---
 
