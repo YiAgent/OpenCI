@@ -1,0 +1,219 @@
+name: "Claude Harness — AI Execution Engine"
+
+on:
+  workflow_call:
+    inputs:
+      task:
+        description: "Task identifier for prompt routing"
+        type: string
+        required: true
+      prompt-path:
+        description: "Custom prompt path (caller repo). Empty = use built-in prompts/{task}.md"
+        type: string
+        required: false
+        default: ""
+      context:
+        description: "JSON string with prompt variables"
+        type: string
+        required: false
+        default: "{}"
+      model:
+        description: "Model name (e.g. claude-sonnet-4-5-20250929, glm-5.1, gpt-4o)"
+        type: string
+        required: false
+        default: "claude-sonnet-4-5-20250929"
+      max-turns:
+        description: "Max conversation turns"
+        type: number
+        required: false
+        default: 1
+      api-base-url:
+        description: "API base URL (OpenAI-compatible). Default: https://api.anthropic.com/v1"
+        type: string
+        required: false
+        default: "https://api.anthropic.com/v1"
+      api-provider:
+        description: "API provider: anthropic (default) or openai (for GLM/GPT-compatible)"
+        type: string
+        required: false
+        default: "anthropic"
+    outputs:
+      result:
+        description: "AI output content"
+        value: ${{ jobs.ai.outputs.result }}
+      comment-id:
+        description: "GitHub comment ID (for sticky updates)"
+        value: ${{ jobs.ai.outputs.comment-id }}
+    secrets:
+      api-key:
+        description: "API key (Anthropic API key or GLM/GPT API key)"
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: claude-harness-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      result: ${{ steps.call.outputs.result }}
+      comment-id: ${{ steps.comment.outputs.comment-id }}
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Load prompt
+        id: prompt
+        shell: bash
+        run: |
+          PROMPT_PATH="${{ inputs.prompt-path }}"
+          TASK="${{ inputs.task }}"
+
+          if [ -n "$PROMPT_PATH" ] && [ -f "$PROMPT_PATH" ]; then
+            # Caller provided a custom prompt path
+            echo "path=$PROMPT_PATH" >> "$GITHUB_OUTPUT"
+            echo "::notice::Using custom prompt: $PROMPT_PATH"
+          elif [ -f "prompts/${TASK}.md" ]; then
+            # Caller repo has a prompt for this task
+            echo "path=prompts/${TASK}.md" >> "$GITHUB_OUTPUT"
+            echo "::notice::Using caller prompt: prompts/${TASK}.md"
+          else
+            echo "::error::No prompt found for task '$TASK' (checked: '$PROMPT_PATH', 'prompts/${TASK}.md')"
+            exit 1
+          fi
+
+      - name: Call AI
+        id: call
+        shell: bash
+        env:
+          API_KEY: ${{ secrets.api-key }}
+          API_BASE_URL: ${{ inputs.api-base-url }}
+          API_PROVIDER: ${{ inputs.api-provider }}
+          MODEL: ${{ inputs.model }}
+          CONTEXT: ${{ inputs.context }}
+          PROMPT_PATH: ${{ steps.prompt.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          # Read prompt template
+          PROMPT=$(cat "$PROMPT_PATH")
+
+          # Inject context into prompt template (replace {{context}} placeholder)
+          PROMPT=$(echo "$PROMPT" | sed "s|{{context}}|${CONTEXT}|g")
+
+          # Also replace any individual {{field}} placeholders from context JSON
+          if echo "$CONTEXT" | jq empty 2>/dev/null; then
+            for key in $(echo "$CONTEXT" | jq -r 'keys[]'); do
+              value=$(echo "$CONTEXT" | jq -r --arg k "$key" '.[$k] // ""' | head -c 4000)
+              PROMPT=$(echo "$PROMPT" | sed "s|{{${key}}}|${value}|g" || true)
+            done
+          fi
+
+          # Escape prompt for JSON
+          PROMPT_JSON=$(echo "$PROMPT" | jq -Rs .)
+
+          # Build API request based on provider
+          if [ "$API_PROVIDER" = "openai" ]; then
+            # OpenAI-compatible API (GLM, GPT, etc.)
+            PAYLOAD=$(jq -n \
+              --arg model "$MODEL" \
+              --argjson content "$PROMPT_JSON" \
+              '{
+                model: $model,
+                messages: [{role: "user", content: $content}],
+                temperature: 0.1,
+                max_tokens: 4096
+              }')
+
+            RESPONSE=$(curl -sS -X POST \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $API_KEY" \
+              -d "$PAYLOAD" \
+              "$API_BASE_URL/chat/completions")
+
+            RESULT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          else
+            # Anthropic API
+            PAYLOAD=$(jq -n \
+              --arg model "$MODEL" \
+              --argjson content "$PROMPT_JSON" \
+              '{
+                model: $model,
+                max_tokens: 4096,
+                messages: [{role: "user", content: $content}]
+              }')
+
+            RESPONSE=$(curl -sS -X POST \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: $API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "$PAYLOAD" \
+              "$API_BASE_URL/messages")
+
+            RESULT=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+          fi
+
+          if [ -z "$RESULT" ]; then
+            echo "::warning::Empty AI response. Response: $(echo "$RESPONSE" | head -c 500)"
+            echo "result={}" >> "$GITHUB_OUTPUT"
+          else
+            # Validate JSON if the response looks like JSON
+            if echo "$RESULT" | jq empty 2>/dev/null; then
+              {
+                echo "result<<CLAUDE_HARNESS_EOF"
+                echo "$RESULT"
+                echo "CLAUDE_HARNESS_EOF"
+              } >> "$GITHUB_OUTPUT"
+            else
+              {
+                echo "result<<CLAUDE_HARNESS_EOF"
+                echo "$RESULT"
+                echo "CLAUDE_HARNESS_EOF"
+              } >> "$GITHUB_OUTPUT"
+            fi
+            echo "::notice::AI task '$TASK' completed (model: $MODEL)"
+          fi
+
+      - name: Create sticky comment
+        id: comment
+        if: github.event_name == 'pull_request' || github.event_name == 'issues'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RESULT='${{ steps.call.outputs.result }}'
+          TASK="${{ inputs.task }}"
+
+          BODY="### 🤖 AI Task: $TASK
+
+          $RESULT
+
+          ---
+          _Model: ${{ inputs.model }} | Provider: ${{ inputs.api-provider }}_"
+
+          COMMENT_ID=""
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            # Check for existing sticky comment
+            EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUM}/comments" \
+              --jq '[.[] | select(.body | startswith("### 🤖 AI Task:")) | .id] | last // empty' 2>/dev/null)
+
+            if [ -n "$EXISTING" ]; then
+              gh api "repos/${{ github.repository }}/issues/comments/${EXISTING}" \
+                --method PATCH --field body="$BODY" 2>/dev/null || true
+              COMMENT_ID="$EXISTING"
+            else
+              COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUM}/comments" \
+                --method POST --field body="$BODY" --jq '.id' 2>/dev/null || echo "")
+            fi
+          fi
+
+          echo "comment-id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
