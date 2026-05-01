@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/agent-review — request a Copilot review on the PR.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — Copilot Review-as-a-Service requires a PAT with
+# copilot scope (RELEASE_PAT) on most consumer repos. We emit the gh CLI
+# call; the consumer turns it on by providing the secret.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Agent Review
+description: Request a Copilot review on the PR.
+
+inputs:
+  pr-number: { required: true, description: PR number }
+  release-pat:
+    required: false
+    default: ""
+    description: PAT with copilot scope; empty → graceful skip.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TOKEN:    ${{ inputs.release-pat }}
+        REPO:     ${{ github.repository }}
+        PR:       ${{ inputs.pr-number }}
+      run: |
+        set -euo pipefail
+        if [ -z "$TOKEN" ]; then
+          echo "::notice title=Agent Review Skipped::RELEASE_PAT not configured"
+          exit 0
+        fi
+        GH_TOKEN="$TOKEN" gh pr edit "$PR" --repo "$REPO" --add-reviewer "copilot[bot]" || {
+          echo "::warning title=Agent Review::failed to add Copilot as reviewer (continuing)"
+        }
+        echo "::notice title=Agent Review::Copilot requested on #$PR"

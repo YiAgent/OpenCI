@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr-agent-feedback.yml — @-mention an AI agent when their PR's CI fails.
+# ─────────────────────────────────────────────────────────────────────────────
+# Listens to pr.yml + ci.yml conclusions; when failure AND the PR was
+# opened by a known agent, post a sticky comment with a one-line
+# Claude-generated summary so the agent can fix in one round-trip.
+#
+# We use upsert-pr-comment with a per-sha marker so re-runs of the same
+# commit don't spam the PR.
+#
+# Security: PR fields (login, head ref) flow through identify-pr-agent
+# which only allow-lists known agent identifiers. Comment bodies are
+# constructed via env-vars + heredoc — never interpolated into shell.
+# ─────────────────────────────────────────────────────────────────────────────
+name: pr-agent-feedback
+
+on:
+  workflow_run:
+    workflows: [pr, ci]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: pr-agent-feedback-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  feedback:
+    name: PR Agent Feedback
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.pull_requests[0] != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          PR_NUM:   ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          json="$(gh api "repos/${REPO}/pulls/${PR_NUM}")"
+          login="$(jq -r '.user.login' <<<"$json")"
+          head="$(jq  -r '.head.ref'   <<<"$json")"
+          {
+            echo "login=$login"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: id
+        uses: ./actions/_common/identify-pr-agent
+        with:
+          pr-user-login: ${{ steps.pr.outputs.login }}
+          pr-head-ref:   ${{ steps.pr.outputs.head }}
+
+      - name: Stop when no agent
+        if: steps.id.outputs.agent-type == 'none'
+        run: echo "::notice title=PR Agent Feedback::regular human PR — no auto-feedback"
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        if: steps.id.outputs.agent-type != 'none'
+        id: gate
+        env:
+          K: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=PR Agent Feedback::ANTHROPIC_API_KEY missing — skipping summary"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: summary
+        if: steps.id.outputs.agent-type != 'none' && steps.gate.outputs.skip != 'true'
+        uses: ./actions/_common/summarize-failure
+        with:
+          run-id:            ${{ github.event.workflow_run.id }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Build comment body
+        if: steps.id.outputs.agent-type != 'none'
+        id: body
+        env:
+          AGENT:   ${{ steps.id.outputs.agent-type }}
+          SUMMARY: ${{ steps.summary.outputs.summary || 'CI failed — full logs in the run.' }}
+          JOBS:    ${{ steps.summary.outputs.failed-jobs || 'unknown' }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA:     ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) mention="@copilot-swe-agent" ;;
+            codex)   mention="@codex"             ;;
+            openci)  mention="@openci-bot"        ;;
+            *)       mention="@agent"             ;;
+          esac
+          body="$(cat <<EOF
+          <!-- agent-feedback:${SHA} -->
+          ${mention} CI failed on this PR.
+
+          **Failure summary:** ${SUMMARY}
+          **Failed jobs:** ${JOBS}
+          **Run:** ${RUN_URL}
+          EOF
+          )"
+          {
+            echo "body<<__OPENCI_EOF__"
+            echo "$body"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post / update sticky comment
+        if: steps.id.outputs.agent-type != 'none'
+        uses: ./actions/_common/upsert-pr-comment
+        with:
+          pr-number:    ${{ github.event.workflow_run.pull_requests[0].number }}
+          marker:       "<!-- agent-feedback:${{ github.event.workflow_run.head_sha }} -->"
+          body:         ${{ steps.body.outputs.body }}
+          github-token: ${{ github.token }}

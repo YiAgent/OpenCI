@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/canary-watch — 3σ-based post-deploy canary observer.
+# ─────────────────────────────────────────────────────────────────────────────
+# This atom focuses on the math (detect.sh). Caller fetches `current` and
+# `history` rates (typically from Sentry Stats v2 — see P2-15 for the
+# query shape) and hands them in via env or files.
+#
+# When REGRESSION_FAILS is "true", a 3σ deviation makes the atom exit 1.
+# Workflows that want auto-rollback should set REGRESSION_FAILS=true and
+# wire this atom's failure to invoke prd/auto-rollback.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Canary Watch
+description: 3σ canary detector over Sentry-derived error rates.
+
+inputs:
+  current-rate:
+    description: Current error rate (float, e.g. "0.012").
+    required: true
+  history-rates:
+    description: Newline-separated history rates. Empty → atom passes (no baseline yet).
+    required: false
+    default: ""
+  regression-fails:
+    description: When "true", a 3σ regression exits 1 (default advisory).
+    required: false
+    default: "false"
+
+outputs:
+  regression: { value: ${{ steps.run.outputs.regression }} }
+  threshold:  { value: ${{ steps.run.outputs.threshold }} }
+  mean:       { value: ${{ steps.run.outputs.mean }} }
+  stddev:     { value: ${{ steps.run.outputs.stddev }} }
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        CURRENT_RATE:      ${{ inputs.current-rate }}
+        HISTORY_RATES:     ${{ inputs.history-rates }}
+        REGRESSION_FAILS:  ${{ inputs.regression-fails }}
+      run: bash "${{ github.action_path }}/detect.sh"

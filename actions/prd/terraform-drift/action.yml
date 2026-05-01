@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd/terraform-drift — advisory drift check before deploy.
+# ─────────────────────────────────────────────────────────────────────────────
+# Skips silently when `infrastructure/` is absent. When present, runs
+# `terraform plan -refresh-only -detailed-exitcode`; exit 2 = drift, in
+# which case we open an advisory issue but never fail the deploy.
+#
+# STATUS: skeleton — hashicorp/setup-terraform SHA pending verification.
+# A consumer who already has terraform on the runner image can use this
+# atom directly today; otherwise wait on the SHA migration.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PRD · Terraform Drift
+description: Advisory drift check; never blocks deploy.
+
+inputs:
+  infra-dir:
+    description: Directory containing terraform config.
+    required: false
+    default: infrastructure
+  github-token:
+    description: GITHUB_TOKEN with issues:write.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Skip when no infra-dir
+      id: gate
+      shell: bash
+      env:
+        DIR: ${{ inputs.infra-dir }}
+      run: |
+        if [ ! -d "$DIR" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Terraform Drift Skipped::no $DIR/ dir"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: TODO — terraform plan -refresh-only
+      if: steps.gate.outputs.skip != 'true'
+      shell: bash
+      env:
+        DIR: ${{ inputs.infra-dir }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+      run: |
+        echo "::warning title=terraform-drift skeleton::hashicorp/setup-terraform SHA pending verification (manifest-pending.yml). Would run plan in $DIR."
+        # When verified:
+        # - uses: hashicorp/setup-terraform@<SHA>
+        # - run: |
+        #     cd "$DIR"
+        #     terraform init -backend=false
+        #     set +e
+        #     terraform plan -refresh-only -detailed-exitcode
+        #     code=$?
+        #     set -e
+        #     if [ "$code" = "2" ]; then
+        #       gh issue create --repo "$REPO" \
+        #         --title "infra-drift detected at $(date -u +%Y-%m-%d)" \
+        #         --label "infra-drift,priority:p2,ops-generated"
+        #     fi

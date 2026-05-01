@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg/agent-test — autonomous L1-L4 testing skeleton.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton. Each level has a different harness (curl + fuzzer for
+# L1, property-based testing tool for L2, browser automation for L4).
+# We pass the level to claude-harness which produces a finding JSON; the
+# real "exec the test" piece is consumer-specific. Findings land in
+# triage/agent-test/<level>.json for the reporter to pick up.
+# ─────────────────────────────────────────────────────────────────────────────
+name: STG · Agent Test
+description: Autonomous staging test (L1 schema fuzz / L2 property / L3 scenario / L4 browser).
+
+inputs:
+  level:        { required: true,  description: "1 | 2 | 3 | 4" }
+  health-url:   { required: true,  description: Staging health URL }
+  image-digest: { required: true,  description: Deployed image digest }
+  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
+
+runs:
+  using: composite
+  steps:
+    - id: ctx
+      shell: bash
+      env:
+        L:      ${{ inputs.level }}
+        URL:    ${{ inputs.health-url }}
+        DIGEST: ${{ inputs.image-digest }}
+      run: |
+        ctx="$(jq -nc \
+          --arg level "$L" \
+          --arg url   "$URL" \
+          --arg dig   "$DIGEST" \
+          '{level: ($level | tonumber), health_url: $url, image_digest: $dig}')"
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               stg/agent-test
+        context:            ${{ steps.ctx.outputs.context }}
+        max-turns:          "10"
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+
+    - name: Stage findings
+      shell: bash
+      env:
+        L: ${{ inputs.level }}
+        OUTPUT: ${{ steps.harness.outputs.result }}
+      run: |
+        mkdir -p triage/agent-test
+        printf '%s\n' "$OUTPUT" > "triage/agent-test/L${L}.json"
+        echo "::notice title=Agent Test Staged::level=$L"
+
+    - uses: ./actions/_common/gitleaks-artifact
+      with:
+        scan-path: triage/agent-test

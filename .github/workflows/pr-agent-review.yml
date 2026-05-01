@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr-agent-review.yml — request Copilot review on every new PR.
+# ─────────────────────────────────────────────────────────────────────────────
+name: pr-agent-review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: Request Copilot Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/pr/agent-review
+        with:
+          pr-number:   ${{ github.event.pull_request.number }}
+          release-pat: ${{ secrets.RELEASE_PAT }}

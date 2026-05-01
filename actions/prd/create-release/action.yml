@@ -15,11 +15,21 @@ inputs:
   github-token:
     description: GITHUB_TOKEN with `contents: write`.
     required: true
+  use-ai-changelog:
+    description: When "true" + ANTHROPIC_API_KEY is set, replace --generate-notes with an AI-written Keep a Changelog body.
+    required: false
+    default: "false"
+  anthropic-api-key:
+    description: ANTHROPIC_API_KEY (only required when use-ai-changelog=true).
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
-    - shell: bash
+    - name: Resolve version + previous tag
+      id: ver
+      shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         VERSION:  ${{ inputs.version }}
@@ -31,9 +41,68 @@ runs:
           echo "::error title=Create Release::No version supplied and ref_name is empty"
           exit 1
         fi
-        if gh release view "$ver" >/dev/null 2>&1; then
-          echo "::notice title=Release Exists::version=$ver — skipping create"
-          exit 0
+        prev="$(git tag --sort=-v:refname | grep -v "^${ver}$" | head -1 || true)"
+        echo "version=$ver"   >> "$GITHUB_OUTPUT"
+        echo "prev=$prev"     >> "$GITHUB_OUTPUT"
+
+    - name: Skip if release already exists
+      id: skip
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VER:      ${{ steps.ver.outputs.version }}
+      run: |
+        if gh release view "$VER" >/dev/null 2>&1; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Release Exists::version=$VER — skipping create"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
-        gh release create "$ver" --generate-notes --verify-tag --title "$ver"
-        echo "::notice title=Release Created::version=$ver"
+
+    - name: Build commit log (for AI changelog)
+      if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
+      id: log
+      shell: bash
+      env:
+        PREV: ${{ steps.ver.outputs.prev }}
+        VER:  ${{ steps.ver.outputs.version }}
+      run: |
+        set -euo pipefail
+        if [ -n "$PREV" ]; then
+          range="${PREV}..HEAD"
+        else
+          range="HEAD"
+        fi
+        commits="$(git log --no-merges --pretty=format:'%H%x09%s%x09%an' "$range" | head -200)"
+        ctx="$(jq -nc --arg v "$VER" --arg p "$PREV" --arg c "$commits" \
+          '{version:$v, previous_tag:$p, commits:$c}')"
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: ai
+      if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               agents/ai-changelog
+        context:            ${{ steps.log.outputs.context }}
+        max-turns:          "5"
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+
+    - name: Create release
+      if: steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VER:      ${{ steps.ver.outputs.version }}
+        AI_BODY:  ${{ steps.ai.outputs.result }}
+      run: |
+        set -euo pipefail
+        if [ -n "$AI_BODY" ]; then
+          gh release create "$VER" --verify-tag --title "$VER" --notes "$AI_BODY"
+        else
+          gh release create "$VER" --generate-notes --verify-tag --title "$VER"
+        fi
+        echo "::notice title=Release Created::version=$VER"

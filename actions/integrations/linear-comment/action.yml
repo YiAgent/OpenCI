@@ -1,0 +1,36 @@
+name: Linear Comment
+description: Post a comment to a Linear issue via GraphQL.
+
+inputs:
+  linear-token: { required: true, description: Linear API token }
+  issue-id:     { required: true, description: Linear issue UUID (NOT the AIC-123 id) }
+  body:         { required: true, description: Comment body }
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      timeout-minutes: 1
+      env:
+        TOKEN: ${{ inputs.linear-token }}
+        ID:    ${{ inputs.issue-id }}
+        BODY:  ${{ inputs.body }}
+      run: |
+        set -euo pipefail
+        # GraphQL mutation: commentCreate. We use jq -n to embed BODY safely.
+        payload="$(jq -nc \
+          --arg id   "$ID" \
+          --arg body "$BODY" \
+          '{
+             query: "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }",
+             variables: { input: { issueId: $id, body: $body } }
+           }')"
+        curl -sS --max-time 25 -X POST \
+          -H "Authorization: ${TOKEN}" \
+          -H "Content-Type: application/json" \
+          "https://api.linear.app/graphql" \
+          -d "$payload" >/dev/null || {
+            echo "::warning title=Linear Comment::POST failed (continuing)"
+            exit 0
+          }
+        echo "::notice title=Linear Comment::posted to $ID"

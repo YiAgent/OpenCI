@@ -1,0 +1,84 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/agent-test-gen — generate test scaffolds for newly-added code.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: scaffold. The atom prepares the diff context, calls
+# claude-harness, but does NOT push commits to the PR branch — the LLM
+# never holds repo write tokens. Instead, generated files land in
+# `triage/test-gen/` for a downstream "reporter" job to pick up after
+# `gitleaks-artifact` clears them. (See SPEC §P4-32 "Agent only-read,
+# Reporter only-write" rule.)
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Agent Test Gen
+description: Stage AI-generated test scaffolds (write-restricted; no auto-commit).
+
+inputs:
+  pr-number:    { required: true,  description: PR number }
+  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
+  github-token: { required: true,  description: GITHUB_TOKEN with read-only PR scope }
+  language:     { required: false, default: "", description: detect-language output }
+
+runs:
+  using: composite
+  steps:
+    - name: Read PR diff
+      id: diff
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        PR:       ${{ inputs.pr-number }}
+      run: |
+        set -euo pipefail
+        diff="$(gh api -H 'Accept: application/vnd.github.diff' "repos/${REPO}/pulls/${PR}")"
+        {
+          echo "diff<<__OPENCI_EOF__"
+          echo "$diff"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Build context
+      id: ctx
+      shell: bash
+      env:
+        DIFF:     ${{ steps.diff.outputs.diff }}
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        ctx="$(jq -nc \
+          --arg lang "$LANGUAGE" \
+          --arg diff "$DIFF" \
+          '{language:$lang, diff:$diff, existing_test_files:[]}')"
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               pr/test-gen
+        context:            ${{ steps.ctx.outputs.context }}
+        max-turns:          "8"
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+
+    - name: Stage generated files (no auto-commit)
+      shell: bash
+      env:
+        OUTPUT: ${{ steps.harness.outputs.result }}
+      run: |
+        set -euo pipefail
+        mkdir -p triage/test-gen
+        printf '%s\n' "$OUTPUT" > triage/test-gen/result.json
+        echo "::notice title=Test Gen Staged::triage/test-gen/result.json"
+
+    - name: Scan for leaks
+      uses: ./actions/_common/gitleaks-artifact
+      with:
+        scan-path: triage/test-gen
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: test-gen-output
+        path: triage/test-gen
+        retention-days: 7

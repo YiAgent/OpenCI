@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ops-flag-audit.yml — weekly feature-flag audit.
+# ─────────────────────────────────────────────────────────────────────────────
+# Cron: Monday 23:00 Beijing = UTC 15:00. Walks the codebase for flag
+# references, hands a summary to Claude, files a tech-debt issue.
+# ─────────────────────────────────────────────────────────────────────────────
+name: ops-flag-audit
+
+on:
+  schedule:
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ops-flag-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Flag Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/_common/flag-audit
+        with:
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

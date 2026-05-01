@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg/perf-baseline — record / compare performance against last baseline.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — Blackfire CLI wraps a paid SaaS. We provide the
+# scaffolding so consumers wire scenarios under `tests/perf/` and flip
+# `enforce-perf: true` once they have N weeks of baseline samples (per
+# SPEC §aicert #23).
+#
+# Soft-gate by default: `continue-on-error: true` is set on the calling
+# job in stg.yml; `enforce-perf=true` flips that off.
+# ─────────────────────────────────────────────────────────────────────────────
+name: STG · Perf Baseline
+description: Run performance scenarios; soft-gate by default.
+
+inputs:
+  perf-dir:
+    description: Directory with perf scenarios. Skipped when absent.
+    required: false
+    default: tests/perf
+  enforce-perf:
+    description: When true, regress >threshold fails the job.
+    required: false
+    default: "false"
+  regress-threshold-percent:
+    description: Maximum tolerated regression vs baseline.
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - name: Skip when perf-dir absent
+      id: gate
+      shell: bash
+      env:
+        DIR: ${{ inputs.perf-dir }}
+      run: |
+        if [ ! -d "$DIR" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Perf Baseline Skipped::no $DIR directory"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: TODO — run Blackfire (or alternative)
+      if: steps.gate.outputs.skip != 'true'
+      shell: bash
+      env:
+        ENFORCE: ${{ inputs.enforce-perf }}
+        THRESH:  ${{ inputs.regress-threshold-percent }}
+      run: |
+        echo "::warning title=perf-baseline skeleton::Blackfire integration not yet wired up. enforce=${ENFORCE} threshold=${THRESH}%"
+        # When wired:
+        # 1. Auth: blackfire client login --client-id "$BLACKFIRE_ID" --client-token "$BLACKFIRE_TOKEN"
+        # 2. Run scenarios: blackfire run -- node tests/perf/*.js
+        # 3. Compare to baseline; if regression > THRESH:
+        #    if [ "$ENFORCE" = "true" ]; then echo "::error..."; exit 1
+        #    else echo "::warning..."; fi

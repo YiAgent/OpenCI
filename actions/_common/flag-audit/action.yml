@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/flag-audit — collect flag-usage signals + AI report.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: scaffold — actual LaunchDarkly / PostHog API calls are
+# consumer-specific. We do the heavy lifting (code grep + AI synthesis)
+# and provide a slot to wire in the registry fetch.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Ops · Flag Audit
+description: Audit feature flags vs registry + code; file a tech-debt issue.
+
+inputs:
+  flag-pattern:
+    description: Grep pattern matching flag references in source.
+    required: false
+    default: "flag\\(['\"][^'\"]+['\"]"
+  github-token:    { required: true, description: GITHUB_TOKEN }
+  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
+
+runs:
+  using: composite
+  steps:
+    - name: Collect code flags
+      id: code
+      shell: bash
+      env:
+        PATTERN: ${{ inputs.flag-pattern }}
+      run: |
+        set -euo pipefail
+        # Best-effort grep across the checkout.
+        raw="$(grep -RhE "$PATTERN" . --include='*.ts' --include='*.tsx' \
+                --include='*.js' --include='*.jsx' --include='*.py' \
+                --include='*.go' 2>/dev/null \
+              | grep -oE "['\"][^'\"]+['\"]" \
+              | sort -u || true)"
+        flags="$(printf '%s\n' "$raw" | jq -R . | jq -s . 2>/dev/null || echo '[]')"
+        {
+          echo "flags<<__OPENCI_EOF__"
+          echo "$flags"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Build context (registry stub for now)
+      id: ctx
+      shell: bash
+      env:
+        FLAGS: ${{ steps.code.outputs.flags }}
+      run: |
+        set -euo pipefail
+        ctx="$(jq -nc \
+          --argjson code "$FLAGS" \
+          '{code_flags: $code, registry_flags: [], previously_open_audit_issues: []}')"
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               ops/flag-audit
+        context:            ${{ steps.ctx.outputs.context }}
+        max-turns:          "5"
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+
+    - name: File audit issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        BODY:     ${{ steps.harness.outputs.result }}
+      run: |
+        set -euo pipefail
+        if [ -z "$BODY" ]; then
+          echo "::warning title=Flag Audit::empty AI output; skipping issue"
+          exit 0
+        fi
+        title="Flag audit — $(date -u +%Y-%m-%d)"
+        gh issue create --repo "$REPO" --title "$title" --body "$BODY" \
+          --label "tech-debt,priority:p3,ops-generated"

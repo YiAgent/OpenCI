@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/docubot — answer @docubot questions in issues / PRs.
+# ─────────────────────────────────────────────────────────────────────────────
+# Reads the comment, loads README + SPEC tops, asks Claude for a cited
+# answer, posts the answer back as a comment. SPEC §P4-32: the bot only
+# READS the repo; comment posting goes through a small wrapper that the
+# workflow sets up with `issues: write`.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Docubot
+description: Reply to @docubot mentions with cited answers.
+
+inputs:
+  question:     { required: true, description: User's question (already-extracted) }
+  number:       { required: true, description: Issue / PR number }
+  github-token: { required: true, description: GITHUB_TOKEN with issues:write }
+  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
+
+runs:
+  using: composite
+  steps:
+    - name: Build context
+      id: ctx
+      shell: bash
+      env:
+        QUESTION: ${{ inputs.question }}
+      run: |
+        set -euo pipefail
+        readme=""
+        if [ -f README.md ]; then readme="$(head -200 README.md)"; fi
+        spec=""
+        if [ -f docs/SPEC.md ]; then spec="$(head -200 docs/SPEC.md)"; fi
+        ctx="$(jq -nc \
+          --arg q "$QUESTION" \
+          --arg r "$readme" \
+          --arg s "$spec" \
+          '{question: $q, readme: $r, spec: $s, additional_files: []}')"
+        {
+          echo "context<<__OPENCI_EOF__"
+          echo "$ctx"
+          echo "__OPENCI_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task:               agents/docubot
+        context:            ${{ steps.ctx.outputs.context }}
+        max-turns:          "5"
+        anthropic-api-key:  ${{ inputs.anthropic-api-key }}
+
+    - name: Post reply
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        NUM:      ${{ inputs.number }}
+        BODY:     ${{ steps.harness.outputs.result }}
+      run: |
+        if [ -z "$BODY" ]; then
+          echo "::warning title=Docubot::empty answer; not posting"
+          exit 0
+        fi
+        gh issue comment "$NUM" --repo "$REPO" --body "$BODY"

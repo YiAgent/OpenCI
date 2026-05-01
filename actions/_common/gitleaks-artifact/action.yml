@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/gitleaks-artifact — secret scan over a directory.
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by P4-32 reporters before they file LLM-generated content into
+# issues. Any leak in the scanned directory is a hard fail — we never
+# accept the LLM's promise that it didn't paste a key by accident.
+# We install the binary directly (registry-pinned), bypassing the
+# manifest-pending entry for `gitleaks/gitleaks-action`.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Gitleaks Artifact Scan
+description: Run gitleaks against a target directory; fail on any finding.
+
+inputs:
+  scan-path:
+    description: Directory to scan (default `triage`).
+    required: false
+    default: triage
+  config-path:
+    description: Path to .gitleaks.toml (default repo root).
+    required: false
+    default: .gitleaks.toml
+  gitleaks-version:
+    description: Pinned binary version.
+    required: false
+    default: "8.18.0"
+
+runs:
+  using: composite
+  steps:
+    - name: Install gitleaks
+      shell: bash
+      env:
+        VERSION: ${{ inputs.gitleaks-version }}
+      run: |
+        set -euo pipefail
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks version
+          exit 0
+        fi
+        os="$(uname -s | tr '[:upper:]' '[:lower:]')"   # linux / darwin
+        arch="$(uname -m)"
+        case "$arch" in x86_64) arch="x64";; aarch64|arm64) arch="arm64";; esac
+        url="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_${os}_${arch}.tar.gz"
+        tmp="$(mktemp -d)"
+        curl -sSL --max-time 60 "$url" -o "${tmp}/g.tgz"
+        tar -xzf "${tmp}/g.tgz" -C "$tmp"
+        sudo install -m 0755 "${tmp}/gitleaks" /usr/local/bin/gitleaks
+        gitleaks version
+
+    - name: Scan
+      shell: bash
+      env:
+        SCAN_PATH:   ${{ inputs.scan-path }}
+        CONFIG_PATH: ${{ inputs.config-path }}
+      run: |
+        set -euo pipefail
+        if [ ! -d "$SCAN_PATH" ]; then
+          echo "::notice title=Gitleaks Skipped::scan path '$SCAN_PATH' does not exist"
+          exit 0
+        fi
+        cfg_args=()
+        [ -f "$CONFIG_PATH" ] && cfg_args+=( --config "$CONFIG_PATH" )
+
+        # `--no-git`: scan the directory tree as files, not a repo.
+        # Exit 0 = clean; Exit 1 = leaks found; Exit 2 = error.
+        gitleaks detect --no-git --source "$SCAN_PATH" --redact "${cfg_args[@]}"
+        echo "::notice title=Gitleaks OK::scan_path=$SCAN_PATH"

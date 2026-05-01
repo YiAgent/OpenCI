@@ -116,9 +116,30 @@ jobs:
           coverage-threshold: ${{ vars.STG_COVERAGE_THRESHOLD || '60' }}
           mode:               stg
 
+  perf-baseline:
+    name: Perf Baseline
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # Soft-gate: never blocks the deploy. Flip enforce-perf to "true" via
+    # repo var once you have a stable baseline (SPEC §aicert #23).
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/stg/perf-baseline
+        with:
+          perf-dir:                  ${{ vars.PERF_DIR              || 'tests/perf' }}
+          enforce-perf:              ${{ vars.ENFORCE_PERF          || 'false' }}
+          regress-threshold-percent: ${{ vars.PERF_REGRESS_THRESHOLD || '30' }}
+
   deploy-k8s:
     name: Deploy K8s
-    needs: [preflight, coverage-gate]
+    needs: [preflight, coverage-gate, perf-baseline]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
