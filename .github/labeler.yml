@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .github/labeler.yml — actions/labeler config (path → label).
+# ─────────────────────────────────────────────────────────────────────────────
+# Keep label names stable: downstream tools (auto-triage, codeowners
+# fallback, release-drafter categories) match on the exact strings.
+#
+# Each label maps to a list of changed-files predicates. See
+# https://github.com/actions/labeler for the full DSL.
+# ─────────────────────────────────────────────────────────────────────────────
+
+"area:frontend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "frontend/**"
+          - "**/*.tsx"
+          - "**/*.jsx"
+
+"area:backend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/**"
+          - "server/**"
+          - "api/**"
+
+"area:ai":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "prompts/**"
+          - "agents/**"
+          - "actions/**/claude-harness/**"
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
+          - "**/*.mdx"
+          - "**/*.rst"
+
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "actions/**"
+          - "tests/**"
+          - "manifest.yml"
+          - "manifest-pending.yml"
+
+"area:infra":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "infra/**"
+          - "k8s/**"
+          - "Dockerfile"
+          - "docker-compose*.yml"
+
+"deps":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "package.json"
+          - "package-lock.json"
+          - "pnpm-lock.yaml"
+          - "yarn.lock"
+          - "pyproject.toml"
+          - "uv.lock"
+          - "go.mod"
+          - "go.sum"
+          - "pom.xml"
+          - "build.gradle*"

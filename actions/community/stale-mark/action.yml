@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# community/stale-mark — pure-shell stale-marker (independent of stale-org/stale).
+# ─────────────────────────────────────────────────────────────────────────────
+# We deliberately avoid stale-org/stale's SHA dependency for now: it's
+# still in manifest-pending.yml. A pure-shell implementation gives us
+# control over exemption labels and keeps the test surface small.
+#
+# Behaviour: lists open issues / PRs older than `stale-days`, posts a
+# "this is going stale" comment, and labels them `stale`. Items already
+# labelled `stale`, or carrying any exempt label, are skipped.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Community · Stale Mark
+description: Mark inactive issues / PRs as stale.
+
+inputs:
+  resource:        { required: true, description: "issues | pulls" }
+  stale-days:      { required: true, description: "Days of inactivity before marking" }
+  exempt-labels:   { required: false, default: "pinned,security,help-wanted,priority:p0,priority:p1,wip", description: "Comma-separated labels that prevent staling" }
+  stale-message:   { required: false, default: "This has been inactive for a while and is going stale. Comment to keep it open.", description: "Comment to post" }
+  github-token:    { required: true, description: GITHUB_TOKEN with issues:write }
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN:      ${{ inputs.github-token }}
+        REPO:          ${{ github.repository }}
+        RESOURCE:      ${{ inputs.resource }}
+        STALE_DAYS:    ${{ inputs.stale-days }}
+        EXEMPT_LABELS: ${{ inputs.exempt-labels }}
+        MESSAGE:       ${{ inputs.stale-message }}
+      run: |
+        set -euo pipefail
+        cutoff_epoch="$(( $(date -u +%s) - STALE_DAYS * 86400 ))"
+
+        # Collect candidates (open, no `stale` label).
+        endpoint="repos/${REPO}/${RESOURCE}"
+        page=1
+        marked=0
+        while :; do
+          batch="$(gh api -X GET "${endpoint}?state=open&per_page=100&page=${page}&sort=updated&direction=asc" 2>/dev/null || echo '[]')"
+          count="$(jq 'length' <<<"$batch")"
+          [ "$count" = "0" ] && break
+
+          while IFS= read -r row; do
+            num="$(jq -r '.number'      <<<"$row")"
+            updated="$(jq -r '.updated_at' <<<"$row")"
+            labels="$(jq -r '.labels[].name' <<<"$row" | tr '\n' ',' | sed 's/,$//')"
+
+            # Skip already-stale.
+            case ",$labels," in *",stale,"*) continue ;; esac
+
+            # Skip exempt.
+            IFS=',' read -ra exempt_arr <<<"$EXEMPT_LABELS"
+            skip=0
+            for e in "${exempt_arr[@]}"; do
+              e="$(printf '%s' "$e" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+              [ -z "$e" ] && continue
+              case ",$labels," in *",${e},"*) skip=1; break ;; esac
+            done
+            [ "$skip" = "1" ] && continue
+
+            # Compare update time.
+            if up_epoch="$(date -u -d "$updated" +%s 2>/dev/null)"; then :;
+            elif up_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$updated" +%s 2>/dev/null)"; then :;
+            else continue; fi
+
+            if [ "$up_epoch" -lt "$cutoff_epoch" ]; then
+              gh issue comment "$num" --repo "$REPO" --body "$MESSAGE" >/dev/null 2>&1 || true
+              gh issue edit    "$num" --repo "$REPO" --add-label "stale" >/dev/null 2>&1 || true
+              marked=$((marked + 1))
+            fi
+          done < <(jq -c '.[]' <<<"$batch")
+
+          [ "$count" -lt "100" ] && break
+          page=$((page + 1))
+        done
+        echo "::notice title=Stale Marked::resource=$RESOURCE count=$marked"

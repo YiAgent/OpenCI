@@ -1,0 +1,26 @@
+name: Issue · Parse Command
+description: Extract slash command + args + authorization decision from comment body.
+
+inputs:
+  comment-body:
+    required: true
+    description: Comment body (raw).
+  author-association:
+    required: false
+    default: NONE
+    description: github.event.comment.author_association.
+
+outputs:
+  command:    { value: ${{ steps.parse.outputs.command }} }
+  args:       { value: ${{ steps.parse.outputs.args }} }
+  authorized: { value: ${{ steps.parse.outputs.authorized }} }
+
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      env:
+        COMMENT_BODY: ${{ inputs.comment-body }}
+        AUTHOR_ASSOC: ${{ inputs.author-association }}
+      run: bash "${{ github.action_path }}/parse.sh"

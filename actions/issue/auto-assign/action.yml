@@ -1,0 +1,33 @@
+name: Issue · Auto Assign
+description: Assign the issue based on CODEOWNERS + area label (best-effort).
+
+inputs:
+  issue-number: { required: true, description: Issue number }
+  area-label:   { required: false, default: "", description: "area:* label (e.g. area:frontend)" }
+  github-token: { required: true, description: GITHUB_TOKEN with issues:write }
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        NUM:      ${{ inputs.issue-number }}
+        AREA:     ${{ inputs.area-label }}
+      run: |
+        set -euo pipefail
+        # Heuristic mapping area:* → CODEOWNERS path → first owner.
+        # Real implementation parses .github/CODEOWNERS; here we keep it
+        # tight: read the first owner of `*` (default).
+        if [ ! -f .github/CODEOWNERS ]; then
+          echo "::notice title=Auto Assign::no CODEOWNERS; skipping"
+          exit 0
+        fi
+        owner="$(grep -E '^\*[[:space:]]+@' .github/CODEOWNERS | head -1 | awk '{print $2}' | sed 's/^@//')"
+        if [ -z "$owner" ]; then
+          echo "::notice title=Auto Assign::no default owner found"
+          exit 0
+        fi
+        gh issue edit "$NUM" --repo "$REPO" --add-assignee "$owner" || true
+        echo "::notice title=Auto Assign::number=$NUM assignee=$owner area=${AREA:-unknown}"

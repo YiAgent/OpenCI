@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/auto-label — wrap actions/labeler with the OpenCI defaults.
+# ─────────────────────────────────────────────────────────────────────────────
+# Caller passes a path to the consumer's labeler config; default points
+# at OpenCI's own .github/labeler.yml so consumers can adopt our taxonomy
+# directly when forking.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Auto Label
+description: Apply path-based labels to a PR.
+
+inputs:
+  configuration-path:
+    description: Path to the labeler config in the consumer repo.
+    required: false
+    default: .github/labeler.yml
+  sync-labels:
+    description: Remove labels that no longer match the changed-files set.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/labeler@6570a1fa0235bf4a1e8a9f2f62d7e35e5cce0300  # v5.0.0
+      with:
+        configuration-path: ${{ inputs.configuration-path }}
+        sync-labels:        ${{ inputs.sync-labels }}

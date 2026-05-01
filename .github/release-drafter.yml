@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# release-drafter.yml — auto-generate release notes from merged PR labels.
+# ─────────────────────────────────────────────────────────────────────────────
+# Notes: hotfix / skip-changelog labelled PRs are excluded from the main
+# changelog list (SPEC §22). Hotfixes still get acknowledged through the
+# git tag mechanism — they just don't pollute the headline list.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name-template: "v$RESOLVED_VERSION"
+tag-template:  "v$RESOLVED_VERSION"
+
+categories:
+  - title: 🚀 Features
+    labels: [feat, feature, enhancement]
+  - title: 🐛 Fixes
+    labels: [fix, bug, bugfix]
+  - title: 🔒 Security
+    labels: [security]
+  - title: 📚 Docs
+    labels: [docs, documentation]
+  - title: 🧰 Maintenance
+    labels: [chore, refactor, perf, ci, build, style, test]
+
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels: [breaking-change, major]
+  minor:
+    labels: [feat, feature, minor]
+  patch:
+    labels: [fix, bug, chore, docs, refactor, perf, ci, build, style, test, patch]
+  default: patch
+
+exclude-labels:
+  - hotfix
+  - skip-changelog
+  - dependencies
+
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

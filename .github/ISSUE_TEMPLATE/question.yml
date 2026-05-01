@@ -1,0 +1,22 @@
+name: Question
+description: Quick how-do-I question. (Prefer Discussions for open-ended discussion.)
+title: "question: <short summary>"
+labels: ["type:question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For open-ended discussion (architecture, "should we…?"), please use
+        [Discussions](https://github.com/YiWang24/OpenCI/discussions). Issues
+        are for actionable items.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What did you try?
+      description: Saves us asking; helps you find the answer faster too.

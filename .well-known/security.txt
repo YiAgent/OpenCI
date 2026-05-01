@@ -1,0 +1,10 @@
+# RFC 9116 — security.txt for OpenCI
+# See https://securitytxt.org
+
+Contact: https://github.com/YiWang24/OpenCI/security/advisories/new
+Contact: mailto:security@example.com
+Expires: 2027-05-01T00:00:00Z
+Preferred-Languages: en, zh
+Policy: https://github.com/YiWang24/OpenCI/blob/main/SECURITY.md
+Acknowledgments: https://github.com/YiWang24/OpenCI/security/advisories
+Canonical: https://raw.githubusercontent.com/YiWang24/OpenCI/main/.well-known/security.txt

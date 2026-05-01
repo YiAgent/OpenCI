@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/load-doppler — load Doppler secrets into $GITHUB_ENV (graceful-skip).
+# ─────────────────────────────────────────────────────────────────────────────
+# Doppler CLI is installed via the official one-line installer (registry-
+# pinned, no GitHub Actions side). When DOPPLER_TOKEN is unset the atom
+# emits a `::notice` and exits 0.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Load Doppler
+description: Pull Doppler secrets into the workflow env (skip when DOPPLER_TOKEN unset).
+
+inputs:
+  config:
+    description: Doppler config name (e.g. dev | stg | prd).
+    required: true
+  project:
+    description: Doppler project name. Empty → take from doppler.yaml.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check token
+      id: check
+      shell: bash
+      run: |
+        if [ -z "${DOPPLER_TOKEN:-}" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Doppler Skipped::DOPPLER_TOKEN not configured, graceful skip"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install Doppler CLI
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v doppler >/dev/null 2>&1; then
+          curl -sSL --max-time 30 https://cli.doppler.com/install.sh \
+            | sudo sh -s -- --no-package-manager
+        fi
+        doppler --version
+
+    - name: Pull secrets into env
+      if: steps.check.outputs.skip != 'true'
+      shell: bash
+      env:
+        CONFIG:  ${{ inputs.config }}
+        PROJECT: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+        args=( "secrets" "download" "--no-file" "--format" "docker" "--config" "$CONFIG" )
+        if [ -n "$PROJECT" ]; then args+=( "--project" "$PROJECT" ); fi
+        # `--format docker` outputs `KEY=value` per line — same shape as
+        # GitHub Actions' env-file format, so we just append.
+        loaded=0
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          name="${line%%=*}"
+          # Mask the value before exporting so it doesn't appear in logs.
+          value="${line#*=}"
+          echo "::add-mask::$value"
+          printf '%s\n' "$line" >> "$GITHUB_ENV"
+          loaded=$((loaded + 1))
+        done < <(doppler "${args[@]}")
+        echo "::notice title=Doppler Loaded::config=$CONFIG vars=$loaded"

@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# community.yml — first-contributor welcome on issue / PR open.
+# ─────────────────────────────────────────────────────────────────────────────
+# Only fires on FIRST_TIME_CONTRIBUTOR association so existing maintainers
+# don't get spammed.
+#
+# Security: we never inline issue/PR titles into shell. The
+# welcome-contributor atom posts a static markdown blob via gh CLI.
+# ─────────────────────────────────────────────────────────────────────────────
+name: community
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions: {}
+
+concurrency:
+  group: community-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  welcome-issue:
+    name: Welcome (issue)
+    if: github.event_name == 'issues' && github.event.issue.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/issue/welcome-contributor
+        with:
+          number:          ${{ github.event.issue.number }}
+          is-pull-request: "false"
+          github-token:    ${{ github.token }}
+
+  welcome-pr:
+    name: Welcome (PR)
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/issue/welcome-contributor
+        with:
+          number:          ${{ github.event.pull_request.number }}
+          is-pull-request: "true"
+          github-token:    ${{ github.token }}

@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .github/ISSUE_TEMPLATE/config.yml — disable blank issues + add side links.
+# ─────────────────────────────────────────────────────────────────────────────
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/YiWang24/OpenCI/discussions
+    about: 提问 / 讨论想法请用 Discussions,而不是 Issues。
+  - name: Security advisories
+    url: https://github.com/YiWang24/OpenCI/security/advisories/new
+    about: 发现安全漏洞?走私下渠道,不要公开 issue。

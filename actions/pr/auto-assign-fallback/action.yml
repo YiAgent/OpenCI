@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/auto-assign-fallback — round-robin fallback when CODEOWNERS leaves PR
+# without a reviewer.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — kentaro/auto-assign-action SHA pending verification
+# (manifest-pending.yml). Until verified the atom logs a notice listing
+# the would-be reviewer choice from .github/auto-assign.yml.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Auto Assign (fallback)
+description: Round-robin reviewer when CODEOWNERS doesn't apply.
+
+inputs:
+  config-path:
+    description: Path to auto-assign config.
+    required: false
+    default: .github/auto-assign.yml
+
+runs:
+  using: composite
+  steps:
+    - name: TODO — invoke kentaro/auto-assign-action
+      shell: bash
+      env:
+        CFG: ${{ inputs.config-path }}
+      run: |
+        echo "::warning title=auto-assign-fallback skeleton::SHA pending verification (manifest-pending.yml: kentaro/auto-assign-action). Config=${CFG}"
+        # When verified:
+        # - uses: kentaro/auto-assign-action@<VERIFIED_SHA>
+        #   with:
+        #     configuration-path: ${{ inputs.config-path }}

@@ -116,6 +116,39 @@ jobs:
             bash actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
           fi
 
+  auto-label:
+    name: Auto Label
+    needs: preflight
+    if: github.event.pull_request != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/pr/auto-label
+
+  auto-assign-fallback:
+    name: Auto Assign (fallback)
+    needs: preflight
+    # Only when CODEOWNERS hasn't already populated reviewers.
+    if: github.event.pull_request != null && length(github.event.pull_request.requested_reviewers) == 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/pr/auto-assign-fallback
+
   validate-pr-title:
     name: Validate PR Title
     needs: preflight

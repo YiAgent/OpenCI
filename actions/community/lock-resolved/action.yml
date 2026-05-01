@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# community/lock-resolved — lock comments on issues closed > N days ago.
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: skeleton — dessant/lock-threads is in manifest-pending.yml.
+# Until verified, the atom emits a notice listing what it would lock.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Community · Lock Resolved
+description: Lock comments on issues / PRs closed beyond a threshold.
+
+inputs:
+  days-since-close: { required: false, default: "30", description: "Lock items closed at least this many days ago" }
+  github-token:     { required: true,  description: GITHUB_TOKEN }
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        DAYS:     ${{ inputs.days-since-close }}
+      run: |
+        set -euo pipefail
+        echo "::warning title=lock-resolved skeleton::dessant/lock-threads SHA pending verification (manifest-pending.yml). Would lock items closed > ${DAYS} days ago in ${REPO}."
+        # When verified:
+        # - uses: dessant/lock-threads@<VERIFIED_SHA>
+        #   with:
+        #     issue-inactive-days: ${{ inputs.days-since-close }}
+        #     pr-inactive-days:    ${{ inputs.days-since-close }}

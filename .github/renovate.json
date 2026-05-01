@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":pinAllExceptPeerDependencies",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "schedule": ["before 6am on monday"],
+  "labels": ["deps", "renovate"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 8,
+  "rangeStrategy": "pin",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security", "deps"],
+    "addLabels": ["security"],
+    "schedule": []
+  },
+  "github-actions": {
+    "pinDigests": true,
+    "fileMatch": [
+      "^\\.github/workflows/.+\\.ya?ml$",
+      "^actions/.+/action\\.ya?ml$"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Patch + digest updates auto-merge once CI is green.",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "addLabels": ["patch"]
+    },
+    {
+      "description": "Minor updates need human eyes (might change behaviour).",
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "addLabels": ["minor"]
+    },
+    {
+      "description": "Major updates always need human review.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["breaking-change", "major"]
+    },
+    {
+      "description": "Group GitHub Actions updates into a single PR per ecosystem.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ],
+  "ignoreDeps": []
+}

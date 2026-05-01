@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# issue.yml — issue lifecycle on opened (label / triage / dedupe / assign).
+# ─────────────────────────────────────────────────────────────────────────────
+# Each downstream atom is independent; failures don't cascade. AI triage
+# only runs when ANTHROPIC_API_KEY is configured (graceful skip).
+#
+# Security: untrusted PR fields (issue title/body) are forwarded as
+# composite inputs only; the atoms internally hand them to env: vars and
+# never interpolate into shell.
+# ─────────────────────────────────────────────────────────────────────────────
+name: issue
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  workflow_call:
+    secrets:
+      anthropic-api-key:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-label:
+    name: Auto Label
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/issue/auto-label
+        with:
+          issue-body:   ${{ github.event.issue.body }}
+          issue-title:  ${{ github.event.issue.title }}
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ github.token }}
+
+  detect-duplicates:
+    name: Detect Duplicates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/issue/detect-duplicates
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          issue-title:  ${{ github.event.issue.title }}
+          github-token: ${{ github.token }}
+
+  ai-triage:
+    name: AI Triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AI Triage Skipped::ANTHROPIC_API_KEY not configured"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./actions/issue/ai-triage
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          issue-number:      ${{ github.event.issue.number }}
+          issue-title:       ${{ github.event.issue.title }}
+          issue-body:        ${{ github.event.issue.body }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          github-token:      ${{ github.token }}
+
+  auto-assign:
+    name: Auto Assign
+    needs: auto-label
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/issue/auto-assign
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ github.token }}

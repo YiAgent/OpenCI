@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a new capability or enhancement.
+title: "feat: <short summary>"
+labels: ["type:feature"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - frontend
+        - backend
+        - ai
+        - ci
+        - docs
+        - infra
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's the user-visible pain you're trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - small (1 day or less)
+        - medium (~1 week)
+        - large (multi-week / cross-cutting)
+    validations:
+      required: true

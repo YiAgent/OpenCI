@@ -1,0 +1,72 @@
+name: Bug report
+description: Reproducible bug, regression, or unexpected behaviour.
+title: "bug: <short summary>"
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please fill in every field — partial reports get bounced to `needs-info` and slow everyone down.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - frontend
+        - backend
+        - ai
+        - ci
+        - docs
+        - infra
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - blocker (production outage / data loss)
+        - high (cannot ship feature)
+        - medium (workaround exists)
+        - low (cosmetic / annoyance)
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What's broken?
+      description: One paragraph. Lead with what stopped working.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list. Include exact commands / inputs / configs.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Logs, screenshots, error annotations.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenCI ref
+      description: "Tag / branch / commit you reproduced against (e.g. `v1.7` or `main@abc1234`)."
+    validations:
+      required: true

@@ -1,0 +1,27 @@
+name: Security report (DON'T FILE — see SECURITY.md)
+description: Stop! Public security reports give attackers a head start.
+title: "DO NOT FILE — use private vulnerability reporting"
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Stop. Don't open this issue.
+
+        Security vulnerabilities must go through the **private** channel
+        documented in [SECURITY.md](https://github.com/YiWang24/OpenCI/blob/main/SECURITY.md):
+
+        - GitHub private vulnerability reporting:
+          <https://github.com/YiWang24/OpenCI/security/advisories/new>
+        - Email: see SECURITY.md
+
+        Filing here would publicly disclose the issue before a fix
+        exists — please close this draft and use the channels above.
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Acknowledgement
+      description: This template is intentionally a dead end.
+      options:
+        - label: I understand and will use the private channel instead.
+          required: true

@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .github/auto-assign.yml — kentaro/auto-assign-action config (FALLBACK).
+# ─────────────────────────────────────────────────────────────────────────────
+# CODEOWNERS is the primary reviewer mechanism (see .github/CODEOWNERS).
+# This file only applies when CODEOWNERS leaves a PR unassigned — its
+# reviewer pool intentionally EXCLUDES anyone already in CODEOWNERS so
+# we don't double-assign.
+#
+# Consumers forking OpenCI: replace the placeholder usernames with your
+# own. Don't ship a public repo with our defaults.
+# ─────────────────────────────────────────────────────────────────────────────
+
+addReviewers: true
+addAssignees: false           # author already self-assigns; reviewer is what matters
+numberOfReviewers: 1
+
+# Round-robin pool. Anyone here MUST NOT also be in CODEOWNERS for the
+# same path, or GitHub will request review from them twice.
+reviewers:
+  - YiWang24
+  # Add backup reviewers here once the team grows past one maintainer.
+
+# Skip auto-assignment entirely when one of these labels exists.
+skipKeywords:
+  - wip
+  - draft
+  - skip-review

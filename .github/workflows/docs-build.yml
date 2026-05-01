@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docs-build.yml — validate doc PRs (link check + build).
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggered only when docs/** or *.md changed, so it stays out of the way
+# on code-only PRs. Build command is consumer-supplied via input — we
+# default to skipping the build and only running the link check, which
+# always works for plain-markdown repos.
+# ─────────────────────────────────────────────────────────────────────────────
+name: docs-build
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "*.md"
+  workflow_call:
+    inputs:
+      build-cmd:
+        type: string
+        required: false
+        default: ""
+      docs-dir:
+        type: string
+        required: false
+        default: docs
+
+permissions: {}
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Build (consumer-supplied or skip)
+        shell: bash
+        env:
+          CMD: ${{ inputs.build-cmd }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CMD" ]; then
+            echo "::notice title=Docs Build Skipped::no build-cmd provided; running link check only"
+            exit 0
+          fi
+          echo "::notice title=Docs Build::cmd=${CMD}"
+          bash -c "$CMD"
+
+      - name: Markdown link check
+        shell: bash
+        env:
+          DOCS_DIR: ${{ inputs.docs-dir || 'docs' }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/mlc-config.json <<'JSON'
+          {
+            "ignorePatterns": [
+              { "pattern": "^http://does-not-exist" },
+              { "pattern": "^http://localhost" }
+            ],
+            "timeout": "10s",
+            "retryOn429": true,
+            "retryCount": 2,
+            "fallbackRetryDelay": "30s"
+          }
+          JSON
+          # markdown-link-check is a small npm package; pinning via npm
+          # registry version is sufficient — it has no GitHub Actions side.
+          npx --yes markdown-link-check@3.13.6 \
+            "${DOCS_DIR}/**/*.md" \
+            -q -p \
+            --config /tmp/mlc-config.json

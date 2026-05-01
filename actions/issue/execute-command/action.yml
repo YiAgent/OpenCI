@@ -1,0 +1,79 @@
+name: Issue · Execute Command
+description: Apply a parsed slash command (assumes parse-command already authorised it).
+
+inputs:
+  command:      { required: true, description: Command name (assign / label / close / etc.) }
+  args:         { required: false, default: "", description: Whitespace-tokenised args }
+  authorized:   { required: true, description: "true | false" }
+  issue-number: { required: true, description: Issue number }
+  github-token: { required: true, description: GITHUB_TOKEN }
+
+runs:
+  using: composite
+  steps:
+    - name: Execute
+      shell: bash
+      env:
+        GH_TOKEN:   ${{ inputs.github-token }}
+        REPO:       ${{ github.repository }}
+        NUM:        ${{ inputs.issue-number }}
+        CMD:        ${{ inputs.command }}
+        ARGS:       ${{ inputs.args }}
+        AUTHORIZED: ${{ inputs.authorized }}
+      run: |
+        set -euo pipefail
+        if [ "$AUTHORIZED" != "true" ]; then
+          # parse-command already emitted a notice; just exit 0 so workflow stays green.
+          exit 0
+        fi
+
+        case "$CMD" in
+          help)
+            help_md=$'**Slash commands**\n- `/assign @user`\n- `/unassign`\n- `/label <name>`\n- `/unlabel <name>`\n- `/priority p0|p1|p2|p3`\n- `/close` `/reopen`\n- `/duplicate #N`\n- `/needs-info`\n- `/triage`\n- `/help`'
+            gh issue comment "$NUM" --repo "$REPO" --body "$help_md"
+            ;;
+          assign)
+            user="${ARGS#@}"
+            [ -z "$user" ] && { echo "::warning::/assign needs @user"; exit 0; }
+            gh issue edit "$NUM" --repo "$REPO" --add-assignee "$user"
+            ;;
+          unassign)
+            # Remove the comment author to keep it intuitive (`/unassign` clears self).
+            actor="${GITHUB_ACTOR:-$user}"
+            gh issue edit "$NUM" --repo "$REPO" --remove-assignee "${actor:-_}"
+            ;;
+          label)
+            [ -z "$ARGS" ] && { echo "::warning::/label needs a name"; exit 0; }
+            gh issue edit "$NUM" --repo "$REPO" --add-label "$ARGS"
+            ;;
+          unlabel)
+            [ -z "$ARGS" ] && { echo "::warning::/unlabel needs a name"; exit 0; }
+            gh issue edit "$NUM" --repo "$REPO" --remove-label "$ARGS"
+            ;;
+          priority)
+            case "$ARGS" in p0|p1|p2|p3) ;; *) echo "::warning::/priority must be p0..p3"; exit 0;; esac
+            # Remove existing priority labels first.
+            for p in p0 p1 p2 p3; do
+              gh issue edit "$NUM" --repo "$REPO" --remove-label "priority:$p" >/dev/null 2>&1 || true
+            done
+            gh issue edit "$NUM" --repo "$REPO" --add-label "priority:$ARGS"
+            ;;
+          close)    gh issue close   "$NUM" --repo "$REPO" ;;
+          reopen)   gh issue reopen  "$NUM" --repo "$REPO" ;;
+          duplicate)
+            ref="${ARGS#\#}"
+            gh issue edit "$NUM" --repo "$REPO" --add-label "duplicate"
+            gh issue close "$NUM" --repo "$REPO" --comment "Duplicate of #$ref"
+            ;;
+          needs-info)
+            gh issue edit "$NUM" --repo "$REPO" --add-label "needs-info"
+            gh issue comment "$NUM" --repo "$REPO" --body "We need a bit more information to act on this — please update the issue with the missing details. (Auto-tagged \`needs-info\`.)"
+            ;;
+          triage)
+            gh issue edit "$NUM" --repo "$REPO" --add-label "triage"
+            ;;
+          *)
+            echo "::warning title=Execute Command::unrecognised cmd=$CMD"
+            ;;
+        esac
+        echo "::notice title=Slash Command Executed::cmd=$CMD args=$ARGS"
