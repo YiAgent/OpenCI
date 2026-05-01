@@ -37,6 +37,10 @@ on:
         type: string
         required: false
         default: "anthropic"
+    secrets:
+      api-key:
+        description: "API key (Anthropic API key or GLM/GPT API key)"
+        required: true
     outputs:
       result:
         description: "AI output content"
@@ -44,10 +48,6 @@ on:
       comment-id:
         description: "GitHub comment ID (for sticky updates)"
         value: ${{ jobs.ai.outputs.comment-id }}
-    secrets:
-      api-key:
-        description: "API key (Anthropic API key or GLM/GPT API key)"
-        required: true
 
 permissions:
   contents: read
