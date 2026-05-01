@@ -1327,3 +1327,660 @@ repos:
 ```
 
 目标仓库不需要做任何配置变更。跨 repo 访问通过 fine-grained PAT 实现，该 PAT 只需 `actions:read` + `metadata:read` 权限。
+
+---
+
+## v2 架构：四层分离
+
+> 以下章节（十五~二十）是 v2 架构增量。v1 内容（一~十四）保留作为实现细节参考。
+
+---
+
+## 十五、四层架构
+
+### 15.1 为什么从三层变四层
+
+v1 的三层（采集→决策→合成）把数据拉取、计算、状态管理、输出混在同一个 action 里。四层分离让每层独立可测，符合 OpenCI 的调用层级单向原则。
+
+### 15.2 目录结构
+
+```
+actions/observability/
+  sources/                      # 数据源:只负责"拉"
+    query-sentry/               # Sentry 错误数据 → JSON
+    query-datadog/              # Datadog 指标 → JSON
+    query-posthog/              # PostHog 分析 → JSON
+    query-langsmith/            # LangSmith LLM 数据 → JSON
+    query-axiom/                # Axiom 日志 → JSON
+    query-github-actions/       # CI 运行数据 → JSON ← 封装 gh CLI（~20 行 shell）
+
+  analyzers/                    # 分析器:纯计算,零 IO（除 state 读）
+    compute-trends/             # DORA 三件套覆盖 60%,flakiness/MTTR 自实现
+    match-known-patterns/       # 正则模式匹配（免费）← 自实现（grep -E）
+    compute-flakiness/          # Flaky 度计算 ← 自实现
+    compute-mttr/               # 平均故障恢复时长（新增）← 自实现
+    classify-failure/           # AI 分类（最后手段,四层递进）← 自实现 + claude-harness
+
+  state/                        # 持久化基础设施
+    read-state/                 # 封装 actions/cache（快速路径）+ _state 分支回源（新增）
+    write-state/                # 封装 EndBug/add-and-commit（持久路径）+ actions/cache（缓存路径）
+
+  publishers/                   # 输出渠道
+    post-issue-report/          # 封装 peter-evans/create-issue-from-file
+    post-slack-report/          # 报告发到 Slack ← 复用 openCI/actions/integrations/slack-notify
+    auto-rerun/                 # 封装 gh run rerun --failed + 自实现预算检查（新增）
+    trip-circuit-breaker/       # 自实现:gh issue create + Slack 通知（新增）
+
+  collect-all/                  # Composite:串行调用全部 sources/query-*
+  publish-report/               # Composite:同时 post issue + slack
+```
+
+### 15.3 数据流
+
+```
+source → analyzer → state → publisher
+```
+
+每层只向下调用：source 不调 analyzer，analyzer 不调 publisher。state 是横切基础设施，被 analyzer 和 publisher 读写，但不调用其他层。
+
+### 15.4 v1 → v2 Action 映射
+
+| v1 Action | v2 位置 | 层 | 变化说明 | 实现方式 |
+|---|---|---|---|---|
+| `list-runs` | `sources/query-github-actions/` | source | 合并为单一 query 原子 | 封装 `gh run list --json` |
+| `fetch-run-logs` | `sources/query-github-actions/` | source | 合并进 query-github-actions | 封装 `gh run view --log` |
+| `compute-flakiness` | `analyzers/compute-flakiness/` | analyzer | 直接迁移 | 自实现（滑动窗口计算） |
+| `match-known-issues` | `analyzers/match-known-patterns/` | analyzer | 重命名,与"pattern"术语一致 | 自实现（grep -E 正则匹配） |
+| `classify-failure` | `analyzers/classify-failure/` | analyzer | 扩展为四层递进 | 自实现 Tier 2 + claude-harness Tier 3/4 |
+| `detect-degradation` | `analyzers/compute-trends/` | analyzer | 泛化为通用指标 | DORA 三件套 + 自实现 flakiness/MTTR |
+| `update-state` | `state/write-state/` | state | 泛化为双层持久化 | 封装 `EndBug/add-and-commit` + `actions/cache` |
+| `post-triage-result` | `publishers/post-issue-report/` | publisher | 复用现有原子 | 封装 `peter-evans/create-issue-from-file` |
+| — | `state/read-state/` | state | 新增 | 封装 `actions/cache` + _state 分支回源 |
+| — | `analyzers/compute-mttr/` | analyzer | 新增 | 自实现（时间窗口计算） |
+| — | `publishers/auto-rerun/` | publisher | 新增 | 封装 `gh run rerun --failed` + 自实现预算检查 |
+| — | `publishers/trip-circuit-breaker/` | publisher | 新增 | 自实现（gh issue create + Slack） |
+
+### 15.5 实现方式校准
+
+v1 设计中多处标注"自实现"，实际上应优先封装现有工具。修正对比：
+
+| Atom | 修正前 | 修正后 |
+|---|---|---|
+| `sources/query-github-actions` | 自实现 | 封装 gh CLI（~20 行 shell） |
+| `analyzers/compute-trends` | 全部自实现 | DORA 三件套覆盖 60%,flakiness/MTTR 自实现 |
+| `state/read-state` / `write-state` | 自实现 | 封装 `actions/cache` + `EndBug/add-and-commit` |
+| `publishers/auto-rerun` | 自实现 | 封装 `gh run rerun --failed` + 自实现预算检查 |
+| `publishers/post-issue-report` | 自实现 | 封装 `peter-evans/create-issue-from-file` |
+
+#### query-github-actions — 封装 gh CLI
+
+不需要装额外依赖,runner 自带 gh。GitHub 官方推荐方式：
+
+```yaml
+# actions/observability/sources/query-github-actions/action.yml
+inputs:
+  repos:        { required: true }     # 逗号分隔
+  since:        { required: true }     # 24h / 7d
+  status:       { required: false, default: "all" }
+
+outputs:
+  runs:
+    value: ${{ steps.collect.outputs.runs }}
+
+runs:
+  using: composite
+  steps:
+    - id: collect
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        SINCE=$(date -u -d "-${{ inputs.since }}" +%Y-%m-%dT%H:%M:%SZ)
+        RESULT="[]"
+
+        IFS=',' read -ra REPOS <<< "${{ inputs.repos }}"
+        for repo in "${REPOS[@]}"; do
+          DATA=$(gh run list \
+            --repo "$repo" \
+            --created ">$SINCE" \
+            --json databaseId,name,conclusion,createdAt,updatedAt,event,headBranch,headSha,actor,workflowName \
+            --limit 100)
+          RESULT=$(echo "$RESULT $DATA" | jq -s 'add')
+        done
+
+        echo "runs<<EOF" >> $GITHUB_OUTPUT
+        echo "$RESULT" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+```
+
+#### compute-trends — DORA 三件套
+
+DeveloperMetrics 是 GitHub Verified Creator,直接给出 DORA 评级。deployment-frequency、lead-time-for-changes、change-failure-rate 三件套覆盖 60% 的趋势计算：
+
+```yaml
+# .github/workflows/health-ci-daily.yml 中
+- name: DORA - Deployment Frequency
+  uses: DeveloperMetrics/deployment-frequency@{SHA}
+  id: deploy-freq
+  with:
+    workflows: 'CI / Deploy Production'
+    owner-repo: ${{ matrix.repo }}
+    pat-token: ${{ secrets.MONITOR_PAT }}
+    number-of-days: 30
+
+- name: DORA - Lead Time
+  uses: DeveloperMetrics/lead-time-for-changes@{SHA}
+  id: lead-time
+  with:
+    workflows: 'CI / Deploy Production'
+    owner-repo: ${{ matrix.repo }}
+    pat-token: ${{ secrets.MONITOR_PAT }}
+
+# 每个 action 输出的 markdown-file 直接拼到 daily report
+- run: |
+    cat ${{ steps.deploy-freq.outputs.markdown-file }} \
+        ${{ steps.lead-time.outputs.markdown-file }} \
+        > dora-section.md
+```
+
+省下的工作：DORA 四指标的窗口计算、评级逻辑（Elite/High/Medium/Low）全部不用写。`compute-trends` 自实现部分仅剩 flakiness 滑动窗口和 MTTR 计算。
+
+#### auto-rerun — 封装 gh run rerun --failed
+
+不要用 `nick-fields/retry`（那是 step 级重试）。workflow 级重跑用 gh CLI,`--failed` 只重跑失败 job（省 runner 时间和钱）：
+
+```yaml
+# actions/observability/publishers/auto-rerun/action.yml（片段）
+- name: Check budget then rerun
+  shell: bash
+  env:
+    GH_TOKEN: ${{ inputs.token }}
+  run: |
+    # 先查熔断器和预算（略）
+
+    if [ "$BUDGET_OK" = "true" ]; then
+      gh run rerun ${{ inputs.run-id }} \
+        --repo ${{ inputs.repo }} \
+        --failed
+
+      # 写回 state,计数器 +1
+      echo "::notice title=Auto Rerun::run=${{ inputs.run-id }} attempt=$NEW_COUNT/$MAX"
+    else
+      # 调 trip-circuit-breaker
+      gh issue create \
+        --repo ${{ inputs.repo }} \
+        --title "Workflow ${{ inputs.workflow }} 触发熔断" \
+        --label "ci:circuit-broken,priority:p1"
+    fi
+```
+
+#### post-issue-report — 封装 peter-evans/create-issue-from-file
+
+把 Claude 生成的 markdown 直接变 issue,避免在 yaml 里转义大段 markdown：
+
+```yaml
+# actions/observability/publishers/post-issue-report/action.yml
+runs:
+  using: composite
+  steps:
+    - uses: peter-evans/create-issue-from-file@{SHA}
+      with:
+        title: "📊 CI Health Report - ${{ inputs.date }}"
+        content-filepath: ${{ inputs.report-path }}
+        labels: |
+          daily-report
+          ci-health
+        assignees: ${{ inputs.assignees }}
+```
+
+配套 `peter-evans/create-pull-request`：当 AI 提取出新的 known-pattern 时,自动开 PR 合入 `known-patterns.yml`,人 review 一眼通过。模式库永远有人工兜底,不会被 AI 污染。
+
+#### 冲突处理 — nick-fields/retry
+
+多个并发 workflow 同时写 `_state` 分支时,后写的会被 reject（non-fast-forward）。用 `nick-fields/retry@v3` 包一层,3 次重试 + 指数退避,自动 pull-rebase-push：
+
+```yaml
+- uses: nick-fields/retry@{SHA}
+  with:
+    timeout_minutes: 2
+    max_attempts: 3
+    command: |
+      cd _state
+      git pull --rebase origin _state
+      git push origin _state
+```
+
+---
+
+## 十六、四层 AI 分类
+
+### 16.1 设计目标
+
+v1 的两阶段（正则 → AI）让 20% 的失败进入 AI 调用。四层系统把 90%+ 推到免费层，AI 调用从 ~$0.50/天降到 ~$0.014/天。
+
+### 16.2 四层定义
+
+| Tier | 方法 | 成本 | 预期命中率 | 实现位置 |
+|---|---|---|---|---|
+| 1 | `match-known-patterns`（正则/字符串） | $0 | 70% | `analyzers/match-known-patterns/` |
+| 2 | 启发式规则（shell 关键词匹配） | $0 | 20% | `analyzers/classify-failure/` 内部 shell |
+| 3 | Haiku 分类 | ~$0.001/次 | 8% | `analyzers/classify-failure/` → `claude-harness` |
+| 4 | Sonnet 深度分析 | ~$0.01/次 | 2% | `analyzers/classify-failure/` → `claude-harness` |
+
+### 16.3 分类流程
+
+```
+失败 run 日志
+  │
+  ▼
+┌─────────────────────────────────────────────┐
+│ Tier 1: match-known-patterns (grep -E)      │
+│ 成本: $0 · 10ms                              │
+│ 命中 → 返回缓存分类,done                     │
+│ 预期命中率: 70%（库越用越准）               │
+└─────────────────────────────────────────────┘
+  │ miss
+  ▼
+┌─────────────────────────────────────────────┐
+│ Tier 2: 启发式规则                           │
+│ 成本: $0 · 50ms                              │
+│ - ECONNREFUSED / ENOTFOUND → flaky          │
+│ - "Permission denied" / "403" → security    │
+│ - "Test failed" / "FAIL" → code             │
+│ - "npm ERR!" / "pip install" → dependency   │
+│ 高置信度 → 返回分类,done                     │
+│ 预期命中率: 20%                              │
+└─────────────────────────────────────────────┘
+  │ low confidence
+  ▼
+┌─────────────────────────────────────────────┐
+│ Tier 3: Haiku 分类                           │
+│ 成本: ~$0.001/次                             │
+│ 输入: 日志末 50 行 + workflow 元数据         │
+│ 输出: category + matched_pattern             │
+│ 新 pattern 自动 PR 进 known-patterns.yml     │
+│ 预期命中率: 8%                               │
+└─────────────────────────────────────────────┘
+  │ unable to classify
+  ▼
+┌─────────────────────────────────────────────┐
+│ Tier 4: Sonnet 深度分析                      │
+│ 成本: ~$0.01/次                              │
+│ 输入: 完整日志 + 历史上下文                  │
+│ 输出: category + 修复建议 + 根因分析         │
+│ 预期触发率: 2%（真正新颖的失败）             │
+└─────────────────────────────────────────────┘
+```
+
+### 16.4 成本飞轮
+
+每次 Tier 3 分类产生一个 `matched_pattern`，自动 PR 进 `known-patterns.yml`。随时间推移：
+
+- Tier 1 命中率从 70% → 90%+
+- AI 调用占比从 10% → <5%
+- 月成本从 $0.93 → $0.30 以下
+
+这是正反馈飞轮，不是线性成本。
+
+---
+
+## 十七、熔断器机制
+
+### 17.1 为什么需要熔断器
+
+v1 的简单配额（每 workflow 每天 3 次重跑）缺少跨维度预算和强制人工介入机制。一个真有问题的 workflow 可能在 pattern 维度和 repo 维度同时耗尽预算，但 v1 只检查 workflow 维度。
+
+### 17.2 三个预算维度
+
+| 维度 | Key 格式 | 每日上限 | 作用域 |
+|---|---|---|---|
+| Workflow | `{repo}/{workflow}/{date}` | 3 | 同一 workflow 同一 repo |
+| Pattern | `{pattern-id}/{date}` | 5 | 同一失败模式跨所有 repo |
+| Repo | `{repo}/{date}` | 20 | 一个 repo 的所有重跑 |
+
+### 17.3 熔断流程
+
+```
+auto-rerun 入口
+  │
+  ▼
+read-state（查三个维度的当日计数）
+  │
+  ▼
+任一超限？
+  │
+  ├─ 是 → trip-circuit-breaker
+  │        ├── 创建 GitHub Issue
+  │        │     title: "Circuit Breaker Tripped: {repo}/{workflow}"
+  │        │     label: ci:circuit-broken, severity/critical
+  │        │     body: 历次重跑记录 + 失败模式分布
+  │        ├── Slack @channel 通知
+  │        └── 后续所有 triage run 检测到该 label → 跳过自动处理
+  │
+  └─ 否 → 执行重跑 → write-state（递增三个维度的计数器）
+```
+
+### 17.4 恢复机制
+
+熔断后，workflow 完全停止自动处理（不重跑、不再 AI 分诊），直到人工移除 `ci:circuit-broken` label。Slack 通知明确说明："Remove label `ci:circuit-broken` to resume"。
+
+可选：在 `issue-comment.yml` 中加 `/resume` slash command，授权用户评论即可移除 label。
+
+### 17.5 安全约束
+
+auto-rerun 仅限只读操作（test/lint/build）。以下 workflow 永不自动重跑：
+
+- 包含 `deploy` 关键词的 workflow
+- 包含 `security` / `scan` / `sign` 关键词的 workflow
+- 在 `data/circuit-config.yml` 的 `no-rerun` 列表中的 workflow
+
+---
+
+## 十八、双层状态持久化
+
+### 18.1 为什么不用 main 分支的 data/ 目录
+
+v1 把状态文件（known-issues.yml、throttle-state.json、workflow-health.json）放在 main 分支的 `data/` 目录，由 workflow 自身 commit。问题：
+
+- 污染 main 的 commit 历史（release-drafter 看到这些 chore commit）
+- 状态变更触发 CI（需要 `[skip ci]` 但不可靠）
+- 进入 changelog（用户不需要看到"更新了 throttle 计数"）
+- squash merge 时状态 commit 被压缩，丢失时间序列
+
+### 18.2 慢速持久层：`_state` 孤儿分支
+
+```
+_state/                           ← 与 main 无共享历史
+├── known-patterns.yml            # 模式库,append-only,长期累积
+├── circuit-breaker-state.json    # 活跃熔断状态
+├── daily-counters/
+│   └── 2026-05-01.json          # 当日重跑/分诊计数
+└── weekly-snapshots/
+    └── 2026-W18.json            # 周级聚合快照
+```
+
+**初始化**（手动执行一次）：
+
+```bash
+git checkout --orphan _state
+git rm -rf .
+git commit --allow-empty -m "init: CI observability state branch"
+git push origin _state
+```
+
+**读取**（不 checkout）：
+
+```bash
+git fetch origin _state
+git show origin/_state:path/to/file.json
+```
+
+**写入**（retry 3 次）：
+
+```bash
+for i in 1 2 3; do
+  git fetch origin _state
+  git checkout -B _state origin/_state
+  # 修改文件
+  git add . && git commit -m "chore: update state [skip ci]"
+  git push origin _state && break
+  sleep $((i * 2))
+done
+```
+
+### 18.3 快速缓存层：GitHub Actions Cache
+
+```
+cache key 模式:
+  ci-obs:dedup:{repo}:{run-id}            # 15min TTL,防重复分诊
+  ci-obs:retries:{repo}:{workflow}:{date}  # 当日重跑计数
+  ci-obs:patterns:{date}                   # 当日已知模式缓存
+```
+
+- 读快（毫秒级 vs git fetch 秒级）
+- 自动过期（TTL 匹配使用场景）
+- 不是数据源（cache miss 时回源 `_state` 分支）
+
+### 18.4 统一接口
+
+上层 analyzer/publisher 只看到 key-value 接口，不关心底层是 cache 还是 branch。
+
+#### read-state — 封装 actions/cache（快速路径）
+
+cache 不保证持久（7 天未访问被驱逐），所以只放可重建的状态（throttle 计数器、in-flight 锁）。cache miss 时回源 `_state` 分支：
+
+```yaml
+# actions/observability/state/read-state/action.yml
+inputs:
+  key: { required: true }   # 例: retries:my-org/my-app:2026-04-30
+
+outputs:
+  hit:   { value: ${{ steps.cache.outputs.cache-hit }} }
+  value: { value: ${{ steps.read.outputs.value }} }
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@{SHA}
+      with:
+        path: .state-cache
+        key: state-${{ inputs.key }}-${{ github.run_id }}
+        restore-keys: |
+          state-${{ inputs.key }}-
+
+    - id: read
+      shell: bash
+      run: |
+        if [ -f ".state-cache/${{ inputs.key }}.json" ]; then
+          VALUE=$(cat ".state-cache/${{ inputs.key }}.json")
+        else
+          # cache miss → 回源 _state 分支
+          git fetch origin _state
+          VALUE=$(git show origin/_state:"${{ inputs.state-path }}" 2>/dev/null || echo '{}')
+          # 回填 cache
+          mkdir -p .state-cache
+          echo "$VALUE" > ".state-cache/${{ inputs.key }}.json"
+        fi
+        echo "value=$VALUE" >> $GITHUB_OUTPUT
+```
+
+#### write-state — 封装 EndBug/add-and-commit（持久路径）
+
+`known-patterns`、`circuit-breakers` 等不可重建状态必须走 commit 路径。同时写 cache 加速后续读取：
+
+```yaml
+# actions/observability/state/write-state/action.yml
+inputs:
+  key:         { required: true }
+  state-path:  { required: true }
+  patch:       { required: true }   # JSON merge patch
+
+runs:
+  using: composite
+  steps:
+    # 快速路径:写 cache
+    - shell: bash
+      run: |
+        mkdir -p .state-cache
+        echo '${{ inputs.patch }}' > ".state-cache/${{ inputs.key }}.json"
+
+    # 持久路径:写 _state 分支
+    - uses: actions/checkout@{SHA}
+      with:
+        ref: _state
+        path: _state
+
+    - uses: nick-fields/retry@{SHA}
+      with:
+        timeout_minutes: 2
+        max_attempts: 3
+        command: |
+          cd _state
+          # 应用 JSON merge patch
+          TARGET="${{ inputs.state-path }}"
+          mkdir -p "$(dirname "$TARGET")"
+          if [ -f "$TARGET" ]; then
+            jq -s '.[0] * .[1]' "$TARGET" <(echo '${{ inputs.patch }}') > tmp.json
+          else
+            echo '${{ inputs.patch }}' > tmp.json
+          fi
+          mv tmp.json "$TARGET"
+          # commit + push（冲突时 retry 会 pull-rebase-push）
+          git add .
+          git commit -m "state: update ${{ inputs.key }}" || true
+          git pull --rebase origin _state
+          git push origin _state
+```
+
+**双写策略**：write-state 同时写 cache（读加速）和 `_state` 分支（持久化）。read-state 先查 cache，miss 才回源分支。
+
+---
+
+## 十九、工作流定义
+
+### 19.1 工作流总览
+
+| 工作流 | 触发 | 职责 | Concurrency |
+|---|---|---|---|
+| `triage-failure.yml` | `schedule: */15 * * * *` | 扫描失败 → 分类 → 重跑/通知 | `group: ci-triage`, no cancel |
+| `health-ci-daily.yml` | `schedule: 0 1 * * 1-5` | 每日 CI 健康汇总 | `group: ci-health-daily`, no cancel |
+| `health-ci-weekly.yml` | `schedule: 0 2 * * 1` | 每周深度分析 | `group: ci-health-weekly`, no cancel |
+| `heartbeat.yml` | `schedule: 0 */6 * * *` | 自监控 | `group: ci-heartbeat`, cancel yes |
+
+### 19.2 triage-failure.yml 完整流程
+
+```
+1. startup
+   └── 检查 ci:circuit-broken label → 有则 exit with notice
+
+2. read-state
+   └── 加载 known-patterns + 当日计数器
+
+3. query-github-actions（gh run list --json）
+   └── 列出过去 30min 的失败 runs（跨所有 onboarded repos）
+   └── 无失败 → exit
+
+4. for each failure (matrix, max 10):
+   │
+   ├── a. 日志已嵌入 query-github-actions 输出
+   │
+   ├── b. match-known-patterns (Tier 1, $0)
+   │      hit → 跳到 dispatch
+   │
+   ├── c. classify-failure (Tier 2→3→4)
+   │      → dispatch + learn pattern（新 pattern PR 进 known-patterns.yml via peter-evans/create-pull-request）
+   │
+   ├── d. dispatch:
+   │      ├── read-state（查熔断预算,actions/cache 快速路径）
+   │      │     超限 → trip-circuit-breaker（gh issue create） → exit
+   │      ├── category=flaky → auto-rerun（gh run rerun --failed） → write-state（递增）
+   │      ├── severity≥medium → post-issue-report（peter-evans/create-issue-from-file）
+   │      └── severity≥high → post-slack-report（slack-notify）
+   │
+   └── e. write-state（更新分诊时间戳）
+
+5. commit state changes to _state branch
+```
+
+### 19.3 权限矩阵
+
+| 工作流 | contents | issues | actions | id-token |
+|---|---|---|---|---|
+| triage-failure | write | write | read | — |
+| health-ci-daily | read | write | read | — |
+| health-ci-weekly | read | write | read | — |
+| heartbeat | read | — | read | — |
+
+### 19.4 与现有 health-report.yml 的关系
+
+两者共存：
+
+| 工作流 | 数据源 | 触发 | 输出 |
+|---|---|---|---|
+| `health-report.yml` | Sentry/Datadog/PostHog/LangSmith/Axiom | 每日 | 应用健康日报 |
+| `health-ci-daily.yml` | GitHub Actions API | 每日 | CI 健康日报 |
+
+未来可合并为统一日报，但初期分开实现降低复杂度。
+
+---
+
+## 二十、与 OpenCI 的关系
+
+### 20.1 核心原则
+
+CI 只是众多数据源之一。`query-github-actions/` 与 `query-sentry/` 平级，无特殊待遇。
+
+### 20.2 依赖关系
+
+**OpenCI 内部依赖：**
+
+| 依赖项 | 用途 | 引用方式 |
+|---|---|---|
+| `claude-harness.yml` | AI 调用入口 | `uses: your-org/openCI/.github/workflows/claude-harness.yml@v2` |
+| `slack-notify` | Slack 通知 | `uses: your-org/openCI/actions/integrations/slack-notify@v2` |
+| `manifest.yml` | 第三方 SHA | 通过 `read-manifest` 读取 |
+| `harden-runner` | 安全加固 | 每个 job 第一步加载 |
+
+**第三方 actions（全部 SHA pin，通过 manifest.yml 统一管理）：**
+
+| 依赖项 | 版本 | 用途 | 使用位置 |
+|---|---|---|---|
+| `actions/cache` | v4 | state 快速层读写 | `read-state/`, `write-state/` |
+| `EndBug/add-and-commit` | v9 | `_state` 孤儿分支持久化写入 | `write-state/` |
+| `peter-evans/create-issue-from-file` | v6 | markdown → GitHub Issue | `post-issue-report/` |
+| `peter-evans/create-pull-request` | v7 | known-pattern 自动 PR | `classify-failure/`（Tier 3 学习） |
+| `nick-fields/retry` | v3 | `_state` 分支写入冲突重试 | `write-state/` |
+| `DeveloperMetrics/deployment-frequency` | — | DORA 部署频率 | `health-ci-daily.yml` |
+| `DeveloperMetrics/lead-time-for-changes` | — | DORA 变更前置时间 | `health-ci-daily.yml` |
+| `DeveloperMetrics/change-failure-rate` | — | DORA 变更失败率 | `health-ci-daily.yml` |
+
+所有第三方 actions 通过 `manifest.yml` 锁定 SHA，升级时只需改 manifest 一行。
+
+### 20.3 Onboarding 新仓库
+
+在 `data/onboarded-repos.yml` 加一行，目标仓库零配置变更：
+
+```yaml
+repos:
+  - name: org/new-repo
+    workflows: "*"
+    priority: high
+```
+
+跨 repo 访问通过 fine-grained PAT（仅需 `actions:read` + `metadata:read`）。
+
+---
+
+## 二十一、成本模型（v2）
+
+### 21.1 每次失败分诊成本
+
+| 步骤 | 是否调 AI | 模型 | 成本 |
+|---|---|---|---|
+| Tier 1: match-known-patterns | 否 | — | $0 |
+| Tier 2: 启发式规则 | 否 | — | $0 |
+| Tier 3: Haiku 分类（仅未匹配时） | 是 | Haiku | ~$0.001 |
+| Tier 4: Sonnet 深度（仅低置信度时） | 是 | Sonnet | ~$0.01 |
+
+### 21.2 月度总成本估算（5 个 repo）
+
+| 场景 | 频率 | 单价 | 月成本 |
+|---|---|---|---|
+| Tier 1 匹配（已知模式） | ~35 次/天 | $0 | $0 |
+| Tier 2 启发式 | ~10 次/天 | $0 | $0 |
+| Tier 3 Haiku 分类 | ~4 次/天 | $0.001 | $0.12 |
+| Tier 4 Sonnet 深度 | ~1 次/天 | $0.01 | $0.30 |
+| 每日报告（Haiku） | 22 次/月 | $0.005 | $0.11 |
+| 每周深度（Sonnet） | 4 次/月 | $0.10 | $0.40 |
+| **总计** | | | **~$0.93/月** |
+
+### 21.3 成本趋势
+
+v2 月成本（$0.93）略高于 v1（$0.81），因为新增 Tier 4 Sonnet。但随 known-patterns 积累：
+
+- 第 1 个月：~$0.93（Tier 1 命中率 70%）
+- 第 3 个月：~$0.50（Tier 1 命中率 85%）
+- 第 6 个月：~$0.30（Tier 1 命中率 92%+）
+
+这是正反馈飞轮，不是线性成本。
