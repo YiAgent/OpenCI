@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/schedule-prd-dispatch — record a future repository_dispatch.
+# ─────────────────────────────────────────────────────────────────────────────
+# Called from stg.yml's tail. Writes a pending-dispatch entry to a
+# GitHub Variable (PENDING_PRD_DISPATCHES). The companion
+# poll-prd-dispatch.yml workflow runs on cron and fires entries whose
+# fire_at has passed. The pair replaces the long `sleep` that earlier
+# observe-window implementations used.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Schedule PRD Dispatch
+description: Queue a repository_dispatch for prd.yml after the observation window.
+
+inputs:
+  image-digest:        { required: true }
+  stg-image-digest:    { required: true }
+  stg-deploy-time:     { required: true }
+  image-name:          { required: true }
+  app-name:            { required: true }
+  observation-minutes: { required: false, default: "30" }
+  github-token:
+    required: true
+    description: GITHUB_TOKEN with `actions: write` (variables RW).
+
+outputs:
+  fire-at:    { value: ${{ steps.run.outputs.fire-at }} }
+  queue-size: { value: ${{ steps.run.outputs.queue-size }} }
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        GH_TOKEN:            ${{ inputs.github-token }}
+        REPO:                ${{ github.repository }}
+        IMAGE_DIGEST:        ${{ inputs.image-digest }}
+        STG_IMAGE_DIGEST:    ${{ inputs.stg-image-digest }}
+        STG_DEPLOY_TIME:     ${{ inputs.stg-deploy-time }}
+        IMAGE_NAME:          ${{ inputs.image-name }}
+        APP_NAME:            ${{ inputs.app-name }}
+        OBSERVATION_MINUTES: ${{ inputs.observation-minutes }}
+      run: bash "${{ github.action_path }}/schedule.sh"

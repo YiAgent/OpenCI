@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# poll-prd-dispatch.yml — fire repository_dispatch when observation window passes.
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs every 5 minutes. Reads PENDING_PRD_DISPATCHES, picks entries
+# whose fire_at has passed, dispatches them as
+# `repository_dispatch: types: [observe-window-complete]` events that
+# prd.yml subscribes to. The atom rewrites the variable atomically so a
+# fired entry never fires twice.
+#
+# Cancellation policy: a poll run that's already in flight should NOT be
+# cancelled — losing it could miss a dispatch (variable was updated but
+# the dispatch POST didn't happen). cancel-in-progress: false enforces.
+# ─────────────────────────────────────────────────────────────────────────────
+name: poll-prd-dispatch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: poll-prd-dispatch
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    name: Poll + Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - id: poll
+        uses: ./actions/_common/poll-prd-dispatch
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Fire repository_dispatch for each due entry
+        if: steps.poll.outputs.fired-count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          FIRED:    ${{ steps.poll.outputs.fired }}
+        run: |
+          set -euo pipefail
+          echo "$FIRED" | jq -c '.[]' | while IFS= read -r entry; do
+            payload="$(jq -nc --argjson e "$entry" '{
+              event_type: "observe-window-complete",
+              client_payload: {
+                "image-digest":     $e.image_digest,
+                "stg-image-digest": $e.stg_image_digest,
+                "stg-deploy-time":  $e.stg_deploy_time,
+                "image-name":       $e.image_name,
+                "app-name":         $e.app_name
+              }
+            }')"
+            gh api -X POST "repos/${REPO}/dispatches" --input - <<<"$payload"
+            echo "::notice title=PRD Dispatched::digest=$(jq -r '.image_digest' <<<"$entry")"
+          done

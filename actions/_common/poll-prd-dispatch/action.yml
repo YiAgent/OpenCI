@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/poll-prd-dispatch — fire pending PRD dispatches that are due.
+# ─────────────────────────────────────────────────────────────────────────────
+# Returns a `fired` JSON array as output; the calling workflow loops and
+# issues `gh api repos/.../dispatches` for each entry. Splitting "decide
+# what's due" from "actually fire" keeps the bats-testable shell out of
+# the actual repository_dispatch side-effect.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Poll PRD Dispatch
+description: Read PENDING_PRD_DISPATCHES, return entries whose fire_at has passed.
+
+inputs:
+  github-token:
+    required: true
+    description: GITHUB_TOKEN with `actions: write` (variables RW).
+
+outputs:
+  fired:
+    description: JSON array of entries to dispatch (post-poll, pre-fire).
+    value: ${{ steps.run.outputs.fired }}
+  fired-count: { value: ${{ steps.run.outputs.fired-count }} }
+  kept-count:  { value: ${{ steps.run.outputs.kept-count }} }
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+      run: bash "${{ github.action_path }}/poll.sh"

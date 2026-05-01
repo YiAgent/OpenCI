@@ -1,16 +1,36 @@
-# Skeleton — same contract as query-sentry.
-# Real impl: Axiom APL query for top error log fingerprints.
+# ─────────────────────────────────────────────────────────────────────────────
+# observability/query-axiom — top-N error logs via Axiom APL.
+# ─────────────────────────────────────────────────────────────────────────────
+# Output schema:
+#   { service: "axiom",
+#     logs: [ { fingerprint, count, first_seen } ],
+#     window_hours: <num>,
+#     _partial: <bool>,
+#     _error: <string|null> }
+#
+# Default APL groups by `level == "error"` and counts by message
+# fingerprint. Consumer can override `apl-query` for a different schema.
+# ─────────────────────────────────────────────────────────────────────────────
 name: Observability · Query Axiom
 description: Pull top error logs from Axiom.
 
 inputs:
-  token:   { required: false, default: "", description: Axiom API token }
-  dataset: { required: false, default: "", description: Axiom dataset }
+  token:        { required: false, default: "", description: Axiom API token }
+  dataset:      { required: false, default: "", description: Axiom dataset }
   window-hours: { required: false, default: "24", description: "" }
+  apl-query:
+    required: false
+    default: |
+      ['DATASET']
+      | where _time > now() - HOURS
+      | where level == "error"
+      | summarize count = count() by fingerprint = tostring(message)
+      | top 10 by count desc
+    description: APL query template; ['DATASET'] and HOURS are substituted at runtime.
 
 outputs:
   data:
-    description: JSON blob.
+    description: JSON blob with the schema above.
     value: ${{ steps.query.outputs.data }}
 
 runs:
@@ -22,6 +42,8 @@ runs:
       env:
         TOKEN:   ${{ inputs.token }}
         DATASET: ${{ inputs.dataset }}
+        HOURS:   ${{ inputs.window-hours }}
+        APL:     ${{ inputs.apl-query }}
       run: |
         set -euo pipefail
         emit() {
@@ -31,9 +53,52 @@ runs:
             echo "__OPENCI_EOF__"
           } >> "$GITHUB_OUTPUT"
         }
-        if [ -z "$TOKEN" ] || [ -z "$DATASET" ]; then
-          emit "$(jq -n '{service: "axiom", _error: "credentials missing", _partial: true}')"
+        partial_error() {
+          local reason="$1"
+          emit "$(jq -nc --arg w "$HOURS" --arg r "$reason" \
+            '{service:"axiom", logs:[], window_hours:($w|tonumber),
+              _partial:true, _error:$r}')"
+          echo "::warning title=Query Axiom::${reason}"
           exit 0
+        }
+
+        if [ -z "$TOKEN" ] || [ -z "$DATASET" ]; then
+          partial_error "credentials missing"
         fi
-        emit "$(jq -n '{service: "axiom", logs: [], _partial: true, _error: "TODO live query"}')"
-        echo "::warning title=Query Axiom::placeholder data"
+
+        # Substitute placeholders in the APL template.
+        apl="$(printf '%s' "$APL" \
+          | sed -e "s/\\['DATASET'\\]/['${DATASET}']/g" \
+                -e "s/HOURS/${HOURS}h/g")"
+
+        body="$(jq -nc --arg q "$apl" '{apl:$q}')"
+
+        if ! resp="$(curl -sS --max-time 25 -X POST \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$body" \
+              "https://api.axiom.co/v1/datasets/_apl?format=tabular" 2>/dev/null)"; then
+          partial_error "http failed"
+        fi
+
+        # Tabular response: { tables: [{ columns: [{name,...}], rows: [[...]] }] }
+        # Project the first table to the standard logs schema.
+        logs="$(jq -c '
+          (.tables // []) as $t
+          | if ($t | length) == 0 then []
+            else
+              $t[0].columns as $cols
+              | $t[0].rows
+              | map(. as $row
+                    | reduce range(0; ($cols|length)) as $i ({}; .[$cols[$i].name] = $row[$i]))
+              | map({fingerprint: (.fingerprint // .message // ""),
+                     count:       (.count // 0),
+                     first_seen:  (.first_seen // null)})
+            end
+        ' <<<"$resp" 2>/dev/null || echo '[]')"
+
+        out="$(jq -nc --arg w "$HOURS" --argjson logs "$logs" \
+          '{service:"axiom", logs:$logs, window_hours:($w|tonumber),
+            _partial:false, _error:null}')"
+        emit "$out"
+        echo "::notice title=Query Axiom::log_groups=$(jq 'length' <<<"$logs")"

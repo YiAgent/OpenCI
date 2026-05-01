@@ -233,6 +233,32 @@ jobs:
           axiom-token:       ${{ secrets.axiom-token }}
           axiom-dataset:     ${{ vars.AXIOM_DATASET }}
 
+  schedule-prd-dispatch:
+    name: Schedule PRD Dispatch
+    needs: [deploy-k8s, smoke-test]
+    if: needs.smoke-test.result == 'success' && vars.PRD_OBSERVATION_MINUTES != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write   # write GitHub repo variables
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/_common/schedule-prd-dispatch
+        with:
+          image-digest:        ${{ inputs.image-digest }}
+          # In a real consumer the stg image digest is the same as the
+          # one passed in (we don't rebuild between ci.yml and stg.yml).
+          stg-image-digest:    ${{ inputs.image-digest }}
+          stg-deploy-time:     ${{ needs.deploy-k8s.outputs.deploy-time }}
+          image-name:          ${{ inputs.image-name }}
+          app-name:            ${{ inputs.app-name }}
+          observation-minutes: ${{ vars.PRD_OBSERVATION_MINUTES || '30' }}
+          github-token:        ${{ github.token }}
+
   notify-deployed:
     name: Notify Deployed
     needs: [deploy-k8s, smoke-test]
