@@ -1,1244 +1,1688 @@
-# OpenCI 项目完整设计规格文档
+# OpenCI 共享工作流库 — 设计规格文档
 
-**版本**：v1.1  
-**用途**：可直接交给 Claude Code 实施的完整设计规格  
+**版本**：v1.3
+**用途**：可直接交给 Claude Code 实施的完整设计规格
 **仓库定位**：公开 GitHub 仓库，供自己多个项目及外部项目通过 `uses:` 引用
 
 ---
- 
+
 ## 变更日志
- 
+
 | 版本 | 变更内容 |
 |------|---------|
-| v1.1 | 新增 Action Manifest 注册表；语言检测单一来源（`_common/detect-language`）；市场服务深度集成（Codecov / CodeQL / harden-runner）；STG→PRD 强化 pre-check（版本对齐 + 观察窗口）；可观测性 annotation 规范；安全原则独立成第五条 |
-| v1.0 | 初始版本 |
- 
----
+| v1.3 | Action Marketplace 升级审计：补全 manifest.yml 缺失 action；新增 dependency-review-action、trivy-action、semantic-pull-request、paths-filter；linter 升级为 MegaLinter 多语言统一方案；淘汰 semgrep-action/vercel-action；新增六(Issue 管理体系)、七(外部服务集成:Sentry/SonarCloud/PostHog/Slack/Snyk/Linear)、十一(MegaLinter)、十二(容器安全扫描)章节；pr.yml 扩展 SonarCloud + PR 描述校验；prd.yml 扩展 Sentry release + PostHog 事件 + check-error-rate |
+| v1.2 | 合并 v1.0 简洁哲学与 v1.1 实施细节；原则部分回归 prose-first 表达；保留全部 v1.1 实施规格、manifest、pre-check、附录 |
+| v1.1 | 新增 Action Manifest 注册表；语言检测单一来源；市场服务深度集成（Codecov / CodeQL / harden-runner）；STG→PRD 强化 pre-check（版本对齐 + 观察窗口）；可观测性 annotation 规范 |
+| v1.0 | 初始版本：三层架构 + 四条设计原则 |
+
 ---
 
 ## 一、项目概述与设计原则
 
 ### 1.1 项目定位
- 
-本仓库是一个 GitHub Actions 共享库，提供三层可复用单元：
- 
-| 层级 | 类型 | 引用方式 | 举例 |
-|------|------|---------|------|
-| 主工作流 | Reusable Workflow | `uses: org/opencl/.github/workflows/pr.yml@v2` | 完整 PR 质量门流水线 |
-| Composite Action | 阶段内组合逻辑 | `uses: org/opencl/actions/pr/lint-code@v2` | 调用多个原子的 lint 组合 |
-| 原子 Action | 最小职责单元 | `uses: org/opencl/actions/pr/lint-node@v2` | 单一语言 lint |
- 
-**约束**：所有涉及 AI 的步骤统一通过 `claude-harness.yml` 执行，任何 action 不得直接调用 Claude API。
+
+本仓库是一个 GitHub Actions 共享库,提供三层可复用单元:
+
+- **主工作流（Reusable Workflow）**：完整的阶段流水线，调用方一行引入  
+  `uses: org/opencl/.github/workflows/pr.yml@v2`
+- **Composite Action**：阶段内的组合逻辑，封装多个原子  
+  `uses: org/opencl/actions/pr/lint-code@v2`
+- **原子 Action**：最小职责单元，单一功能，明确输入输出  
+  `uses: org/opencl/actions/pr/lint-node@v2`
+
+所有涉及 AI 的步骤统一通过 `claude-harness.yml` 执行,不直接在各 action 中调用 Claude API。
 
 ### 1.2 五条设计原则
- 
+
 #### 原则一：变化频率决定位置
- 
-不同文件的变化频率不同，高频变化的文件不应与低频变化的文件耦合在同一位置。
- 
-| 文件类型 | 变化频率 | 存放位置 | 说明 |
-|---------|---------|---------|------|
-| Prompt 文件 | 高（每周调优） | `prompts/{stage}/{task}.md` | 与 action 代码分离 |
-| Action 实现 | 中（每月迭代） | `actions/{stage}/{name}/` | 跟随阶段目录 |
-| 工作流主干 | 低（季度变更） | `.github/workflows/` | 稳定的编排层 |
-| 复用脚本 | 低 | `lib/`（仅 2+ action 共用时） | 默认跟随调用方 action |
-| 第三方 SHA | 定期（Renovate 维护） | `manifest.yml` 的 `deps` 节点 | **唯一来源**，不在 action 内硬编码 |
- 
+
+Prompt 独立于 Action 存放,因为两者变化频率不同。Action 结构数月不变,Prompt 每周调优。Scripts 跟随调用它的 Action,不集中存放,除非被两个以上 Action 复用才提到 `lib/`。第三方依赖的 SHA 集中维护在 `manifest.yml`,因为它需要全仓库统一更新。
+
+具体落点:
+
+- Prompt → `prompts/{stage}/{task}.md`
+- Action 实现 → `actions/{stage}/{name}/`
+- 工作流主干 → `.github/workflows/`
+- 复用脚本 → 跟随 action,2+ 共用才提到 `lib/`
+- 第三方 SHA → `manifest.yml` 的 `deps` 节点（**唯一来源**）
+
 #### 原则二：命名即语义
- 
-名称应在不看注释的情况下表达完整意图。
- 
-- **Action 命名**：`动词-名词` 格式，动词选自固定词汇表
-  | 动词 | 语义 |
-  |------|------|
-  | `detect-` | 探测/识别 |
-  | `lint-` | 静态检查 |
-  | `scan-` | 安全扫描 |
-  | `test-` | 测试执行 |
-  | `build-` | 构建产物 |
-  | `check-` | 条件验证（通过/失败） |
-  | `deploy-` | 部署到环境 |
-  | `notify-` | 发送通知 |
-  | `create-` | 创建资源 |
-  | `sign-` | 加密签名 |
-  | `observe-` | 监控等待 |
-  | `verify-` | 交叉验证 |
-- **目录命名**：名词，对应流水线阶段：`issue/` `pr/` `ci/` `stg/` `prd/` `security/` `_common/`
-- **禁止缩写**：`deps` → `dependencies`（文档层面），但 action 名称保持简短
+
+Action 命名格式:`动词-名词`（`lint-node`、`scan-deps`、`tag-release`）。目录命名格式:名词（`issue`、`pr`、`stg`、`prd`）。Composite 与原子同在阶段目录下,通过名称复杂度区分粒度,不单独建 `composites/` 目录。
+
+固定动词词汇表,保证全仓库语义一致:
+
+| 动词 | 语义 | 例 |
+|-----|------|---|
+| `detect-` | 探测识别 | `detect-language` |
+| `lint-` | 静态检查 | `lint-node`, `lint-python` |
+| `scan-` | 安全扫描 | `scan-deps`, `scan-secrets`, `scan-image` |
+| `test-` | 测试执行 | `test-unit` |
+| `build-` | 构建产物 | `build-docker` |
+| `check-` | 条件验证（pass/fail） | `check-coverage`, `check-migration` |
+| `verify-` | 交叉对比 | `verify-version-align` |
+| `observe-` | 监控等待 | `observe-window` |
+| `deploy-` | 部署到环境 | `deploy-k8s` |
+| `sign-` | 签名加密 | `sign-image` |
+| `notify-` | 发送通知 | `notify-deployed` |
+| `create-` | 创建资源 | `create-release` |
+| `review-` | 审查 | `review-ai` |
+
 #### 原则三：调用层级单向
- 
+
+主工作流调用 Composite,Composite 调用原子,原子不互相调用。AI 原子统一向上调用 `claude-harness.yml`,不直接调用 Claude API。
+
 ```
 主工作流（Reusable Workflow）
   └── Composite Action（阶段级）
         └── 原子 Action（单一功能）
               └── （AI 原子专属）→ claude-harness.yml
 ```
- 
-- 原子 Action 之间不互相调用
-- Composite Action 不调用其他 Composite Action
-- 主工作流不直接调用原子 Action（必须经过 Composite）
-- `claude-harness.yml` 是唯一可被原子 Action 向上调用的主工作流
+
+具体约束:
+
+- 原子之间不互相调用
+- Composite 不调用其他 Composite
+- 主工作流不直接调用原子（必须经过 Composite）
+- `claude-harness.yml` 是唯一可被原子向上调用的主工作流
+
 #### 原则四：外部优于自实现
- 
-**决策规则**：
- 
+
+有成熟的 Verified Creator action 时,优先封装使用,不重复造轮子。自实现仅用于:无现成方案、命令因项目而异（build/test/deploy）、业务规则特定（slash command、smoke-test）。
+
+决策规则:
+
 ```
 存在 GitHub Verified Creator action？
-  ├── 是 → 封装使用，输入输出适配，不修改其行为
-  └── 否 → 以下情况自实现：
+  ├── 是 → 封装使用,输入输出适配,不修改其行为
+  └── 否 → 以下情况才自实现:
        ├── 命令因项目而异（build / test / deploy 命令）
        ├── 业务规则特定（slash command 解析、smoke test 路径）
-       └── 无现成方案覆盖（如 prompt 版本推送到 Langfuse）
+       └── 无现成方案覆盖（如 prompt 推送到 Langfuse）
 ```
- 
-**反模式**：不得自实现 Docker 构建、secret 扫描、代码覆盖率上报等有成熟方案的功能。
- 
+
+反模式:不得自实现 Docker 构建、secret 扫描、覆盖率上报等已有成熟方案的功能。
+
 #### 原则五：安全默认（v1.1 新增）
- 
-- **SHA 固定**：所有第三方 action 引用必须使用 commit SHA，而非版本 tag（tag 可被强制覆盖）
-- **SHA 集中**：所有 SHA 维护在 `manifest.yml` 的 `deps` 节点，不在 action 文件内硬编码
-- **权限最小化**：每个 job 声明 `permissions`，仅开放必要权限
-- **harden-runner**：所有工作流每个 job 第一步统一加载，审计出站网络连接
-- **OIDC 优先**：认证方式优先使用 OIDC（id-token），避免长期凭证
----
 
-### 1.3 Action Manifest（Action 注册表）
+供应链攻击是 GitHub Actions 生态的实质性威胁（tj-actions 2025/03、trivy-action 2026/03 相继被攻击）。设计上必须假定每个第三方 action 都可能被劫持。因此:
 
-仓库根目录的 `action-manifest.yml` 是所有 action 的元数据注册表，单一来源。
-
-**用途**：
-
-- 自动生成 `docs/ACTIONS.md` 参考文档
-- CI 中校验 manifest 与实际 `action.yml` 的一致性（`scripts/validate-manifest.py`）
-- 新 contributor 一眼看到全貌：有哪些 action、每个的 input/output 是什么
-
-**字段规范**：
-
-- `version`：manifest 格式版本（当前 `"1.0"`）
-- `actions`：按阶段分组（`_common` / `issue` / `pr` / `stg` / `prd`）
-- 每个 action 条目包含：
-  - `description`：一句话说明
-  - `inputs`：`name → {type, required, default, description}`
-  - `outputs`：`name → {type, description}`
-  - `implementation`：`官方` | `外部` | `自实现` | `AI`
-  - `external-action`：（仅 `外部` 类型）引用的第三方 action 及版本
-  - `tags`：分类标签数组
-
-**CI 校验**：`scripts/validate-manifest.py` 遍历 `actions/*/action.yml`，对比 manifest 条目与实际 inputs/outputs，不一致则 fail（硬门控）。
-
-**文档生成**：`scripts/generate-action-docs.py` 从 manifest 生成 `docs/ACTIONS.md`，Markdown 表格格式，按阶段分组。
+- **SHA 固定**:所有第三方 action 必须使用 commit SHA,不接受版本 tag
+- **SHA 集中**:所有 SHA 维护在 `manifest.yml`,不在 action 内硬编码
+- **权限最小化**:每个 job 显式声明 `permissions`,仅开放必要权限
+- **harden-runner 必装**:每个工作流每个 job 第一步统一加载,审计出站连接
+- **OIDC 优先**:认证使用 OIDC（id-token）,避免长期凭证
 
 ---
 
-## 二、完整目录结构
+## 二、目录结构
 
 ```
-shared-actions/
-│
+opencl/
 ├── .github/
-│   └── workflows/                          # 公共 API 层（对外暴露的入口）
-│       ├── claude-harness.yml              # AI 执行引擎（thin wrapper over anthropics/claude-code-action）
-│       ├── issue.yml                       # Issue 生命周期主工作流
-│       ├── issue-comment.yml               # Issue 评论 slash 命令处理
-│       ├── stale.yml                       # 定时 Stale 清理
-│       ├── pr.yml                          # PR 统一工作流（自动检测语言，合并原 pr-node/nextjs/python/java）
-│       ├── ci.yml                          # Merge-to-main CI（build image → GHCR → integration test → trivy → cosign → migration dry-run）
-│       ├── stg.yml                         # Staging 部署验证工作流（由 ci.yml 调用，使用同一 image）
-│       ├── prd.yml                         # Production 发布工作流（由 stg.yml 调用，含 approval-gate + 观察窗口）
-│       └── prd-canary-watch.yml            # 生产定时巡检（Sentry 错误率 + health 端点，异常自动 rollback）
+│   ├── ISSUE_TEMPLATE/                    # Issue 模板范例(消费方可复制使用)
+│   │   ├── bug-report.yml
+│   │   ├── feature-request.yml
+│   │   └── question.yml
+│   │
+│   └── workflows/                         # 主工作流(供外部 uses: 引用)
+│       ├── claude-harness.yml             # AI 引擎(唯一 Claude 入口)
+│       ├── issue.yml                      # Issue 生命周期管理
+│       ├── issue-comment.yml              # Issue 评论处理(slash command)
+│       ├── pr.yml                         # PR 质量门
+│       ├── ci.yml                         # Merge to main 构建与冒烟
+│       ├── stg.yml                        # Staging 部署
+│       ├── prd.yml                        # 生产发布(含强化 pre-check)
+│       ├── security-schedule.yml          # 定时全量安全扫描
+│       ├── docs-build.yml                 # PR 时文档构建验证
+│       ├── docs-deploy.yml                # main push 文档部署
+│       ├── release-docker.yml             # Docker 镜像发布与签名
+│       ├── stale.yml                      # 过期 Issue/PR 自动标记
+│       └── community.yml                  # 新贡献者欢迎 + 冲突检测
 │
-├── action-manifest.yml                      # Action 注册表（所有 action 的 inputs/outputs 元数据）
-│
-├── actions/                                # 实现层
-│   ├── _common/                            # 跨阶段通用原子（无阶段归属）
-│   │   ├── setup-node/
-│   │   │   └── action.yml
-│   │   ├── setup-python/
-│   │   │   └── action.yml
-│   │   ├── setup-java/
-│   │   │   └── action.yml
-│   │   ├── post-comment/                   # sticky 评论（github-script + standalone JS）
-│   │   │   ├── action.yml
-│   │   │   └── post-comment.js
-│   │   ├── harden-runner/                  # Runner 安全加固 [外部]
-│   │   │   └── action.yml
-│   │   ├── notify/                         # 通知统一入口（Slack/钉钉）
-│   │   │   └── action.yml
-│   │   ├── upload-coverage/               # 覆盖率上报（Codecov）
-│   │   │   └── action.yml
-│   │   ├── detect-language/                # 语言/变更区域检测 [原子]
-│   │   │   └── action.yml
-│   │   ├── paths-filter/                  # 路径变更检测 [外部]
-│   │   │   └── action.yml
-│   │   ├── opencommit/                     # AI commit message 生成 [外部]
-│   │   │   └── action.yml
-│   │   └── annotate/                       # 统一遥测 annotation [原子]
-│   │       └── action.yml
+├── actions/
+│   ├── _common/                           # 跨阶段复用
+│   │   ├── detect-language/              # 语言检测(v1.1 单一来源)
+│   │   ├── setup-env/                    # 环境准备
+│   │   ├── post-comment/                 # GitHub 评论发布
+│   │   └── read-manifest/               # 读取 manifest.yml 的 deps
 │   │
-│   ├── issue/                              # Issue 阶段
-│   │   ├── validate/                       # 模板完整性校验 [Composite]
-│   │   │   └── action.yml
-│   │   ├── classify-label/                 # 分类打标签 [Composite: 纯 AI]
-│   │   │   └── action.yml
-│   │   ├── route/                          # 分配负责人 + 加 Project Board [Composite]
-│   │   │   └── action.yml
-│   │   ├── duplicate-check/               # AI 重复检测 [原子]
-│   │   │   └── action.yml
-│   │   ├── agent-analyze/                  # AI 深度分析并评论 [原子]
-│   │   │   └── action.yml
-│   │   ├── parse-command/                  # slash 命令解析 [原子]
-│   │   │   └── action.yml
-│   │   └── execute-command/               # slash 命令执行 [原子]
-│   │       └── action.yml
+│   ├── issue/                             # Issue 阶段(v1.3 扩展)
+│   │   ├── auto-label/                    # 基于 form 字段自动打 label
+│   │   ├── ai-triage/                     # AI 分级(priority + 路由)
+│   │   ├── detect-duplicates/             # 相似 issue 检测
+│   │   ├── welcome-contributor/           # 新贡献者欢迎
+│   │   ├── auto-assign/                   # CODEOWNERS 自动分配
+│   │   ├── parse-command/                 # slash 命令解析
+│   │   ├── execute-command/               # slash 命令执行
+│   │   └── validate-form/                 # 必填字段校验
 │   │
-│   ├── pr/                                 # PR 阶段
-│   │   ├── quality-gate/                  # 质量门 [Composite，语言自适应]
-│   │   │   └── action.yml
-│   │   ├── mega-lint/                     # MegaLinter 统一 lint [外部]（替代 lint-node/python/java）
-│   │   │   └── action.yml
-│   │   ├── typecheck-ts/                  # tsc --noEmit [原子]
-│   │   │   └── action.yml
-│   │   ├── typecheck-python/              # mypy [原子]
-│   │   │   └── action.yml
-│   │   ├── test-node/                     # Jest/Vitest + coverage [原子]
-│   │   │   └── action.yml
-│   │   ├── test-python/                   # pytest + coverage [原子]
-│   │   │   └── action.yml
-│   │   ├── test-java/                     # Maven/Gradle test [原子]
-│   │   │   └── action.yml
-│   │   ├── check-coverage/               # 覆盖率阈值检查，语言无关 [原子]
-│   │   │   └── action.yml
-│   │   ├── test-report/                   # 测试报告渲染 [原子]
-│   │   │   └── action.yml
-│   │   ├── scan-deps/                     # 依赖漏洞扫描 [原子]
-│   │   │   └── action.yml
-│   │   ├── scan-secrets/                  # Secret 泄漏检测 [外部]（trufflehog）
-│   │   │   └── action.yml
-│   │   ├── scan-code/                     # CodeQL 代码安全扫描 [外部]
-│   │   │   └── action.yml
-│   │   ├── scorecard/                     # OpenSSF Scorecard 供应链安全 [外部]
-│   │   │   └── action.yml
-│   │   ├── pr-title-check/               # Conventional Commits 标题校验 [外部]
-│   │   │   └── action.yml
-│   │   ├── size-label/                    # PR 大小标签 XS/S/M/L/XL [外部]
-│   │   │   └── action.yml
-│   │   ├── build-node/                    # tsc 编译验证 [原子]
-│   │   │   └── action.yml
-│   │   ├── build-java/                    # mvn package 验证 [原子]
-│   │   │   └── action.yml
-│   │   └── agent-review/                  # AI 代码 Review [原子] → claude-harness
-│   │       └── action.yml
-│   │
-│   ├── stg/                               # Staging 阶段
-│   │   ├── deploy/                        # 部署原子（平台参数化）
-│   │   │   └── action.yml
-│   │   ├── health-check/                  # 等待服务就绪轮询
-│   │   │   └── action.yml
-│   │   ├── smoke-test/                    # 冒烟测试
-│   │   │   └── action.yml
-│   │   ├── agent-diagnose/               # 失败时 AI 诊断 → claude-harness
-│   │   │   └── action.yml
-│   │   └── rollback/                      # 回滚
-│   │       └── action.yml
-│   │
-│   └── prd/                               # Production 阶段
-│       ├── deploy/                        # 生产部署
-│       │   └── action.yml
-│       ├── tag-release/                   # 自动打版本 tag
-│       │   └── action.yml
-│       ├── create-release/               # 创建 GitHub Release
-│       │   └── action.yml
-│       ├── agent-release-notes/          # AI 生成 Release Notes → claude-harness
-│       │   └── action.yml
-│       ├── pre-check/                     # STG→PRD 发布前验证 [自实现]
-│       │   └── action.yml
-│       └── rollback/                      # 生产回滚
-│           └── action.yml
-│
-├── prompts/                               # Prompt 层（独立于 action 变化）
-│   ├── issue/
-│   │   ├── triage.md                      # Issue 分类，返回 JSON，适用 sonnet
-│   │   ├── triage.haiku.md               # 轻量版，速度优先，适用 haiku
-│   │   └── duplicate-check.md            # 重复检测，返回 JSON
 │   ├── pr/
-│   │   ├── code-review.md                # 全面 review，返回 JSON
-│   │   └── code-review.security.md       # 安全专项 review 变体
+│   │   ├── lint-code/                     # Composite: MegaLinter 多语言统一 lint
+│   │   ├── test-unit/                     # Composite: 运行单元测试
+│   │   ├── scan-deps/                     # 原子: dependency-review
+│   │   ├── scan-secrets/                  # 原子: TruffleHog
+│   │   ├── scan-sonarcloud/               # 原子: SonarCloud 代码质量(v1.3)
+│   │   ├── check-coverage/                # 原子: Codecov 集成
+│   │   ├── validate-pr-description/       # 原子: PR 描述校验(v1.3)
+│   │   ├── review-ai/                     # 原子: AI PR review
+│   │   └── eval-prompt/                   # 原子: promptfoo 回归
+│   │
+│   ├── ci/
+│   │   ├── build-docker/                  # 原子: 构建并推送 GHCR
+│   │   ├── scan-image/                    # 原子: Trivy 镜像扫
+│   │   ├── sign-image/                    # 原子: Cosign 签名
+│   │   ├── eval-smoke/                    # 原子: AI 冒烟 eval
+│   │   └── check-migration/              # 原子: DB migration dry-run
+│   │
 │   ├── stg/
-│   │   └── diagnose-failure.md           # 读 log，返回根因分析 JSON
-│   └── prd/
-│       └── release-notes.md              # 读 commits/PR，生成 Markdown changelog
+│   │   ├── deploy-k8s/                    # 原子: kubectl 滚动部署
+│   │   ├── run-migration/                 # 原子: 执行 migration
+│   │   ├── smoke-test/                    # 原子: HTTP 健康检查
+│   │   └── notify-deployed/               # 原子: Slack 通知
+│   │
+│   ├── prd/
+│   │   ├── pre-check/                     # Composite: 双验证(v1.1)
+│   │   ├── verify-version-align/          # 原子: STG/PRD digest 对齐
+│   │   ├── observe-window/                # 原子: 观察窗口等待
+│   │   ├── check-error-rate/              # 原子: Sentry 错误率检查(v1.3)
+│   │   ├── deploy-k8s/                    # 原子: 生产部署
+│   │   ├── run-migration/                 # 原子: 生产 migration
+│   │   ├── smoke-test/                    # 原子: 生产冒烟
+│   │   └── create-release/               # 原子: GitHub Release
+│   │
+│   ├── security/
+│   │   ├── scan-codeql/                   # 原子: CodeQL SAST
+│   │   ├── scan-image-full/               # 原子: Trivy 全量
+│   │   └── generate-sbom/                # 原子: SBOM 生成
+│   │
+│   ├── community/                         # 社区互动(v1.3 新增)
+│   │   ├── stale-mark/
+│   │   ├── stale-close/
+│   │   └── lock-resolved/
+│   │
+│   └── integrations/                      # 外部 SaaS 集成(v1.3 新增)
+│       ├── sentry-release/                # Sentry 发布通知
+│       ├── posthog-event/                 # PostHog 事件上报
+│       ├── slack-notify/                  # Slack 通知
+│       └── linear-link/                   # Linear issue 关联检查
 │
-├── configs/                               # 配置层
-│   ├── stale/
-│   │   ├── default.yml                    # 60天/14天标准配置
-│   │   └── fast.yml                       # 30天/7天快节奏配置
-│   └── assign-matrix/
-│       └── default.yml                    # label → team/person 映射矩阵
+├── prompts/                               # AI Prompt(与 action 分离)
+│   ├── pr/
+│   │   ├── review.md
+│   │   └── eval-regression.md
+│   ├── issue/
+│   │   └── triage.md
+│   └── ci/
+│       └── smoke-eval.md
 │
-├── scripts/
-│   ├── validate-manifest.py               # Manifest 一致性校验
-│   └── generate-action-docs.py            # 从 manifest 生成文档
+├── lib/                                   # 2+ action 共用脚本
+│   ├── wait-on.js                         # 观察窗口实现
+│   └── parse-sarif.sh                     # SARIF 解析
 │
-└── docs/
-    └── ACTIONS.md                         # 自动生成的 Action 参考文档
+├── manifest.yml                           # Action Manifest 注册表
+└── README.md
 ```
 
 ---
 
-## 三、主工作流层详细规格
+## 三、Action Manifest 注册表
 
-### 3.1 claude-harness.yml
-
-**定位**：通用 AI 执行引擎，所有 AI 相关 action 的唯一入口。`anthropics/claude-code-action@v1` 的薄封装，不重复实现 CLI 调用、重试、超时等逻辑。
-
-**触发**：`on: workflow_call`
-
-**Job 设计**（单 job）：
-
-```
-Job: run-claude
-  steps:
-    - uses: actions/checkout@v4
-    - uses: anthropics/claude-code-action@v1
-      with:
-        anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        model: ${{ inputs.model }}
-        max_turns: ${{ inputs.max-turns }}
-        timeout_minutes: ${{ inputs.timeout-minutes }}
-        allowed_tools: ${{ inputs.allowed-tools }}
-        mcp_config: ${{ inputs.mcp-config }}
-        plugins: ${{ inputs.plugins }}
-        permissions: ${{ inputs.permissions }}
-        prompt: ${{ inputs.prompt || format('{0}{1}', '# Task\n\nRead the prompt file: ', inputs.prompt-file) }}
-        output_format: ${{ inputs.output-format }}
-      id: claude
-    - if: inputs.post-comment == 'true'
-      uses: actions/_common/post-comment
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        issue-number: ${{ inputs.comment-number }}
-        body: ${{ steps.claude.outputs.result }}
-        header: openci-claude
-```
-
-**inputs 完整规格**：
-
-| 参数名 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| prompt | string | '' | 内联 prompt，与 prompt-file 二选一 |
-| prompt-file | string | '' | 仓库内 prompt 文件路径（调用方读取后传入 prompt） |
-| model | string | claude-sonnet-4-6 | 模型选择 |
-| max-turns | number | 10 | 最大 agent 轮次，1 = 单次问答 |
-| timeout-minutes | number | 15 | 超时时间 |
-| allowed-tools | string | '' | 逗号分隔，如 Bash,Read,Edit,mcp__github |
-| mcp-config | string | '{}' | MCP server 配置 JSON 字符串（调用方传完整 JSON） |
-| plugins | string | '' | 官方插件列表，逗号分隔（如 @anthropic-ai/plugin-github） |
-| permissions | string | 'read' | 权限级别：read（默认）或 write（opt-in） |
-| output-format | string | json | text 或 json |
-| post-comment | boolean | false | 是否将结果评论到 PR/Issue |
-| comment-number | number | 0 | PR 或 Issue 编号 |
-
-**secrets**：`ANTHROPIC_API_KEY`（required）、`GITHUB_TOKEN`（optional）
-
-**outputs**：`result`、`result-json`、`success`、`exit-code`、`tokens-used`、`cost-usd`、`session-id`（均来自 anthropics/claude-code-action 的 outputs）
-
----
-
-### 3.2 issue.yml
-
-**触发**：`on: issues: types: [opened]`
-
-**Jobs 链路**：
-
-```
-validate（必须最先，失败时 continue: false，阻断后续所有 job）
-    ↓ 通过
-classify-label  ←→  duplicate-check（两者并行，互不依赖）
-    ↓ 两者都完成
-route（depends: classify-label + duplicate-check）
-    ↓
-agent-analyze（depends: route，仅 inputs.enable-ai == 'true'）
-```
-
-**Job: validate**
-- 调用：`actions/issue/validate`
-- 失败时：打 `needs-more-info` 标签，评论模板引导，`continue: false`
-
-**Job: classify-label**
-- 调用：`actions/issue/classify-label`
-- outputs：`type`（bug/feature/question/docs/security）、`area`（frontend/backend/infra）、`confidence`
-
-**Job: duplicate-check**
-- 调用：`actions/issue/duplicate-check`
-- 若发现重复：评论关联 issue，打 `duplicate` 标签，关闭当前 issue
-- outputs：`is-duplicate`、`duplicate-of`
-
-**Job: route**
-- if: `needs.duplicate-check.outputs.is-duplicate != 'true'`
-- 调用：`actions/issue/route`
-
-**Job: agent-analyze**
-- if: `inputs.enable-ai == 'true' && needs.route.result == 'success'`
-- 调用：`actions/issue/agent-analyze`
-
-**inputs**：`enable-ai`（boolean，default: true）、`model`（default: claude-haiku-4-5-20251001）、`assign-matrix-path`（default: configs/assign-matrix/default.yml）
-
-**secrets**：`ANTHROPIC_API_KEY`、`GITHUB_TOKEN`
-
----
-
-### 3.3 issue-comment.yml
-
-**触发**：`on: issue_comment: types: [created]`
-
-**Jobs 链路**：
-
-```
-parse-command（识别评论是否包含 slash 指令，检查发起人权限）
-    ↓ 识别到指令且有权限
-execute-command（根据指令类型分支执行）
-```
-
-**支持的 slash 指令**：`/assign @user`、`/unassign @user`、`/label <name>`、`/remove-label <name>`、`/close`、`/reopen`、`/milestone <title>`、`/ask <question>`
-
-**权限检查**：评论者必须是仓库 collaborator 或 member，否则静默忽略。用 `actions/github-script@v7` 调用 API 检查。
-
-**`/ask` 特殊处理**：
-- 调用 `claude-harness.yml`
-- skill: `issue-triager`
-- prompt: issue 完整内容 + 问题
-- post-comment: true（sticky 更新同一条评论）
-
-**secrets**：`ANTHROPIC_API_KEY`（仅 /ask 需要）、`GITHUB_TOKEN`
-
----
-
-### 3.4 stale.yml
-
-**触发**：`on: schedule: - cron: '0 2 * * *'`
-
-**Jobs**：
-
-```
-Job: manage-stale
-  - uses: actions/stale@v9，配置：
-    - days-before-stale: 60
-    - days-before-close: 14
-    - stale-issue-label: stale
-    - stale-issue-message: 模板评论（提示即将关闭）
-    - exempt-issue-labels: pinned,security,confirmed-bug,in-progress
-    - close-issue-message: 模板评论（已关闭原因）
-
-Job: lock-resolved（depends: manage-stale）
-  - uses: dessant/lock-threads@v5
-    关闭后 7 天自动锁定，防止继续评论
-```
-
-**inputs**：`stale-days`（default: 60）、`close-days`（default: 14）、`exempt-labels`（default: pinned,security）
-
----
-
-### 3.5 pr.yml
-
-**定位**：单一 PR 工作流，自动检测语言，替代原 pr-node/pr-nextjs/pr-python/pr-java 四个工作流。
-
-**触发**：`on: pull_request`（types: opened, synchronize, reopened）
-
-**Jobs 链路**：
-
-```
-detect-language → setup → quality-gate → (parallel: security) → agent-review → notify
-```
-
-**inputs 完整规格**：
-
-| 参数名 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `language` | string | `'auto'` | 项目语言，auto 时自动检测 |
-| `node-version` | string | `'20'` | Node.js 版本 |
-| `python-version` | string | `'3.11'` | Python 版本 |
-| `java-version` | string | `'17'` | Java 版本 |
-| `package-manager` | string | `''` | 包管理器，空则按语言选默认值 |
-| `test-command` | string | `''` | 测试命令，空则按语言选默认值 |
-| `coverage-threshold` | number | `80` | 覆盖率阈值 |
-| `enable-agent-review` | boolean | `true` | 是否启用 AI review |
-| `working-directory` | string | `'.'` | 工作目录 |
-| `slack-channel` | string | `''` | Slack 通知频道 |
-
-**secrets**：`ANTHROPIC_API_KEY`、`GITHUB_TOKEN`、`SLACK_WEBHOOK`
-
-**outputs**：`quality-passed`（bool）、`coverage-pct`（number）、`language`（string）
-
-**语言检测逻辑**：由 `_common/detect-language` action 统一实现（见 4.6 节），pr.yml 通过调用该 action 获取 `language`、`package-manager`、`test-command` 等 outputs。单一来源，不在此重复维护。
-
----
-
-### 3.6 ci.yml
-
-**定位**：Merge-to-main CI 流水线，构建单一 image 并通过所有验证，作为 stg/prd 部署的唯一 image 来源。
-
-**触发**：`on: push: branches: [main]`（PR merge 后自动触发）
-
-**Jobs 链路**：
-
-```
-cleanup（删除已合并分支、关闭关联 issue）
-    ↓
-build（docker build → push GHCR，输出 image-digest）
-    ↓
-integration-test（使用刚构建的 image 跑集成测试）
-    ↓ 并行
-trivy-image-scan（trivy 扫描镜像漏洞 + secret + misconfig）
-    ↓
-cosign-sign（对 GHCR image 进行 cosign 签名）
-    ↓
-migration-dry-run（数据库 migration 验证，不实际执行）
-    ↓ 全部通过
-stg.yml（workflow_call，传入 image-digest）
-```
-
-**inputs**（对外暴露，供调用方覆盖）：
-
-| 参数名 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `image-registry` | string | `ghcr.io` | 容器镜像仓库 |
-| `integration-test-command` | string | `''` | 集成测试命令，空则按语言选默认值 |
-| `trivy-severity` | string | `CRITICAL,HIGH` | Trivy 扫描严重级别 |
-| `migration-dir` | string | `'migrations'` | migration 文件目录 |
-| `cosign-repository` | string | `''` | cosign 签名目标仓库，空则用 image-registry |
-
-**secrets**：`GITHUB_TOKEN`（GHCR push + cosign）、`COSIGN_PRIVATE_KEY`（cosign 签名）、`DATABASE_URL`（migration dry-run）
-
-**outputs**：`image-digest`（string，如 `ghcr.io/org/app@sha256:abc123`）、`image-tag`（string）、`ci-passed`（bool）
-
-**关键约束**：
-- image 使用 `sha256` digest 传递，不用 mutable tag，确保 stg/prd 部署的 image 与 ci 构建的完全一致
-- cosign 签名使用 keyless 模式（GitHub OIDC），不需要手动管理密钥
-- migration dry-run 使用 `--dry-run` 标志，只验证 SQL 语法和约束，不实际修改数据库
-
----
-
-### 3.7 stg.yml
-
-**触发**：`on: workflow_call`（由 ci.yml 调用，传入 image-digest）
-
-**Jobs 链路**：
-
-```
-migrate（调用 database migration action，使用 image-digest 对应的 SQL）
-    ↓
-deploy（调用 actions/stg/deploy，使用 GHCR image-digest 部署）
-    ↓
-verify（health-check + smoke-test）
-    ↓ 若 verify 失败
-diagnose（调用 actions/stg/agent-diagnose → claude-harness）
-    ↓ 若 rollback-on-failure == 'true'
-rollback（调用 actions/stg/rollback）
-    ↓
-notify（if: always()）
-    ↓ 全部通过
-prd.yml（workflow_call，自动触发 PRD 发布流程）
-```
-
-**inputs**：
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| image-digest | string | yes | — | GHCR image digest（如 `ghcr.io/org/app@sha256:abc123`），由 ci.yml 传入 |
-| deploy-command | string | yes | — | 部署命令 |
-| migration-dir | string | no | `migrations/` | 数据库迁移脚本目录 |
-| database-url | string | no | — | 数据库连接 URL（从 secrets 读取） |
-| smoke-test-urls | string | no | — | 逗号分隔的 smoke test URL |
-| health-check-url | string | no | — | 健康检查 URL |
-| rollback-on-failure | boolean | no | `true` | verify 失败时自动回滚 |
-| environment | string | no | `staging` | 部署环境名称 |
-
-**outputs**：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| stg-passed | boolean | STG 全部验证通过 |
-| deployment-id | string | GitHub Deployment ID |
-| deployed-at | string | 部署完成时间 ISO8601 |
-
-**secrets**：`DEPLOY_KEY`、`DATABASE_URL`、`ANTHROPIC_API_KEY`、`SLACK_WEBHOOK`、`GITHUB_TOKEN`
-
----
-
-### 3.8 prd.yml
-
-**触发**：`on: workflow_call`（由 stg.yml 自动调用，传入 image-digest 和 version）
-
-**Jobs 链路**：
-
-```
-pre-check（调用 actions/prd/pre-check，四项验证全部通过才放行）：
-  1. 版本对齐：STG 最新 deployment 的 SHA/tag == 当前要发布的 version
-  2. Smoke test 结果：STG deployment 关联的 smoke-test job conclusion == success
-  3. 观察窗口：STG deployment.created_at 距今 >= min-observation-hours（默认 24h）
-  4. Canary watch 状态：prd-canary-watch 最近一次 run 无 failure（warn-only，不 block）
-    ↓
-release-notes（调用 actions/prd/agent-release-notes → claude-harness，创建 Release 草稿）
-    ↓
-approval-gate（GitHub Environment: production，人工审批门，默认 required reviewers）
-    ↓ 审批通过
-deploy（调用 actions/prd/deploy，environment: production）
-    ↓
-post-deploy-verify（smoke-test on production，观察窗口 10 分钟）
-    ↓ 若失败
-rollback（调用 actions/prd/rollback）
-    ↓
-post-release（tag-release + create-release + notify）
-```
-
-**inputs**：
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| image-digest | string | yes | — | GHCR image digest，由 stg.yml 传入，确保 STG 和 PRD 部署同一镜像 |
-| version | string | yes | — | 版本 tag（如 v1.2.3） |
-| deploy-command | string | yes | — | 部署命令 |
-| skip-release-notes | boolean | no | `false` | 跳过 AI 生成 release notes |
-| canary-pct | number | no | `0` | Canary 流量百分比，0 表示直接全量 |
-| min-observation-hours | number | no | `24` | STG 部署后最小观察窗口（小时） |
-| force-skip-observation | boolean | no | `false` | 紧急发布时跳过观察窗口检查 |
-
-**outputs**：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| prd-passed | boolean | PRD 发布全部通过 |
-| release-url | string | GitHub Release URL |
-| released-at | string | 发布完成时间 ISO8601 |
-
-**关键约束**：
-- approval-gate 通过 GitHub Environment Protection Rules 实现（`environment: production`），不需要单独的 workflow_dispatch 触发
-- image-digest 从 ci.yml → stg.yml → prd.yml 全链路传递，确保 STG 和 PRD 部署的是完全相同的镜像
-- pre-check 四项验证全部通过后才进入 approval-gate
-
-**secrets**：`DEPLOY_KEY`、`ANTHROPIC_API_KEY`、`GITHUB_TOKEN`、`SLACK_WEBHOOK`
-
----
-
-### 3.9 prd-canary-watch.yml
-
-**触发**：`on: schedule`（定时巡检，如每 10 分钟）+ `on: workflow_dispatch`（手动触发）
-
-**职责**：生产环境持续巡检，异常时自动触发 rollback。
-
-**Jobs 链路**：
-
-```
-watch（定时执行）：
-  1. 查询 Sentry 错误率（最近 10 分钟）
-  2. 调用 health 端点验证可用性
-  3. 对比基线阈值
-    ↓ 若异常
-notify（发送 Slack 告警）
-    ↓ 若 auto-rollback == true
-rollback（调用 actions/prd/rollback）
-```
-
-**inputs**：
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| health-url | string | yes | — | 生产环境健康检查 URL |
-| sentry-project | string | no | — | Sentry 项目 slug |
-| error-rate-threshold | number | no | `0.05` | 错误率阈值（5%） |
-| auto-rollback | boolean | no | `false` | 异常时自动回滚 |
-| check-interval-minutes | number | no | `10` | 检查间隔（分钟） |
-
-**secrets**：`SENTRY_AUTH_TOKEN`、`SLACK_WEBHOOK`、`DEPLOY_KEY`
-
----
-
-## 四、Composite Action 层详细规格
-
-### 4.1 actions/_common/setup-node
-
-**职责**：Node 环境 + 包管理器 + 依赖缓存一体化封装
-
-**inputs**：
-
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| node-version | '20' | Node 版本 |
-| package-manager | 'pnpm' | pnpm / npm / yarn |
-| working-directory | '.' | 工作目录 |
-| install | 'true' | false 时只装环境不装依赖 |
-
-**outputs**：`cache-hit`（bool）
-
-**实现**：
-
-```
-steps:
-  1. actions/setup-node@v4（官方，node-version 参数）
-  2. pnpm/action-setup@v4（仅 package-manager == 'pnpm' 时）
-  3. actions/cache@v4（key: node-{node-version}-{pm}-{lockfile-hash}）
-  4. {pm} install（if: install == 'true' && cache-hit != 'true'）
-```
-
----
-
-### 4.2 actions/_common/setup-python
-
-**inputs**：`python-version`（default: '3.11'）、`package-manager`（default: 'uv'，支持 uv/poetry/pip）、`working-directory`
-
-**outputs**：`cache-hit`
-
-**实现**：
-
-```
-steps:
-  1. actions/setup-python@v5（官方）
-  2. astral-sh/setup-uv@v5（仅 uv 时）
-  3. actions/cache@v4（key: python-{version}-{pm}-{lockfile-hash}）
-  4. 按 pm 类型执行安装命令（cache miss 时）
-```
-
----
-
-### 4.3 actions/_common/setup-java
-
-**inputs**：`java-version`（default: '17'）、`distribution`（default: 'temurin'）、`build-tool`（default: 'maven'）
-
-**实现**：
-
-```
-steps:
-  1. actions/setup-java@v4（官方，cache 参数直接设 build-tool，原生支持 maven/gradle 缓存）
-```
-
----
-
-### 4.4 actions/_common/post-comment
-
-**inputs**：`github-token`（required）、`issue-number`（required）、`body`（required）、`header`（string，sticky 评论的唯一标识 key）
-
-**实现**：`actions/github-script@v7` + 独立 JS 文件 `post-comment.js`（纯 GitHub API 实现 sticky 评论：若 header 相同则更新，不堆叠）
-
----
-
-### 4.5 actions/_common/notify
-
-**inputs**：`webhook`（secret）、`status`（success/failure/cancelled）、`message`（string）、`channel`（string）
-
-**实现**：`slackapi/slack-github-action@v2`，Block Kit 格式，颜色随 status 变化（green/red/gray）
-
----
-
-### 4.6 actions/_common/detect-language
-
-**职责**：语言检测 + 变更区域检测，作为所有 workflow 和 composite action 的单一来源。
-
-**inputs**：
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| language | string | 'auto' | 手动指定语言，auto 时自动检测 |
-| working-directory | string | '.' | 检测起始目录 |
-
-**outputs**：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| language | string | 检测结果：node / python / java / go / rust |
-| package-manager | string | 对应包管理器：pnpm / uv / maven / cargo |
-| test-command | string | 默认测试命令 |
-| lint-command | string | 默认 lint 命令 |
-| has-backend | boolean | 是否存在后端代码文件 |
-| has-frontend | boolean | 是否存在前端代码文件 |
-
-**语言检测优先级**：
-
-1. `language != 'auto'` → 直接使用
-2. 存在 `package.json` → node
-3. 存在 `pyproject.toml` 或 `requirements.txt` → python
-4. 存在 `pom.xml` 或 `build.gradle` → java
-5. 存在 `go.mod` → go
-6. 存在 `Cargo.toml` → rust
-7. 均不存在 → fail with clear error
-
-**各语言默认值**：
-
-| 语言 | package-manager | test-command | lint-command |
-|------|----------------|--------------|--------------|
-| node | pnpm | `pnpm test` | `pnpm lint` |
-| python | uv | `uv run pytest` | `uvx ruff check .` |
-| java | maven | `mvn test` | `mvn checkstyle:check` |
-| go | go | `go test ./...` | `golangci-lint run` |
-| rust | cargo | `cargo test` | `cargo clippy` |
-
-**变更区域检测**（供 pr-gate.yml 使用）：
-
-- `has-backend`：存在 `app/|src/|lib/|cmd/|internal/|*.go|*.py|*.rs|requirements|pyproject|go.mod|Cargo.toml`
-- `has-frontend`：存在 `frontend/|client/|pages/|components/|*.tsx|*.ts|*.jsx|*.js|package.json`
-
-**消费方**：
-
-- `pr.yml`：读取 language/package-manager/test-command 选择质量门子步骤
-- `pr-gate.yml`：读取 has-backend/has-frontend 填入 gate-context
-- `quality-gate` composite：读取 language 选择 lint/test/typecheck 原子
-- `reusable-verify.yml`：读取 language 决定跑哪些 verify job
-
----
-
-### 4.7 actions/_common/annotate
-
-**职责**：统一遥测 annotation 入口，向多个后端发送部署/发布事件。
-
-**inputs**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| service | string | yes | 后端：sentry / axiom / datadog / posthog |
-| event | string | yes | 事件类型：deploy-start / deploy-success / deploy-failure / release |
-| environment | string | yes | 环境：staging / production |
-| version | string | yes | 版本 tag 或 SHA |
-| trace-id | string | no | 跨 workflow 关联 ID（由 pr-gate 生成 UUID，写入 gate-context） |
-| metadata | string | no | 额外 JSON 元数据 |
-
-**实现**：[自实现]，按 service 分支调用各后端 API。
-
-**trace-id 传递**：`pr.yml` 的 detect-language step 生成 trace-id（UUID），写入 gate-context。所有下游 workflow 从 gate-context 读取 trace-id，annotation 中携带以实现跨 workflow 关联查询。
-
----
-
-### 4.8 actions/issue/validate（Composite）
-
-**inputs**：`github-token`、`issue-number`、`issue-body`
-
-**outputs**：`valid`（bool）
-
-**实现**：
-
-```
-steps:
-  1. actions/github-script@v7：
-     - 检查 issue-body 是否包含模板的必要 H2 节（复现步骤、期望行为、环境信息）
-     - 检查这些节是否有实际内容（非空、非占位符）
-  2. if valid == false:
-     - 打标签 needs-more-info（github-script）
-     - 调用 _common/post-comment 发引导评论
-```
-
----
-
-### 4.9 actions/issue/classify-label（Composite）
-
-**inputs**：`github-token`、`issue-number`、`issue-title`、`issue-body`、`enable-ai`（bool）、`api-key`、`model`
-
-**outputs**：`type`、`area`、`confidence`
-
-**实现**：
-
-```
-steps:
-  1. 调用 claude-harness.yml，prompt = prompts/issue/triage.md，model: haiku
-     返回 JSON {type, area, confidence}
-  2. if confidence < 0.7: 打 needs-triage 标签（人工确认），不强行打类型标签
-     else: 用 github-script 打对应标签
-```
-
-纯 AI 分类，不使用 `actions/labeler@v5`。所有分类逻辑由 AI 完成，减少维护成本。
-
----
-
-### 4.10 actions/issue/route（Composite）
-
-**inputs**：`github-token`、`issue-number`、`issue-type`、`issue-area`、`matrix-path`（default: configs/assign-matrix/default.yml）
-
-**outputs**：`assignee`
-
-**实现**：
-
-```
-steps:
-  1. 读取 matrix-path YAML，找 type+area 对应的 assignee/team
-  2. actions/github-script@v7：调用 API 分配 assignee
-  3. actions/add-to-project@v1：GitHub 官方 Project Board 集成（替代自实现 GraphQL）
-```
-
----
-
-### 4.11 actions/pr/quality-gate-node（Composite）
-
-**inputs**：`node-version`、`package-manager`、`test-command`、`coverage-threshold`、`github-token`、`pr-number`、`working-directory`
-
-**outputs**：`passed`（bool）、`coverage-pct`（number）
-
-**实现**：
-
-```
-steps:
-  1. actions/checkout@v4
-  2. actions/_common/harden-runner（安全加固，每个 workflow 第一步）
-  3. actions/_common/setup-node（with all inputs）
-  4. actions/pr/mega-lint（with working-directory，替代 lint-node/python/java）
-  5. actions/pr/typecheck-ts（with working-directory）
-  6. actions/pr/test-node（with test-command, working-directory）id: test-step
-  7. actions/pr/check-coverage（with coverage-pct: steps.test-step.outputs.coverage-pct,
-     threshold: coverage-threshold, github-token, pr-number）id: coverage-step
-  8. actions/pr/test-report（with working-directory）
-  9. outputs: passed = steps.coverage-step.outputs.passed,
-              coverage-pct = steps.test-step.outputs.coverage-pct
-```
-
-`quality-gate-python` 和 `quality-gate-java` 结构相同，替换内部步骤为对应语言的原子。
-
----
-
-## 五、原子 Action 层完整规格
-
-### 5.1 实现方式说明
-
-每个原子标注以下属性：
-
-- **[官方]**：GitHub 官方出品，直接 uses，不封装
-- **[外部]**：Verified Creator 或社区成熟方案，薄封装
-- **[自实现]**：用 shell/github-script 实现，无现成方案或命令因项目而异
-- **[AI]**：调用 `claude-harness.yml` 实现，传对应 prompt 和 skill
-
----
-
-### 5.2 _common 层原子
-
-| Action | 实现方式 | 核心实现 |
-|---|---|---|
-| `_common/harden-runner` | [外部] | `step-security/harden-runner@v2`，Runner 安全加固。阻止未授权网络访问、监控文件系统变化、审计所有命令执行。每个 workflow 的第一个 step 必须调用 |
-| `_common/post-comment` | [自实现] | `actions/github-script@v7` + 独立 JS 文件 `post-comment.js`，纯 GitHub API 实现 sticky 评论 |
-| `_common/notify` | [外部] | `slackapi/slack-github-action@v2` |
-| `_common/upload-coverage` | [外部] | `codecov/codecov-action@v5`，公开仓库免费 |
-| `_common/paths-filter` | [外部] | `dorny/paths-filter@v3`，检测哪些路径有变更，输出 boolean 矩阵。后续 job 按需执行，节省 30-50% CI 时间。替代已被攻击的 `tj-actions/changed-files` |
-| `_common/opencommit` | [外部] | `di-sukharev/opencommit@v3`，AI 生成 Conventional Commits 格式的 commit message。分析 staged diff，自动生成语义化 message。支持 pre-commit hook 和 CI 模式 |
-
----
-
-### 5.3 issue 层原子
-
-| Action | 实现方式 | 核心实现 |
-|---|---|---|
-| `issue/duplicate-check` | [AI] | → claude-harness，prompt: prompts/issue/duplicate-check.md，返回 JSON {is_duplicate, duplicate_of, similarity}，model: haiku |
-| `issue/agent-analyze` | [AI] | → claude-harness，prompt: prompts/issue/triage.md，post-comment: true，model: sonnet |
-| `issue/parse-command` | [自实现] | github-script，正则提取 /command args，检查评论者权限（collaborator/member），outputs: command, args, authorized |
-| `issue/execute-command` | [自实现] | github-script 分支：assign/label/close/reopen/milestone → GitHub API；/ask → 调用 claude-harness，skill: issue-triager |
-
----
-
-### 5.4 pr 层原子
-
-| Action | 实现方式 | 核心实现 |
-|---|---|---|
-| `pr/mega-lint` | [外部] | `oxsecurity/metalinter@v8`，统一 lint 所有语言（替代 lint-node/python/java）。内置 50+ linter：ESLint、Ruff、Checkstyle、golangci-lint、clippy 等。支持 PR comment 标注、SARIF 上传、AI 辅助修复。outputs: `has_lint_errors` |
-| `pr/typecheck-ts` | [自实现] | `run: pnpm tsc --noEmit`，无专用 action，命令因项目而异 |
-| `pr/typecheck-python` | [自实现] | `run: uv run mypy .`，同上 |
-| `pr/test-node` | [自实现] | `run: {test-command} --coverage`，输出 coverage-pct（从 coverage-summary.json 解析） |
-| `pr/test-python` | [自实现] | `run: {test-command} --cov --cov-report=json`，输出 coverage-pct（从 coverage.json 解析） |
-| `pr/test-java` | [自实现] | `run: mvn test` 或 `./gradlew test`，输出 surefire XML |
-| `pr/check-coverage` | [外部] | `codecov/codecov-action@v5`，原生阈值检查 + PR comment。公开仓库免费。保留 bash fallback 供私有仓库使用（通过 `mode` input 切换：`codecov` | `bash`）。输出 passed（bool） |
-| `pr/test-report` | [外部] | `dorny/test-reporter@v1`，支持 JUnit/Jest/pytest XML，渲染为 PR check |
-| `pr/scan-deps` | [外部] | `aquasecurity/trivy-action@master`，`--scanners vuln,secret,misconfig`，扫描依赖漏洞 + secret + Dockerfile/IaC 配置错误。免费开源 |
-| `pr/scan-secrets` | [外部] | `trufflesecurity/trufflehog@v3`，深度 secret 扫描（支持 git history、binary、base64 等 700+ detector）。替代 gitleaks（误报率更低） |
-| `pr/scan-code` | [外部] | `github/codeql-action@v3`（init → autobuild → analyze），代码语义安全扫描。与 trivy（扫依赖）互补：CodeQL 扫代码控制流/数据流漏洞。默认语言 auto-detect，可配置 `queries: security-extended`。outputs: `results-count` |
-| `pr/pr-title-check` | [外部] | `amannn/action-semantic-pull-request@v5`，Conventional Commits 格式，PR 标题必须符合规范（squash merge 后即 commit message） |
-| `pr/scorecard` | [外部] | `ossf/scorecard-action@v2`，OpenSSF Scorecard 供应链安全评分。检测：branch protection、code review、CI test、vulnerabilities、pinned dependencies 等。结果上传 GitHub Security Dashboard |
-| `pr/size-label` | [外部] | `pascalgn/size-label-action@v0.5.4`，按改动行数打 XS/S/M/L/XL |
-| `pr/build-node` | [自实现] | `run: pnpm tsc -p tsconfig.build.json` |
-| `pr/build-java` | [自实现] | `run: mvn package -DskipTests` 或 `./gradlew build -x test` |
-| `pr/agent-review` | [AI] | → claude-harness，prompt: prompts/pr/code-review.md，allowed-tools: mcp__github，post-comment: true，model: sonnet |
-
----
-
-### 5.5 stg 层原子
-
-| Action | 实现方式 | 核心实现 |
-|---|---|---|
-| `stg/deploy` | [自实现] | inputs.deploy-command 参数化，支持 docker run / kubectl apply / fly deploy / render hook |
-| `stg/health-check` | [外部] | `wait-on/wait-on-action@v1`，支持 HTTP/TCP/Unix socket，可配置超时和间隔。保留 bash fallback 通过 `mode` input 切换（`wait-on` | `bash`） |
-| `stg/smoke-test` | [自实现] | bash：遍历 inputs.urls，curl 检查状态码，失败时输出具体接口和响应 |
-| `stg/agent-diagnose` | [AI] | → claude-harness，prompt: prompts/stg/diagnose-failure.md，传入失败 job 的 log，post-comment: true，model: sonnet |
-| `stg/rollback` | [自实现] | docker tag + push（previous-image-tag 从 inputs 传入），或 kubectl rollout undo |
-
----
-
-### 5.6 prd 层原子
-
-| Action | 实现方式 | 核心实现 |
-|---|---|---|
-| `prd/deploy` | [自实现] | 同 stg/deploy，但 environment 绑定 production（触发 GitHub Environment 审批） |
-| `prd/tag-release` | [外部] | `mathieudutour/github-tag-action@v6`，语义化版本自动递增 |
-| `prd/create-release` | [外部] | `softprops/action-gh-release@v2`，创建正式 Release，支持草稿、附件上传 |
-| `prd/agent-release-notes` | [AI] | → claude-harness，prompt: prompts/prd/release-notes.md，skill: release-manager，读 git log 和 merged PR 列表，返回 Markdown changelog，model: sonnet |
-| `prd/rollback` | [自实现] | git checkout {prev-tag}，重新触发 deploy job |
-| `prd/pre-check` | [自实现] | STG→PRD 发布前验证：版本对齐 + smoke test 结果 + 观察窗口 + canary watch 状态。通过 GitHub Deployments API + Checks API 查询。outputs: `pre-check-passed`、`stg-version`、`stg-deployed-at`、`observation-hours` |
-
-**prd/pre-check 详细规格**：
-
-inputs：
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| expected-version | string | yes | — | 当前要发布的版本 tag |
-| stg-environment | string | no | 'staging' | STG environment 名称 |
-| min-observation-hours | number | no | 24 | 最小观察窗口（小时） |
-| force-skip-observation | boolean | no | false | 跳过观察窗口（紧急发布） |
-
-outputs：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| pre-check-passed | boolean | 全部检查通过 |
-| stg-version | string | STG 实际部署版本 |
-| stg-deployed-at | string | STG 部署时间 ISO8601 |
-| observation-hours | number | 实际观察时长 |
-
-实现：[自实现]，通过 GitHub Deployments API 查询 STG environment 最近的 deployment，验证版本、smoke test 结论、部署时间。Canary watch 状态通过查询 `prd-canary-watch.yml` workflow run 获取。
-
----
-
-## 六、支撑文件层规格
-
-### 6.1 scripts/lib/ 规范
-
-只有被两个以上 action 引用的脚本才放 lib/，其余脚本放在对应 action 目录的 scripts/ 下。
-
-**lib/github/post-comment.js**：
-
-纯 GitHub API 实现的 sticky 评论逻辑（基于 `actions/github-script@v7`），处理 issue-number 是 PR 还是 Issue 的区分，统一 header 标识策略。已迁移至 `actions/_common/post-comment/post-comment.js`。
-
----
-
-### 6.2 prompts/ 文件规范
-
-每个 prompt 文件的头部注释格式：
-
-```
-# Model: claude-sonnet-4-6          ← 适用模型
-# Scene: PR 代码 review，关注逻辑和安全 ← 使用场景
-# Output: JSON                        ← 输出格式
-```
-
-调用方负责传入完整的 prompt 内容，harness 不做变量替换。
-
-**各 prompt 文件的输出格式约定**：
-
-- `prompts/issue/triage.md`：`{"type":"bug|feature|question|docs|security","area":"frontend|backend|infra|db","priority":"P0|P1|P2|P3","confidence":0.0-1.0,"reasoning":"..."}`
-- `prompts/issue/triage.haiku.md`：同上，但 prompt 更简洁，token 更少，牺牲部分准确率换速度
-- `prompts/issue/duplicate-check.md`：`{"is_duplicate":bool,"duplicate_of":null|number,"similarity":0.0-1.0,"reason":"..."}`
-- `prompts/pr/code-review.md`：`{"issues":[{"file":"","line":0,"severity":"error|warning|suggestion","category":"logic|security|performance|style","description":"","suggestion":""}],"score":0-10,"summary":"","highlights":[]}`
-- `prompts/pr/code-review.security.md`：仅返回 security 类别的 issues
-- `prompts/stg/diagnose-failure.md`：`{"root_cause":"","confidence":0.0-1.0,"suggestions":[],"related_files":[],"estimated_fix_time":"..."}`
-- `prompts/prd/release-notes.md`：Markdown 格式 changelog，分 Breaking Changes / New Features / Bug Fixes / Performance / Internal 分组
-
----
-
-### 6.3 configs/ 文件规范
-
-**configs/assign-matrix/default.yml**（label → 负责人映射）：
+`manifest.yml` 是全仓库的单一来源索引。所有 action 文件从此读取第三方 SHA,不得在 action 内硬编码。
 
 ```yaml
-matrix:
-  - match:
-      type: bug
-      area: frontend
-    assign: [frontend-lead]
-  - match:
-      type: bug
-      area: backend
-    assign: [backend-lead]
-  - match:
-      priority: P0
-    assign: [oncall-engineer]
-    notify: [engineering-channel]
-```
+# manifest.yml
+version: "1.3"
 
----
+# ─────────────────────────────────────────────────────────────────────────────
+# 第三方依赖 SHA 注册表
+# 更新方式:Renovate Bot 自动提 PR,或手动 PR + code review
+# ⚠️ 安全要求:
+#   - 所有第三方 action 必须使用 commit SHA,不接受版本 tag
+#   - trivy-action 的 tag 于 2026-03 被供应链攻击篡改,必须固定 SHA
+#   - trufflehog 不得使用 @main,必须固定到发布版本 SHA
+#   - semgrep-action 已废弃(2020 年停更),改用 CLI 直接调用
+#   - amondnet/vercel-action 版本滞后严重,改用官方 Vercel CLI
+# ─────────────────────────────────────────────────────────────────────────────
+deps:
+  # ── GitHub 官方 ─────────────────────────────────────────────────────────
+  actions/checkout:                    "11bd71901bbe5b1630ceea73d27597364c9af683"  # v4.2.2
+  actions/setup-node:                  "49933ea5288caeca8642d1e84afbd3f7"          # v4.4.0
+  actions/setup-python:                "a26af69be951a213d495a4c3e4e4022e16d87065"  # v5.6.0
+  actions/setup-go:                    "d35c59abb061a4a6fb18e82ac0862c26744d6ab5"  # v5.5.0
+  actions/cache:                       "5a3ec84eff668545956fd18f4cc68c71c9f62eb4"  # v4.2.2
+  actions/upload-artifact:             "ea165f8d65b6e75b540449e92b4886f43607fa02"  # v4.6.2
+  actions/download-artifact:           "d3f86a106a0bac45b974a628896c90dbdf5c8093"  # v4.3.0
+  actions/dependency-review-action:    "38e6c9cc40b09fb67ca04a29eb89ad60c93adb9b"  # v4.6.0
+  actions/github-script:               "60a0d83039c74a4aee543508d2ffcb1c3799cdea"  # v7.0.1
 
-## 七、调用方使用示例
+  # ── Docker ──────────────────────────────────────────────────────────────
+  docker/setup-buildx-action:          "b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2"  # v3.10.0
+  docker/login-action:                 "74a5d142397b4f367a81961eba4e8cd7edddf772"  # v3.4.0
+  docker/metadata-action:              "902fa8ec7d6ecbf8d84d538b9b233a880e428804"  # v5.7.0
+  docker/build-push-action:            "263435318d21b8e681c14492fe198e19c3bc6bb6"  # v6.18.0
 
-### 7.1 最简调用（Node.js 项目）
+  # ── AWS ─────────────────────────────────────────────────────────────────
+  aws-actions/configure-aws-credentials: "e3dd6a429d7300a6a4c196c26e071d42e0343502"  # v4.2.1
+  aws-actions/amazon-ecs-deploy-task-definition: "df00883c1e5554e48a7b1e9e8d34e1b0a2e1b3b1"  # v2.2.0
 
-```yaml
-# 调用方仓库 .github/workflows/ci.yml
-jobs:
-  ci:
-    uses: your-name/shared-actions/.github/workflows/pr.yml@v1
-    with:
-      node-version: '22'
-      enable-agent-review: true
-    secrets: inherit
-```
+  # ── 包管理 ──────────────────────────────────────────────────────────────
+  pnpm/action-setup:                   "a7487c7e89a18df4991f7f222e4b3e4f"          # v4.0.0
+  astral-sh/setup-uv:                  "v5"  # ⚠️ 待 SHA 固定,Renovate 自动处理
 
-### 7.2 Python 项目
+  # ── 安全 ────────────────────────────────────────────────────────────────
+  step-security/harden-runner:         "f808768d1510423e83855289c910610ca9b43176"  # v2.17.0
+  trufflesecurity/trufflehog:          "fbc87d9d42c8f498b51d2d7e37c2b7c6c3b1a9b"  # v3.88.0
+  aquasecurity/trivy-action:           "18f2963bb4bb342b8b1fc1f4d9f682a8e12d0e9"  # 手动验证 SHA
+  sigstore/cosign-installer:           "59acb6260d9c0ba8f4a2f9d9b48431a222b68e20"  # v3.5.0
+  github/codeql-action:                "23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0"  # v3.28.0
+  ossf/scorecard-action:               "f49aabe0b5af0936a0987cfb85d86b75b087d84f"  # v2.4.0
 
-```yaml
-jobs:
-  ci:
-    uses: your-name/shared-actions/.github/workflows/pr.yml@v1
-    with:
-      python-version: '3.12'
-      package-manager: 'poetry'
-      test-command: 'poetry run pytest'
-    secrets: inherit
-```
+  # ── PR 质量 ─────────────────────────────────────────────────────────────
+  amannn/action-semantic-pull-request: "0075b94f90e932db85bd6f29cd6b34cf5a97c06"   # v5.5.3
+  dorny/paths-filter:                  "de90cc6fb38fc0963ad72b210f1f284cd68cea1e"  # v3.0.2
+  dorny/test-reporter:                 "31a54ee7ebcacc03a09ea97a7e5465a47b84efa5"  # v1.9.0
+  peter-evans/create-or-update-comment: "71e7c2b9743baf70b8db35407c8c2b11fb1b09cd" # v3.0.0
+  codecov/codecov-action:              "1e68e06f1dbfde0e4cefc87efeba9e4bb7dd5ced"  # v5.4.0
 
-### 7.4 Issue 自动化
+  # ── AI / Eval ───────────────────────────────────────────────────────────
+  anthropics/claude-code-action:       "a4d5fe83c90d37e4f2fcbab2a0bf04e9c01e8ecf"  # v1.0.0
+  promptfoo/promptfoo-action:          "8e12b04e93d24ea43d7694d8f27dd86e7abd5a72"  # v1.0.0
 
-```yaml
-# 调用方仓库 .github/workflows/issue-auto.yml
-on:
-  issues:
-    types: [opened]
-jobs:
-  triage:
-    uses: your-name/shared-actions/.github/workflows/issue.yml@v1
-    with:
-      enable-ai: true
-      model: claude-haiku-4-5-20251001
-    secrets: inherit
-```
+  # ── 发布 ────────────────────────────────────────────────────────────────
+  release-drafter/release-drafter:     "3f0f87098bd6b5c5b9a36d49c41d998ea58f9e0b"  # v6.1.0
 
-### 7.5 直接调用 AI 引擎（自定义任务）
+  # ── 部署（第三方） ──────────────────────────────────────────────────────
+  appleboy/ssh-action:                 "v1.2.5"  # ⚠️ 待 SHA 固定
 
-```yaml
-jobs:
-  custom-ai-task:
-    uses: your-name/shared-actions/.github/workflows/claude-harness.yml@v1
-    with:
-      model: claude-sonnet-4-6
-      max-turns: 1
-      allowed-tools: mcp__github
-      mcp-config: |
-        {"mcpServers":{"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"],"env":{"GITHUB_TOKEN":"$GITHUB_TOKEN"}}}}
-      prompt: |
-        分析 issue #${{ github.event.issue.number }} 并返回优先级 JSON
-      output-format: json
-      post-comment: false
+# ─────────────────────────────────────────────────────────────────────────────
+# 已淘汰 action（禁止使用,保留记录供迁移参考）
+# ─────────────────────────────────────────────────────────────────────────────
+deprecated:
+  semgrep/semgrep-action:
+    reason: "2020 年停更,不再维护。改用 CLI: pip install semgrep && semgrep ci"
+    replacement: "直接调用 semgrep CLI,通过 setup-python 安装"
+  amondnet/vercel-action:
+    reason: "版本严重滞后(v25 vs 最新 v42.3.0),功能不全"
+    replacement: "官方 Vercel CLI: npm i -g vercel && vercel deploy --prod"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 主工作流目录（供消费方 uses: 引用）
+# ─────────────────────────────────────────────────────────────────────────────
+workflows:
+  - id: claude-harness
+    path: .github/workflows/claude-harness.yml
+    description: AI 执行引擎,所有 Claude 调用的唯一入口
+    inputs:
+      task: { type: string, required: true }
+      prompt-path: { type: string, required: false, description: "调用方自定义 prompt 路径,空则用内置" }
+      context: { type: string, required: false, description: "JSON 格式 prompt 变量" }
+      model: { type: string, default: "claude-sonnet-4-5-20250929" }
+      max-turns: { type: number, default: 10 }
+    outputs:
+      result: "AI 输出内容"
+      comment-id: "PR/Issue 评论 ID（sticky 模式用于后续更新）"
     secrets:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      anthropic-api-key: { required: true }
+
+  - id: pr
+    path: .github/workflows/pr.yml
+    description: PR 质量门
+    inputs:
+      language: { type: string, default: "" }
+      enable-ai-review: { type: boolean, default: true }
+      enable-eval: { type: boolean, default: false }
+      coverage-threshold: { type: number, default: 80 }
+      pr-review-prompt-path: { type: string, default: "" }
+    secrets:
+      anthropic-api-key: { required: false }
+      codecov-token: { required: false }
+
+  - id: ci
+    path: .github/workflows/ci.yml
+    description: Merge to main 构建与冒烟
+    inputs:
+      language: { type: string, default: "" }
+      registry: { type: string, default: "ghcr.io" }
+      image-name: { type: string, required: true }
+      enable-ai-smoke: { type: boolean, default: false }
+      run-migration: { type: boolean, default: false }
+    outputs:
+      image-digest: "sha256:xxx 格式"
+      deploy-time: "ISO 8601 构建完成时间"
+    secrets:
+      registry-token: { required: true }
+      anthropic-api-key: { required: false }
+
+  - id: stg
+    path: .github/workflows/stg.yml
+    description: Staging 部署
+    inputs:
+      image-digest: { type: string, required: true }
+      k8s-namespace: { type: string, default: "staging" }
+      run-migration: { type: boolean, default: false }
+    outputs:
+      deploy-time: "ISO 8601,传给 prd 的 stg-deploy-time"
+    secrets:
+      kubeconfig-stg: { required: true }
+
+  - id: prd
+    path: .github/workflows/prd.yml
+    description: 生产发布（含 pre-check）
+    inputs:
+      image-digest: { type: string, required: true }
+      stg-image-digest: { type: string, required: true }
+      stg-deploy-time: { type: string, required: true }
+      observation-minutes: { type: number, default: 30 }
+      k8s-namespace: { type: string, default: "production" }
+    secrets:
+      kubeconfig-prd: { required: true }
+
+  - id: security-schedule
+    path: .github/workflows/security-schedule.yml
+    description: 每周全量安全扫描
+    inputs:
+      image-ref: { type: string, required: false }
 ```
 
 ---
 
-## 八、版本管理规范
+## 四、语言检测单一来源
 
-### 8.1 Tag 策略
+**文件**:`actions/_common/detect-language/action.yml`
 
-发布新版本时同时打三层 tag：
+**职责**:根据仓库根目录文件探测语言栈,输出标准化语言标识符。所有需要语言信息的工作流均通过此 action 获取,不允许各工作流自行实现检测逻辑。
 
-```bash
-git tag v1.2.3
-git tag -f v1.2
-git tag -f v1
-git push origin v1.2.3 v1.2 v1 --force
-```
+**输入**:无（读取 `github.workspace` 文件系统）
 
-调用方按需选择锁定粒度：
+**输出**:
 
 ```yaml
-uses: your-name/shared-actions/.github/workflows/pr.yml@v1        # 跟 minor 更新
-uses: your-name/shared-actions/.github/workflows/pr.yml@v1.2      # 锁到 patch
-uses: your-name/shared-actions/.github/workflows/pr.yml@v1.2.3    # 完全锁定
+outputs:
+  language:           # node | python | go | java | unknown
+  package-manager:    # npm | pnpm | yarn | uv | pip | go-mod | maven | unknown
+  version-file:       # .nvmrc | .python-version | go.mod | pom.xml | ""
+  runtime-version:    # 从 version-file 读取的版本号
 ```
 
-### 8.2 Breaking Change 规范
+**检测规则**（优先级从高到低,找到即停）:
 
-major 版本才允许破坏性变更（inputs 重命名、删除、outputs 格式变化）。Minor 版本只新增 inputs（带默认值）。Patch 版本只修 bug。
+```
+1. package.json 存在 → language=node
+   ├── pnpm-lock.yaml    → package-manager=pnpm
+   ├── yarn.lock         → package-manager=yarn
+   └── package-lock.json → package-manager=npm（默认）
+   version-file: .nvmrc 或 .node-version
 
-破坏性变更必须：在 CHANGELOG.md 标注 `BREAKING CHANGE`，提前在 release notes 中说明迁移方式，旧 major tag 维护至少 3 个月。
+2. pyproject.toml 或 requirements.txt 存在 → language=python
+   ├── uv.lock → package-manager=uv
+   └── 否则   → package-manager=pip
+   version-file: .python-version
 
----
+3. go.mod 存在 → language=go, package-manager=go-mod
 
-## 九、实施顺序
+4. pom.xml 存在 → language=java, package-manager=maven
 
-按依赖关系从底层到顶层实施，避免引用未创建的文件：
+5. 全部未匹配 → language=unknown
+```
 
-**第一批（无依赖，最先创建）**：
+**实现**:纯 shell composite action,不引用任何外部 action,保证零依赖。
 
-1. `configs/stale/` 所有 YAML
-2. `configs/assign-matrix/default.yml`
-3. `prompts/` 所有 Markdown 文件（含头部注释规范）
-4. `action-manifest.yml`（初始版本，随后续批次逐步完善）
-5. `scripts/validate-manifest.py`
-6. `scripts/generate-action-docs.py`
-
-**第二批（依赖 prompts，再创建）**：
-
-7. `actions/_common/` 所有 action（setup-node/python/java, post-comment, notify, upload-coverage, **detect-language**, **annotate**, **harden-runner**, **paths-filter**, **opencommit**）
-8. `actions/_common/post-comment/post-comment.js`（基于 actions/github-script@v7 的 sticky 评论逻辑）
-
-**第三批（依赖 _common）**：
-
-9. `actions/issue/` 所有原子（validate, classify-label, route, duplicate-check, agent-analyze, parse-command, execute-command）
-10. `actions/pr/` 所有原子（**mega-lint**, typecheck-*, test-*, check-coverage, test-report, scan-deps, scan-secrets, scan-code, **scorecard**, pr-title-check, size-label, agent-review）
-11. `actions/stg/` 所有原子
-12. `actions/prd/` 所有原子（含新增 **pre-check**）
-
-**第四批（依赖所有 action）**：
-
-13. `.github/workflows/claude-harness.yml`（最核心的主工作流）
-14. `.github/workflows/issue.yml`
-15. `.github/workflows/issue-comment.yml`
-16. `.github/workflows/stale.yml`
-17. `.github/workflows/pr.yml`（统一 PR 工作流，自动检测语言）
-18. `.github/workflows/ci.yml`（merge-to-main 后构建镜像 + 测试 + 签名，自动触发 stg.yml）
-19. `.github/workflows/stg.yml`（由 ci.yml 调用，自动触发 prd.yml）
-20. `.github/workflows/prd.yml`（由 stg.yml 调用，含 approval-gate）
-21. `.github/workflows/prd-canary-watch.yml`（生产定时巡检）
-
-**第五批（文档生成 + 校验）**：
-
-22. 运行 `scripts/generate-action-docs.py` 生成 `docs/ACTIONS.md`
-23. 运行 `scripts/validate-manifest.py` 验证 manifest 与 action.yml 一致性
+**Annotation**:
+```bash
+echo "::notice title=Language Detected::language=$LANGUAGE package-manager=$PKG_MGR"
+```
 
 ---
 
-## 十、关键约束（实施时必须遵守）
+## 五、主工作流规格
 
-1. **所有 AI 调用必须走 claude-harness.yml**，严禁在原子 action 中直接调用 Claude API。
+### 5.1 claude-harness.yml
 
-2. **MCP 配置文件必须写入 `$RUNNER_TEMP`**，不得写入工作目录，job 结束前必须 `rm -f`。
+所有 AI 调用的唯一入口,统一管理模型参数、sticky comment、prompt 加载逻辑。
 
-3. **claude-harness.yml 通过官方 action 的 `permissions` 输入控制权限**，不使用 `--dangerously-skip-permissions`。默认 `read` 权限，需要写入时显式声明 `write`。
+**触发**:`workflow_call` only（不接受其他触发器）
 
-4. **`pr/check-coverage` 保持语言无关**，只接受 `coverage-pct` 数字输入，不含任何解析逻辑。各语言 test 原子负责将覆盖率解析并输出为 `coverage-pct`。
+**Prompt 加载优先级**:
+1. 若 `prompt-path` 非空,从调用方仓库加载（支持消费方覆盖,无需 fork）
+2. 若为空,从 `opencl/prompts/{task}.md` 加载内置 prompt
 
-5. **所有 sticky 评论使用 `_common/post-comment`**，基于 `actions/github-script@v7` 实现，保证统一的 header 标识策略。
+**实现要点**:
+- 使用 `anthropics/claude-code-action` 的 `use_sticky_comment: true`,同一 PR 多次触发只更新同一条评论
+- `context` 输入作为 JSON 注入 prompt 模板变量
+- 调用记录到 annotation:`::notice title=AI Task::task=$TASK model=$MODEL turns=$TURNS`
 
-6. **`issue-comment.yml` 必须做权限检查**，评论者不是 collaborator 或 member 时静默退出，防止任意人触发 slash 命令。
+**权限**:
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+```
 
-7. **`prd.yml` 的 deploy job 必须绑定 `environment: production`**，利用 GitHub Environment Protection Rules 实现人工审批，不用其他方式替代。
+### 5.2 pr.yml
 
-8. **外部 action 版本锁定策略**：在 shared-actions 内部调用外部 action 时，锁定到 major 版本（如 `@v4`），调用方调用 shared-actions 时同样锁 major（如 `@v1`）。
+**触发**:`workflow_call`
 
-9. **self-hosted runner 兼容**：所有 `run:` 步骤使用 `shell: bash`，不依赖 runner 默认 shell。所有工具安装步骤（pnpm、uv 等）在 setup action 内部处理，不假设 runner 预装。
+**Job 依赖图**:
 
-10. **使用官方插件生态**：不自建 skills 目录，通过官方 `anthropics/claude-code-action@v1` 的插件机制扩展能力。MCP 配置由调用方传入完整 JSON 字符串，harness 不做模板替换。
+```
+┌─ harden-runner（每 job 第一步）
+│
+├─ detect-language [if: inputs.language == '']
+│       │ outputs: language, package-manager
+│       ▼
+│
+├─ lint              [needs: detect-language]  [阻断]
+│   └── oxsecurity/megalinter（SHA 固定）
+│       ├── 自动检测仓库语言栈,无需手动路由
+│       ├── 支持 85+ linter / 50+ 语言格式
+│       ├── 配置: .megalinter.yml（消费方可覆盖）
+│       └── flavor: 基于 detect-language 选择精简镜像
+│
+├─ test              [needs: detect-language]  [阻断]
+│   └── test-unit composite
+│         ├── 运行测试（消费方提供 test 命令）
+│         ├── dorny/test-reporter → GitHub Check
+│         └── upload coverage artifact
+│
+├─ coverage          [needs: test]              [非阻断]
+│   └── check-coverage → codecov-action
+│
+├─ scan-deps         [独立]                      [阻断]
+│   └── actions/dependency-review-action(v4.6.0,SHA 固定)
+├─ scan-secrets      [独立]                      [非阻断]
+│   └── trufflesecurity/trufflehog(v3.88.0,SHA 固定,禁止 @main)
+├─ scan-sonarcloud   [独立]                      [非阻断]
+│   └── SonarSource/sonarcloud-github-action(SHA 固定)
+│       └── PR decoration: quality gate + bug/vulnerability/code smell
+├─ validate-pr-title [独立]                      [阻断]
+│   └── amannn/action-semantic-pull-request(v5.5.3,SHA 固定)
+├─ validate-pr-desc  [独立]                      [阻断]
+│   └── 检查 Closes #N / Fixes #N 或 no-issue label
+│
+├─ build-check       [needs: detect-language]   [阻断]
+│   └── docker build --load(仅验证,不推送)
+│
+└─ ai-review         [needs: lint, test]        [非阻断]
+    └── review-ai → claude-harness（task: pr-review）
+          │
+          └─ eval-prompt [needs: ai-review]      [非阻断]
+                         [if: enable-eval && paths.prompts changed]
+              └── eval-prompt → promptfoo-action
+```
 
-11. **语言检测单一来源**：所有 workflow 和 composite action 必须通过 `_common/detect-language` 获取语言信息，禁止在 workflow 层内联检测逻辑。
+**权限**:
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  id-token: write
+```
 
-12. **STG→PRD 发布门控**：`prd.yml` 的 pre-check 必须验证版本对齐、smoke test 结果、观察窗口三项，仅检查 deployment status 不满足要求。
+### 5.3 ci.yml
 
-13. **Action Manifest 一致性**：每次新增或修改 action 的 inputs/outputs 时，必须同步更新 `action-manifest.yml`。CI 中 `validate-manifest.py` 失败即为硬门控。
+**Job 依赖图**:
 
-14. **可观测性 annotation**：deploy 和 release 的关键节点必须调用 `_common/annotate`，trace-id 跨 workflow 传递。
+```
+detect-language
+      │
+      ▼
+build-docker ──→ [outputs: image-digest, image-size]
+      │
+      ├── scan-image（aquasecurity/trivy-action,SHA 固定）→ upload SARIF
+      │   详见「九、容器安全扫描」章节
+      │
+      ├── sign-image（Cosign OIDC 签名）
+      │
+      ├── check-migration [if: run-migration]
+      │
+      └── eval-smoke [if: enable-ai-smoke, needs: build-docker]
+               └── eval-smoke → claude-harness（task: smoke-eval）
+```
 
-15. **单一镜像管线**：ci.yml 构建的 GHCR image 通过 `sha256` digest 传递给 stg.yml 和 prd.yml，禁止使用 mutable tag，确保所有环境部署完全相同的镜像。
+**Image 命名**:
+```
+ghcr.io/{owner}/{image-name}:main           # latest 语义
+ghcr.io/{owner}/{image-name}:sha-{git-sha}  # 精确定位（7位短 SHA）
+```
 
-16. **ci→stg→prd 链式调用**：ci.yml 通过 `workflow_call` 触发 stg.yml，stg.yml 通过 `workflow_call` 触发 prd.yml。approval-gate 通过 GitHub Environment Protection Rules 实现，不中断 workflow_call 链。
+**Outputs 传递**:
+```yaml
+outputs:
+  image-digest:
+    value: ${{ jobs.build-docker.outputs.digest }}
+  deploy-time:
+    value: ${{ jobs.build-docker.outputs.completed-at }}
+```
 
-17. **Migration 安全**：ci.yml 必须运行 migration dry-run 验证 SQL 语法和约束；stg/prd 的 migrate job 在 deploy 之前执行，失败则中止部署。
+### 5.4 stg.yml
 
-18. **Runner 安全加固**：每个 workflow 的第一个 step 必须调用 `_common/harden-runner`（`step-security/harden-runner@v2`），阻止未授权网络访问和命令执行。
+**Job 顺序**（串行,失败即停）:
 
-19. **统一 Lint 入口**：所有语言的 lint 通过 `pr/mega-lint`（`oxsecurity/metalinter@v8`）执行，禁止为单一语言创建独立 lint action。
+```
+pre-flight → deploy-k8s → run-migration → smoke-test → notify-deployed
+```
 
-20. **路径条件执行**：使用 `_common/paths-filter`（`dorny/paths-filter@v3`）检测变更路径，后续 job 按需执行。替代已被攻击的 `tj-actions/changed-files`。
+**deploy-k8s 实现**:
+```bash
+kubectl set image deployment/{app-name} \
+  app=ghcr.io/{owner}/{image}@$IMAGE_DIGEST \
+  --namespace=$K8S_NAMESPACE
+kubectl rollout status deployment/{app-name} \
+  --namespace=$K8S_NAMESPACE \
+  --timeout=300s
+```
 
-21. **Secret 扫描**：使用 `trufflesecurity/trufflehog@v3` 替代 gitleaks，支持 git history 深度扫描和 700+ detector。
+**Outputs**:
+```yaml
+outputs:
+  deploy-time:
+    value: ${{ steps.deploy.outputs.completed-at }}
+```
 
-22. **供应链安全**：公开仓库必须运行 `ossf/scorecard-action@v2`，结果上传 GitHub Security Dashboard。
+### 5.5 prd.yml(v1.1 强化,v1.3 扩展)
+
+**触发**:`workflow_call` + `environment: production`(触发 GitHub 审批保护规则)
+
+**Job 顺序**:
+
+```
+pre-check(version-align + observe-window + check-error-rate)
+      │ [environment: production 审批在此处触发]
+      ▼
+deploy-k8s → run-migration → smoke-test → create-release → notify-deployed
+      │                                              │
+      ├── sentry-release(staging)                    ├── sentry-release(production)
+      └── posthog-event(deploy)                      └── posthog-event(release)
+```
+
+**v1.3 扩展**:
+
+- **check-error-rate**:观察窗口内不再仅 sleep,通过 Sentry API 检查 STG 错误率,异常则阻断 PRD 部署
+- **sentry-release**:每次部署后通知 Sentry 创建 release,关联 commit 范围
+- **posthog-event**:上报 deploy/release 事件到 PostHog,用于后续用户行为与部署时间点关联分析
+
+#### pre-check Composite
+
+包含两个串行子步骤:
+
+**步骤一:verify-version-align**
+
+```yaml
+# actions/prd/verify-version-align/action.yml
+inputs:
+  image-digest:     { required: true }
+  stg-image-digest: { required: true }
+
+runs:
+  using: composite
+  steps:
+    - name: Compare digests
+      shell: bash
+      run: |
+        if [ "${{ inputs.image-digest }}" != "${{ inputs.stg-image-digest }}" ]; then
+          echo "::error title=Version Mismatch::PRD digest != STG digest"
+          echo "::error::请确认 STG 与 PRD 使用相同镜像,防止"测的和上的不一致""
+          exit 1
+        fi
+        echo "::notice title=Version Aligned::digest=${{ inputs.image-digest }} ✓"
+```
+
+**步骤二:observe-window**
+
+```yaml
+# actions/prd/observe-window/action.yml
+inputs:
+  stg-deploy-time:     { required: true }   # ISO 8601
+  observation-minutes: { required: false, default: "30" }
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for observation window
+      shell: bash
+      run: |
+        STG_TIME=$(date -d "${{ inputs.stg-deploy-time }}" +%s)
+        NOW=$(date +%s)
+        ELAPSED=$(( (NOW - STG_TIME) / 60 ))
+        REQUIRED=${{ inputs.observation-minutes }}
+        
+        echo "::notice title=Observation Window::elapsed=${ELAPSED}min required=${REQUIRED}min"
+        
+        if [ $ELAPSED -lt $REQUIRED ]; then
+          WAIT=$(( (REQUIRED - ELAPSED) * 60 ))
+          echo "::notice title=Waiting::STG 部署后仅 ${ELAPSED}min,等待 $(( WAIT/60 ))min"
+          sleep $WAIT
+        fi
+        
+        echo "::notice title=Observation Window OK::elapsed=${ELAPSED}min ≥ required=${REQUIRED}min ✓"
+```
+
+### 5.6 security-schedule.yml
+
+**触发**:
+```yaml
+on:
+  schedule:
+    - cron: '0 2 * * 1'   # 每周一 UTC 02:00
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      image-ref: { type: string, required: false }
+```
+
+**Job 并行执行**:
+```
+codeql-scan    → upload SARIF → GitHub Security tab
+scan-image     → upload SARIF [if: image-ref != '']
+generate-sbom  → upload artifact
+scorecard      → upload to OpenSSF
+```
+
+---
+
+## 六、Issue 管理体系(v1.3 新增)
+
+Issue 是产品反馈、bug 报告、功能讨论的入口。一个成熟项目的 issue 管理需要:模板规范 + 自动分类 + 生命周期管理 + 与 PR 的双向联动。
+
+### 6.1 Issue Templates(YAML Form)
+
+GitHub 现代化的 issue form 比传统 markdown 模板有结构化优势——必填字段、下拉选项,直接产出可机读数据,后续 AI triage 和 auto-label 都依赖这个结构。
+
+OpenCI 在 `.github/ISSUE_TEMPLATE/` 提供模板范例,消费方可直接复制使用。
+
+**bug-report.yml 范例**:
+
+```yaml
+name: Bug Report
+description: 报告一个 bug
+labels: ["type:bug", "status:needs-triage"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: "v1.2.3 或 commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响领域
+      options: [frontend, backend, infra, db, ai, docs]
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 详细步骤,从 1 开始编号
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - 阻塞(无法使用)
+        - 严重(主要功能受影响)
+        - 一般(部分功能受影响)
+        - 轻微(影响有限)
+    validations:
+      required: true
+```
+
+`feature-request.yml` 和 `question.yml` 同样是 YAML form 结构。
+
+### 6.2 issue.yml 工作流
+
+**触发**: `issues: types: [opened]`
+
+**Job 依赖图**:
+
+```
+validate-form (检查必填字段是否填写)
+    │ pass
+    ▼
+auto-label (基于 form 字段打 area:* / severity:*)
+    │
+    ├── detect-duplicates (用 GitHub Search API 找相似)
+    │     │ found
+    │     └── 评论提示 + 打 possible-duplicate label
+    │
+    ├── ai-triage (调用 claude-harness)
+    │     │
+    │     ▼ AI 输出 priority + reasoning
+    │     打 priority:* label
+    │
+    ├── welcome-contributor [if: FIRST_TIME_CONTRIBUTOR]
+    │     └── 评论欢迎 + 贡献指南
+    │
+    └── auto-assign (基于 CODEOWNERS + area label)
+          └── 设置 assignee
+```
+
+**关键原子规格**:
+
+`actions/issue/ai-triage/action.yml`:
+
+```yaml
+inputs:
+  issue-number:    { required: true }
+  issue-title:     { required: true }
+  issue-body:      { required: true }
+  prompt-path:     { required: false, default: "" }
+
+runs:
+  using: composite
+  steps:
+    - uses: ./actions/_common/claude-harness    # 经由 harness
+      with:
+        task: issue-triage
+        prompt-path: ${{ inputs.prompt-path }}
+        context: |
+          {
+            "title": "${{ inputs.issue-title }}",
+            "body": "${{ inputs.issue-body }}",
+            "number": ${{ inputs.issue-number }}
+          }
+        # 内置 prompt 要求 AI 输出 JSON:
+        # {
+        #   "priority": "p0|p1|p2|p3",
+        #   "reasoning": "...",
+        #   "suggested_assignee": "@user 或 null",
+        #   "is_security": boolean
+        # }
+
+    - name: Apply labels
+      shell: bash
+      run: |
+        PRIORITY=$(echo '${{ steps.harness.outputs.result }}' | jq -r '.priority')
+        IS_SECURITY=$(echo '${{ steps.harness.outputs.result }}' | jq -r '.is_security')
+
+        gh issue edit ${{ inputs.issue-number }} \
+          --add-label "priority:$PRIORITY"
+
+        if [ "$IS_SECURITY" = "true" ]; then
+          gh issue edit ${{ inputs.issue-number }} \
+            --add-label "security" \
+            --add-label "private-discuss"
+        fi
+
+        echo "::notice title=AI Triage::priority=$PRIORITY security=$IS_SECURITY"
+```
+
+`actions/issue/detect-duplicates/action.yml`:
+
+```yaml
+inputs:
+  issue-number:  { required: true }
+  issue-title:   { required: true }
+
+runs:
+  using: composite
+  steps:
+    - name: Search similar issues
+      shell: bash
+      run: |
+        KEYWORDS=$(echo "${{ inputs.issue-title }}" | tr ' ' '\n' | \
+                   grep -v -i -E "^(the|a|an|is|are|of|in|on|to)$" | head -5 | tr '\n' ' ')
+
+        SIMILAR=$(gh issue list \
+          --search "$KEYWORDS in:title is:open -number:${{ inputs.issue-number }}" \
+          --json number,title \
+          --limit 5)
+
+        COUNT=$(echo "$SIMILAR" | jq 'length')
+
+        if [ "$COUNT" -gt 0 ]; then
+          MSG="检测到 $COUNT 个可能相关的 issue:\n"
+          MSG+=$(echo "$SIMILAR" | jq -r '.[] | "- #\(.number) \(.title)"')
+          MSG+="\n\n如果是重复 issue,请评论 \`/duplicate #N\`,否则请忽略此提示。"
+
+          gh issue comment ${{ inputs.issue-number }} --body "$MSG"
+          gh issue edit ${{ inputs.issue-number }} --add-label "possible-duplicate"
+
+          echo "::notice title=Possible Duplicates::count=$COUNT"
+        fi
+```
+
+### 6.3 issue-comment.yml(slash 命令)
+
+**触发**: `issue_comment: types: [created]`
+
+**支持的命令**:
+
+| 命令 | 权限 | 行为 |
+|------|------|------|
+| `/assign @user` | OWNER/MEMBER/COLLABORATOR | 设置 assignee |
+| `/unassign` | 同上 | 清除 assignee |
+| `/label name` | 同上 | 添加 label |
+| `/unlabel name` | 同上 | 移除 label |
+| `/priority p1` | 同上 | 设置 priority(快捷加 label) |
+| `/close` | 同上 | 关闭 issue |
+| `/reopen` | 同上 | 重开 issue |
+| `/duplicate #123` | 同上 | 标记重复并关闭 |
+| `/needs-info` | 同上 | 添加 needs-info + 引导评论 |
+| `/triage` | 同上 | 重跑 AI triage |
+| `/help` | 任何人 | 列出所有命令 |
+
+**实现要点**:
+
+权限通过 `github.event.comment.author_association` 字段判断,值为 `OWNER` / `MEMBER` / `COLLABORATOR` / `CONTRIBUTOR` / `FIRST_TIME_CONTRIBUTOR` / `NONE`。前三类为高权限。
+
+```yaml
+# actions/issue/parse-command/action.yml
+outputs:
+  command:    # 提取的命令名
+  args:       # 命令参数
+  authorized: # bool
+
+# actions/issue/execute-command/action.yml
+# 根据 command 分支:
+#   /assign  → gh issue edit --add-assignee
+#   /label   → gh issue edit --add-label
+#   /close   → gh issue close
+#   ...
+```
+
+### 6.4 community.yml(社区互动)
+
+**触发**: `pull_request: [opened]` + `issues: [opened]` + `issue_comment: [created]`
+
+**职责**(跨 issue/PR 的事件统一处理):
+
+- **新贡献者欢迎**:第一次提 PR 或 issue 的用户,评论欢迎 + 贡献指南链接
+- **CLA 检查**(若适用):验证签署了 CLA,未签则 block
+- **PR ↔ Issue 联动验证**:PR 描述里 `Closes #N` / `Fixes #N` 的语法检查
+- **冲突检测**:PR 与 main 出现 merge conflict 时,自动评论提醒作者 rebase
+
+### 6.5 stale.yml(过期清理)
+
+**触发**: `schedule: cron: '0 2 * * *'`(每天 UTC 02:00)
+
+```yaml
+on:
+  workflow_call:
+    inputs:
+      issue-stale-days:   { default: 60 }
+      issue-close-days:   { default: 14 }
+      pr-stale-days:      { default: 30 }
+      pr-close-days:      { default: 7 }
+
+jobs:
+  stale:
+    steps:
+      - uses: actions/stale@{SHA}
+        with:
+          days-before-issue-stale: ${{ inputs.issue-stale-days }}
+          days-before-issue-close: ${{ inputs.issue-close-days }}
+          days-before-pr-stale: ${{ inputs.pr-stale-days }}
+          days-before-pr-close: ${{ inputs.pr-close-days }}
+          stale-issue-label: 'status:stale'
+          stale-issue-message: |
+            此 issue 已 ${{ inputs.issue-stale-days }} 天无活动,标记为 stale。
+            ${{ inputs.issue-close-days }} 天内无回应将自动关闭。
+            如需保留,请评论说明或移除 stale 标签。
+          exempt-issue-labels: 'pinned,security,help-wanted,priority:p0,priority:p1'
+          exempt-pr-labels: 'pinned,security,wip'
+
+  lock-resolved:
+    needs: stale
+    steps:
+      - uses: dessant/lock-threads@{SHA}
+        with:
+          issue-inactive-days: 30
+          pr-inactive-days: 30
+```
+
+### 6.6 标签体系(命名规范)
+
+OpenCI 推荐以下标签命名规范:
+
+| 命名空间 | 取值 | 说明 |
+|---------|------|------|
+| `type:` | bug/feature/docs/chore/question | 必有,描述类型 |
+| `area:` | frontend/backend/infra/db/ai/docs | 必有,描述影响领域 |
+| `priority:` | p0/p1/p2/p3 | 必有,AI triage 自动打 |
+| `status:` | needs-triage/needs-info/in-progress/blocked/stale | 流转状态 |
+| `size:` | xs/s/m/l/xl | PR 大小,自动打 |
+| 特殊 | good-first-issue/help-wanted/pinned/security/breaking-change | 用于过滤和路由 |
+
+每个 issue 至少有 `type:` + `area:` + `priority:` 三个标签,便于过滤和统计。
+
+### 6.7 PR ↔ Issue 联动(v1.3 强化)
+
+PR 描述里的 `Closes #N` / `Fixes #N` / `Resolves #N` 是流程的关键节点:
+
+- merge 后 GitHub 自动关闭关联 issue
+- release-drafter 把 issue 标题 + reporter 写入 changelog
+- 项目板自动把 issue 卡片移到 Done
+
+`actions/pr/validate-pr-description/action.yml`(v1.3 新增):检查 PR 描述必须满足以下之一:
+
+- 包含 `Closes #N` / `Fixes #N` / `Resolves #N`
+- 或 PR 标记了 `no-issue` label(明确说明无关联 issue,如纯 chore)
+
+不满足则 PR check 失败,阻断合并。
+
+---
+
+## 七、外部服务集成(v1.3 新增)
+
+外部 SaaS 服务通过专用原子 action 集成,统一放在 `actions/integrations/` 目录。每个集成都是可选的,消费方通过 input 开关启用,通过 secret 传递认证凭证。
+
+### 7.1 集成总览
+
+| 服务 | 角色 | 集成点 | 必要性 |
+|------|------|--------|--------|
+| Sentry | 错误追踪 + 发布通知 | prd.yml(release + error-check)、stg.yml | 强烈推荐 |
+| SonarCloud | 代码质量门 | pr.yml | 推荐(开源免费) |
+| PostHog | 产品分析 + LLM 可观测 | stg.yml / prd.yml(deploy 事件) | AI 项目推荐 |
+| Snyk | 漏洞扫描(替代/补充) | pr.yml | 商业项目可选 |
+| Slack | 通知 | ci/stg/prd 失败 + 发布完成 | 强烈推荐 |
+| Linear | Issue tracker 同步 | community.yml(链接验证) | 用 Linear 时启用 |
+
+### 7.2 Sentry 集成
+
+Sentry 在 OpenCI 中承担两个角色:
+
+**角色一:发布通知**
+
+每次部署后,通知 Sentry 创建新 release,关联 commit 范围,自动上传 source map(若适用)。
+
+`actions/integrations/sentry-release/action.yml`:
+
+```yaml
+inputs:
+  environment:       { required: true }   # staging | production
+  version:           { required: true }   # 推荐用 image-digest 或 git-sha
+  source-maps-path:  { required: false }  # 仅前端项目需要
+  sentry-org:        { required: true }
+  sentry-project:    { required: true }
+
+runs:
+  using: composite
+  steps:
+    - uses: getsentry/action-release@{SHA}
+      env:
+        SENTRY_AUTH_TOKEN: ${{ inputs.sentry-token }}
+        SENTRY_ORG: ${{ inputs.sentry-org }}
+        SENTRY_PROJECT: ${{ inputs.sentry-project }}
+      with:
+        environment: ${{ inputs.environment }}
+        version: ${{ inputs.version }}
+        sourcemaps: ${{ inputs.source-maps-path }}
+        finalize: true
+```
+
+**集成点**:
+
+- stg.yml `notify-deployed`:创建 staging release
+- prd.yml `create-release`:创建 production release
+
+**角色二:观察窗口质量门**
+
+`observe-window` 不应该仅仅 sleep,真正有价值的是观察期内的错误率。`check-error-rate` 通过 Sentry API 查询 STG 环境错误率,异常则阻断 PRD 部署。
+
+### 7.3 SonarCloud 集成
+
+SonarCloud 提供代码质量分析,在 pr.yml 中作为质量门,在 PR 上做 decoration(覆盖率、新增 bug、code smell)。
+
+`actions/pr/scan-sonarcloud/action.yml`:
+
+```yaml
+inputs:
+  sonar-organization: { required: true }
+  sonar-project-key:  { required: true }
+  sonar-host-url:     { required: false, default: "https://sonarcloud.io" }
+
+runs:
+  using: composite
+  steps:
+    - uses: SonarSource/sonarcloud-github-action@{SHA}
+      env:
+        GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN:   ${{ inputs.sonar-token }}
+      with:
+        args: >
+          -Dsonar.organization=${{ inputs.sonar-organization }}
+          -Dsonar.projectKey=${{ inputs.sonar-project-key }}
+          -Dsonar.host.url=${{ inputs.sonar-host-url }}
+```
+
+**PR 效果**:SonarCloud bot 评论显示 New Code 的 quality gate 状态、新增 bug/vulnerability/code smell,链接到详情页。
+
+**与 Codecov 的关系**:
+
+| 关注点 | Codecov | SonarCloud |
+|--------|---------|------------|
+| 覆盖率 | 强 | 一般 |
+| 代码异味 | x | 安全漏洞 |
+| Quality gate | 有 | 更复杂 |
+| 公开仓库 | 免费 | 免费 |
+
+两者职责重叠不多,通常一起用:Codecov 管覆盖率,SonarCloud 管代码异味 + 漏洞。
+
+### 7.4 PostHog 集成(AI 项目特别推荐)
+
+PostHog 是产品分析 + LLM 可观测性平台,对 AI 项目有独特价值:
+
+- 产品分析(用户行为)
+- LLM 调用追踪(token 用量、延迟、错误率)
+- Feature flag 管理
+- A/B 测试
+
+`actions/integrations/posthog-event/action.yml`:
+
+```yaml
+inputs:
+  api-key:     { required: true }
+  event:       { required: true }    # deploy / release / hotfix
+  environment: { required: true }
+  version:     { required: true }
+  properties:  { required: false }   # 额外 JSON 属性
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        BODY=$(jq -n \
+          --arg key "${{ inputs.api-key }}" \
+          --arg event "${{ inputs.event }}" \
+          --arg env "${{ inputs.environment }}" \
+          --arg ver "${{ inputs.version }}" \
+          --argjson extra '${{ inputs.properties || "{}" }}' \
+          '{
+            api_key: $key,
+            event: $event,
+            distinct_id: "ci-system",
+            properties: ($extra + {
+              environment: $env,
+              version: $ver,
+              source: "github-actions"
+            })
+          }')
+
+        curl -X POST https://app.posthog.com/capture/ \
+          -H "Content-Type: application/json" \
+          -d "$BODY"
+
+        echo "::notice title=PostHog Event::event=${{ inputs.event }} env=${{ inputs.environment }}"
+```
+
+**集成点**:
+
+- stg.yml `notify-deployed`: `event=deploy`, `environment=staging`
+- prd.yml `create-release`: `event=release`, `environment=production`
+
+**效果**:PostHog 时间线上标记 deployment,后续可将 user behavior change 与 deployment 时间点关联分析。
+
+### 7.5 Slack 通知集成
+
+部署、发布、CI 失败的通知统一通过 Slack。
+
+`actions/integrations/slack-notify/action.yml`:
+
+```yaml
+inputs:
+  webhook-url: { required: true }
+  status:      { required: true }    # success | failure | warning
+  title:       { required: true }
+  message:     { required: true }
+  context:     { required: false }   # 额外 key-value 字段
+
+runs:
+  using: composite
+  steps:
+    - uses: slackapi/slack-github-action@{SHA}
+      with:
+        webhook: ${{ inputs.webhook-url }}
+        webhook-type: incoming-webhook
+        payload: |
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": { "type": "plain_text", "text": "${{ inputs.title }}" }
+              },
+              {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": "${{ inputs.message }}" }
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "Repo: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}> · Run: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>"
+                  }
+                ]
+              }
+            ]
+          }
+```
+
+**集成点**(按需通知,避免噪音):
+
+- pr.yml 失败:不通知(开发者自己看)
+- ci.yml 失败: `#ci-alerts`
+- stg.yml 完成: `#deploys`
+- prd.yml 完成: `#releases` + `#engineering`
+- security-schedule 发现高危 CVE: `#security`
+
+### 7.6 Snyk 集成(可选)
+
+Snyk 是 dependency-review + Trivy 的替代/补充。如果团队已有 Snyk 订阅,可以加上获得更高质量的漏洞数据库和修复建议。
+
+`actions/pr/scan-snyk/action.yml`:
+
+```yaml
+inputs:
+  language:    { required: true }    # node | python | java | go
+  severity:    { required: false, default: "high" }
+
+runs:
+  using: composite
+  steps:
+    - uses: snyk/actions/${{ inputs.language }}@{SHA}
+      env:
+        SNYK_TOKEN: ${{ inputs.snyk-token }}
+      with:
+        args: --severity-threshold=${{ inputs.severity }}
+```
+
+**与原有扫描工具关系**:
+
+| 工具 | 扫描对象 | 数据库质量 | 价格 |
+|------|---------|-----------|------|
+| dependency-review | PR diff 的依赖 | GitHub Advisory | 免费 |
+| Trivy | 文件系统 + 镜像 | 多源 | 免费 |
+| Snyk | 依赖 + IaC + 容器 | 自有数据库,质量高 | 收费(开源免费) |
+
+推荐策略:开源项目用 dependency-review + Trivy 足够;商业项目加 Snyk 获得更好的修复建议。
+
+### 7.7 Linear 集成(若使用)
+
+Linear 是 issue tracker,与 GitHub 双向同步通常通过 Linear 官方 GitHub App 实现,OpenCI 不需要重复造轮子。
+
+但可以在 `community.yml` 中加一个 link 检查:
+
+`actions/integrations/linear-link/action.yml`:
+
+```yaml
+# 检查 PR 描述或 branch name 中是否包含 LIN-XXX 编号
+# 不包含则评论提醒
+```
+
+---
+
+## 八、可观测性 Annotation 规范
+
+所有关键步骤输出标准化 GitHub Actions annotation:
+
+| 场景 | 级别 | 格式 |
+|------|------|------|
+| 语言检测结果 | notice | `::notice title=Language Detected::language=$L pkg-mgr=$PM` |
+| 镜像构建完成 | notice | `::notice title=Image Built::digest=$D size=${S}MB` |
+| 镜像签名完成 | notice | `::notice title=Image Signed::digest=$D` |
+| Eval 结果 | notice | `::notice title=Eval Result::passed=$P/$T score=$S` |
+| 版本对齐通过 | notice | `::notice title=Version Aligned::digest=$D ✓` |
+| 版本对齐失败 | error | `::error title=Version Mismatch::prd=$P stg=$S` |
+| 观察窗口状态 | notice | `::notice title=Observation Window::elapsed=${E}min required=${R}min` |
+| CVE 发现 | warning | `::warning title=CVE Found::$ID severity=$SEV package=$PKG` |
+| 部署完成 | notice | `::notice title=Deployed::env=$ENV digest=$D time=$T` |
+| 测试失败 | error | `::error file=$FILE,line=$LINE::Test failed: $MSG` |
+
+---
+
+## 九、安全规范
+
+### 7.1 SHA 固定操作
+
+**原则**:所有 action 文件中的第三方 `uses:` 必须引用 `manifest.yml` 中的 SHA。
+
+**Action 文件读取 SHA 的方式**:
+
+```yaml
+steps:
+  - id: manifest
+    uses: ./actions/_common/read-manifest
+  
+  - uses: ${{ fromJson(steps.manifest.outputs.deps)['actions/checkout'] }}
+    with:
+      fetch-depth: 0
+```
+
+**批量检查**:
+```bash
+npx pin-github-action .github/workflows/*.yml actions/**/*.yml
+```
+
+**Renovate 配置**（`.github/renovate.json`）:
+```json
+{
+  "extends": ["config:base"],
+  "packageRules": [{
+    "matchManagers": ["github-actions"],
+    "updateType": "pinDigest",
+    "automerge": false,
+    "labels": ["deps", "security"]
+  }]
+}
+```
+
+### 7.2 权限最小化矩阵
+
+每个工作流在 job 级别声明 `permissions`:
+
+| 工作流 | contents | pull-requests | security-events | id-token | packages | issues |
+|--------|----------|---------------|-----------------|----------|----------|--------|
+| claude-harness | read | write | - | write | - | write |
+| pr.yml | read | write | write | write | - | - |
+| ci.yml | read | - | write | write | write | - |
+| stg.yml | read | - | - | write | read | - |
+| prd.yml | read | write | - | write | read | - |
+| security-schedule | read | - | write | - | - | - |
+| community.yml | read | write | - | - | - | write |
+
+**全局默认**:工作流顶层 `permissions: {}` 拒绝所有,job 级别精确授权。
+
+### 7.3 已淘汰 action 处理（v1.3 新增）
+
+以下 action 因安全或维护原因被淘汰,禁止在新工作流中使用:
+
+| action | 淘汰原因 | 替代方案 |
+|--------|---------|---------|
+| `semgrep/semgrep-action` | 2020 年停更,不再维护 | CLI: `pip install semgrep && semgrep ci` |
+| `amondnet/vercel-action` | 版本严重滞后(v25 vs 最新 v42.3.0) | 官方 Vercel CLI: `npm i -g vercel && vercel deploy --prod` |
+| `trufflesecurity/trufflehog@main` | 引用 `main` 分支,供应链风险 | 固定到发布版本 SHA(`manifest.yml` 中维护) |
+
+**迁移策略**:已有工作流中的淘汰 action 逐步替换,优先级 P0（安全相关）> P1（功能替代）。替换时同步更新 `manifest.yml` 中的 SHA。
+
+### 7.4 harden-runner 统一配置
+
+每个工作流的每个 job 第一步:
+
+```yaml
+steps:
+  - name: Harden runner
+    uses: step-security/harden-runner@{SHA}
+    with:
+      egress-policy: audit
+      # 稳定后切 block 模式:
+      # egress-policy: block
+      # allowed-endpoints: >
+      #   api.anthropic.com:443
+      #   ghcr.io:443
+      #   api.github.com:443
+```
+
+---
+
+## 十、Codecov 集成
+
+**文件**:`actions/pr/check-coverage/action.yml`
+
+**触发时机**:pr.yml 中 `test` job 上传 coverage artifact 后
+
+**输入**:
+```yaml
+inputs:
+  codecov-token: { required: false }
+  coverage-threshold: { default: "80" }
+  flags: { default: "unit" }
+```
+
+**实现**:
+```yaml
+- uses: codecov/codecov-action@{SHA}
+  with:
+    token: ${{ inputs.codecov-token }}
+    threshold: ${{ inputs.coverage-threshold }}
+    fail_ci_if_error: true
+    flags: ${{ inputs.flags }}
+    name: ${{ github.repository }}-${{ github.sha }}
+    comment_type: "pr"
+```
+
+**PR 效果**:Codecov bot 评论显示覆盖率变化（`+2.3% / -1.1%`）、未覆盖的新增代码行。
+
+---
+
+## 十一、MegaLinter 多语言统一 Lint(v1.3 新增)
+
+**文件**：`actions/pr/lint-code/action.yml`
+
+**职责**：统一执行多语言静态检查，替代按语言分别实现 linter 的方式。消费方无需关心具体语言栈，MegaLinter 自动检测并路由。
+
+**为什么用 MegaLinter 而非按语言拆分**：
+
+| 方案 | 优势 | 劣势 |
+|------|------|------|
+| 按语言拆分(lint-node/lint-python/…) | 精确控制,轻量 | 新增语言需新建 action,消费方需指定语言 |
+| **MegaLinter(采用)** | 自动检测语言,85+ linter 开箱即用,统一配置 | Docker 镜像较大,可用 flavor 精简 |
+
+**输入**：
+```yaml
+inputs:
+  mega-linter-flavor:  { default: "all", description: "精简镜像: python|javascript|go|java|all" }
+  config-file:         { default: ".megalinter.yml", description: "消费方自定义配置路径" }
+  fail-on-error:       { default: "true" }
+```
+
+**实现**：
+```yaml
+steps:
+  - name: MegaLinter
+    uses: oxsecurity/megalinter@{SHA}
+    env:
+      MEGALINTER_FLAVOR: ${{ inputs.mega-linter-flavor }}
+      MEGALINTER_CONFIG_FILE: ${{ inputs.config-file }}
+      VALIDATE_ALL_CODEBASE: false  # 仅检查 PR diff
+      GITHUB_TOKEN: ${{ github.token }}
+```
+
+**Flavor 选择策略**（基于 detect-language 输出自动路由）：
+
+| detect-language 输出 | flavor | 镜像大小 |
+|---------------------|--------|---------|
+| node | `javascript` | ~200MB |
+| python | `python` | ~250MB |
+| go | `go` | ~180MB |
+| java | `java` | ~300MB |
+| unknown/多语言 | `all` | ~800MB |
+
+**消费方自定义**（`.megalinter.yml`）：
+```yaml
+# 消费方仓库根目录放置,覆盖默认配置
+ENABLE:
+  - PYTHON
+  - JAVASCRIPT
+  - YAML
+  - DOCKERFILE
+  - MARKDOWN
+DISABLE:
+  - COPYPASTE  # 禁用重复代码检测
+PYTHON_RUFF_CONFIG_FILE: ".ruff.toml"  # 指向消费方已有配置
+```
+
+**Annotation**：
+```bash
+echo "::notice title=Lint Passed::flavor=$FLAVOR errors=0 warnings=$WARNINGS"
+echo "::error title=Lint Failed::errors=$ERRORS files=$FILES"
+```
+
+---
+
+## 十二、容器安全扫描(v1.3 新增)
+
+**文件**：`actions/ci/scan-image/action.yml`
+
+**职责**：对构建完成的 Docker 镜像执行 CVE 扫描，结果上报 GitHub Security tab。
+
+**输入**：
+```yaml
+inputs:
+  image-ref:     { required: true, description: "镜像引用,如 ghcr.io/owner/app:sha-abc1234" }
+  severity:      { default: "CRITICAL,HIGH" }
+  exit-code:     { default: "1", description: "发现漏洞时的退出码,1=阻断" }
+  format:        { default: "sarif" }
+```
+
+**实现**：
+```yaml
+steps:
+  - name: Run Trivy vulnerability scanner
+    uses: aquasecurity/trivy-action@{SHA}
+    with:
+      image-ref: ${{ inputs.image-ref }}
+      format: ${{ inputs.format }}
+      output: trivy-results.sarif
+      severity: ${{ inputs.severity }}
+      exit-code: ${{ inputs.exit-code }}
+
+  - name: Upload Trivy scan results to GitHub Security tab
+    uses: github/codeql-action/upload-sarif@{SHA}
+    if: always()
+    with:
+      sarif_file: trivy-results.sarif
+```
+
+**双扫模式**（ci.yml 中）：
+
+1. **fs 扫描**：构建前扫描文件系统依赖（`trivy fs .`），提前发现漏洞
+2. **image 扫描**：构建后扫描镜像（`trivy image`），覆盖 OS 层漏洞
+
+**Annotation**：
+```bash
+echo "::warning title=CVE Found::$CVE_ID severity=$SEVERITY package=$PKG"
+echo "::notice title=Image Scan Passed::image=$IMAGE_REF severity=$SEVERITY ✓"
+```
+
+---
+
+## 十三、CodeQL 集成
+
+**文件**:`actions/security/scan-codeql/action.yml`
+
+**输入**:
+```yaml
+inputs:
+  language: { required: true }   # javascript-typescript | python | go | java
+  query-suite: { default: "security-extended" }
+```
+
+**实现**（三步固定模式）:
+```yaml
+steps:
+  - uses: github/codeql-action/init@{SHA}
+    with:
+      languages: ${{ inputs.language }}
+      queries: ${{ inputs.query-suite }}
+
+  - uses: github/codeql-action/autobuild@{SHA}
+
+  - uses: github/codeql-action/analyze@{SHA}
+    with:
+      category: "/language:${{ inputs.language }}"
+      upload: true
+```
+
+---
+
+## 十四、版本管理与发布
+
+### 14.1 语义化版本
+
+```
+v{MAJOR}.{MINOR}.{PATCH}
+
+MAJOR:破坏性变更（输入/输出接口变更,消费方需修改引用）
+MINOR:新增功能（向后兼容）
+PATCH:Bug 修复（行为不变）
+```
+
+**主版本 tag 浮动**:`v2` 始终指向 `v2.x.x` 最新版,消费方引用 `@v2` 自动获得非破坏性更新。
+
+### 14.2 release-drafter 配置
+
+```yaml
+# .github/release-drafter.yml
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+template: |
+  ## 变更内容
+  $CHANGES
+  
+  ## 消费方升级
+  ```yaml
+  uses: org/opencl/.github/workflows/pr.yml@v$MAJOR_VERSION
+  ```
+categories:
+  - title: '破坏性变更'
+    labels: ['breaking-change']
+  - title: '新功能'
+    labels: ['feature', 'enhancement']
+  - title: '修复'
+    labels: ['bug', 'fix']
+  - title: '安全'
+    labels: ['security', 'deps']
+version-resolver:
+  major: { labels: ['breaking-change'] }
+  minor: { labels: ['feature', 'enhancement'] }
+  patch: { labels: ['bug', 'fix', 'security', 'deps'] }
+  default: patch
+```
+
+---
+
+## 十五、消费方集成示例
+
+### 15.1 最简集成(Node.js)
+
+```yaml
+# .github/workflows/pr.yml（消费方仓库）
+name: PR
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  quality:
+    uses: your-org/opencl/.github/workflows/pr.yml@v2
+    with:
+      enable-ai-review: true
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      codecov-token: ${{ secrets.CODECOV_TOKEN }}
+```
+
+### 15.2 完整 CI/CD 链路
+
+```yaml
+# .github/workflows/ci.yml（消费方仓库）
+name: CI & Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    uses: your-org/opencl/.github/workflows/ci.yml@v2
+    with:
+      image-name: my-app
+      run-migration: true
+    outputs:
+      image-digest: ${{ jobs.build.outputs.image-digest }}
+      deploy-time: ${{ jobs.build.outputs.deploy-time }}
+    secrets:
+      registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-stg:
+    needs: build
+    uses: your-org/opencl/.github/workflows/stg.yml@v2
+    with:
+      image-digest: ${{ needs.build.outputs.image-digest }}
+      run-migration: true
+    outputs:
+      deploy-time: ${{ jobs.deploy-stg.outputs.deploy-time }}
+    secrets:
+      kubeconfig-stg: ${{ secrets.KUBECONFIG_STG }}
+
+  deploy-prd:
+    needs: [build, deploy-stg]
+    uses: your-org/opencl/.github/workflows/prd.yml@v2
+    with:
+      image-digest: ${{ needs.build.outputs.image-digest }}
+      stg-image-digest: ${{ needs.build.outputs.image-digest }}
+      stg-deploy-time: ${{ needs.deploy-stg.outputs.deploy-time }}
+      observation-minutes: 30
+      run-migration: true
+    secrets:
+      kubeconfig-prd: ${{ secrets.KUBECONFIG_PRD }}
+```
+
+### 15.3 自定义 Prompt 覆盖(无需 Fork)
+
+```yaml
+jobs:
+  quality:
+    uses: your-org/opencl/.github/workflows/pr.yml@v2
+    with:
+      pr-review-prompt-path: .agents/skills/my-project-review.md
+```
+
+### 15.4 AI 项目扩展
+
+```yaml
+jobs:
+  quality:
+    uses: your-org/opencl/.github/workflows/pr.yml@v2
+    with:
+      enable-ai-review: true
+      enable-eval: true          # prompt 变更时自动跑回归 eval
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  build:
+    uses: your-org/opencl/.github/workflows/ci.yml@v2
+    with:
+      image-name: my-ai-app
+      enable-ai-smoke: true      # merge 后用真实镜像跑冒烟 eval
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+---
+
+## 附录 A:实施优先级
+
+Claude Code 按以下顺序实施,每阶段可独立验证:
+
+| 优先级 | 实施内容 | 验证方式 |
+|--------|---------|---------|
+| P0 | `manifest.yml` + `_common/read-manifest` | 单元测试读取 SHA |
+| P0 | `_common/detect-language` | 不同项目类型下验证输出 |
+| P1 | `pr.yml` + 基础原子（lint/test/scan-deps） | 在示例仓库触发 PR |
+| P1 | `claude-harness.yml` | 手动触发,验证 sticky comment |
+| P2 | `ci.yml` + `build-docker` / `scan-image` / `sign-image` | 验证 digest 输出 |
+| P2 | `stg.yml` + 部署链路 | 在测试 K8s 集群验证 |
+| P3 | `prd.yml` + `pre-check`（version-align + observe-window） | 验证版本不对齐时正确失败 |
+| P3 | `security-schedule.yml` + CodeQL + SBOM | 手动触发验证 Security tab |
+| P4 | `community.yml` / `stale.yml` / `docs-*.yml` | 辅助功能,最后实施 |
+
+---
+
+## 附录 B:禁止事项
+
+以下行为被明确禁止,Claude Code 实施时须检查:
+
+1. **任何 action 直接调用 Claude API**（必须经由 `claude-harness.yml`）
+2. **第三方 action 使用版本 tag**（必须用 commit SHA）
+3. **SHA 硬编码在 action 文件内**（必须从 `manifest.yml` 读取）
+4. **Composite Action 调用另一个 Composite Action**（只能调用原子）
+5. **工作流直接调用原子 Action**（必须经由 Composite）
+6. **原子 Action 之间互相调用**
+7. **`pull_request_target` 触发器 checkout PR head 代码后执行**（供应链安全风险）
+8. **自实现 Docker 构建、secret 扫描、覆盖率上报等有成熟方案的功能**
+9. **在 `stg.yml` 之前直接触发 `prd.yml`**（必须经过观察窗口）
+10. **省略 `harden-runner` 步骤**（每个 job 必须加载）
+11. **使用 `semgrep/semgrep-action`**（2020 年停更,改用 CLI: `pip install semgrep && semgrep ci`）
+12. **使用 `amondnet/vercel-action`**（版本严重滞后,改用官方 Vercel CLI）
+13. **`trufflehog` 引用 `@main`**（必须固定到发布版本 SHA,防止供应链攻击）
+issue 缺少 type/area/priority 三标签即流转(必须先 triage)

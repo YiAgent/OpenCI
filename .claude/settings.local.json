@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(gh repo *)",
+      "Bash(curl -s https://api.github.com/repos/oxsecurity/megalinter)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Stars: {d.get\\(\\\\\"stargazers_count\\\\\",\\\\\"N/A\\\\\"\\)}, Updated: {d.get\\(\\\\\"updated_at\\\\\",\\\\\"N/A\\\\\"\\)}, Pushed: {d.get\\(\\\\\"pushed_at\\\\\",\\\\\"N/A\\\\\"\\)}'\\)\")",
+      "mcp__plugin_everything-claude-code_github__search_repositories",
+      "Bash(curl -s https://api.github.com/repos/reviewdog/action-eslint)",
+      "Bash(curl -s https://api.github.com/repos/reviewdog/action-ruff)",
+      "Bash(curl -s https://api.github.com/repos/github/super-linter)",
+      "Bash(curl -s \"https://api.github.com/repos/trufflesecurity/trufflehog/releases/latest\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('tag_name','N/A'\\), d.get\\('published_at','N/A'\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/search/repositories?q=action-ruff+org:reviewdog\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); items=d.get\\('items',[]\\); [print\\(f'{i[\\\\\"full_name\\\\\"]}: Stars={i[\\\\\"stargazers_count\\\\\"]}, Pushed={i[\\\\\"pushed_at\\\\\"]}'\\) for i in items[:5]]\")",
+      "Bash(curl -s \"https://api.github.com/repos/appleboy/ssh-action/releases/latest\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('message','ok'\\), d.get\\('stargazers_count',''\\), d.get\\('pushed_at',''\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/aquasecurity/trivy-action/releases/latest\")",
+      "Bash(curl -s \"https://api.github.com/repos/actions/dependency-review-action/releases/latest\")",
+      "Bash(curl -s \"https://api.github.com/repos/amondnet/vercel-action/releases/latest\")",
+      "Bash(curl -s \"https://api.github.com/search/repositories?q=ruff+reviewdog+in:name,description&sort=stars&order=desc&per_page=5\")",
+      "Bash(curl -s \"https://api.github.com/repos/semgrep/semgrep-action/releases/latest\")",
+      "Bash(curl -s \"https://api.github.com/repos/gitleaks/gitleaks-action\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('full_name','N/A'\\), d.get\\('description','N/A'\\), d.get\\('html_url','N/A'\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/gitleaks/gitleaks-action/releases/latest\")",
+      "Bash(curl -s https://api.github.com/repos/super-linter/super-linter)",
+      "Bash(git ls-tree *)"
+    ]
+  }
+}

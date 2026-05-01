@@ -36,3 +36,4 @@ venv/
 
 # Gate context (generated at runtime)
 gate-context/
+.history
