@@ -11,7 +11,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_run:
-    workflows: [on-pr, on-ci]
+    workflows: [on-ci]
     types: [completed]
   issue_comment:
     types: [created]
@@ -41,13 +41,7 @@ jobs:
     with:
       enable-ai-review: true
       enable-eval:      false
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      codecov-token:     ${{ secrets.CODECOV_TOKEN }}
-      sonar-token:       ${{ secrets.SONAR_TOKEN }}
-      snyk-token:        ${{ secrets.SNYK_TOKEN }}
-      release-pat:       ${{ secrets.RELEASE_PAT }}
+    secrets: inherit
 
   test-gen:
     if: github.event_name == 'pull_request' && github.event.action != 'reopened'
@@ -55,9 +49,7 @@ jobs:
     with:
       pr-agent-mode: test-gen
       pr-number:     ${{ github.event.pull_request.number }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit
 
   summarise:
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
@@ -65,18 +57,14 @@ jobs:
     with:
       pr-agent-mode:   summarise
       extra-workflows: on-pr,on-ci
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit
 
   feedback:
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' }}
     uses: ./.github/workflows/pr.yml
     with:
       pr-agent-mode: feedback
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit
 
   docubot:
     if: >-
@@ -87,6 +75,4 @@ jobs:
     with:
       pr-agent-mode: docubot
       pr-number:     ${{ github.event.issue.number }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit

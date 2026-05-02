@@ -56,16 +56,7 @@ jobs:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.STG_HEALTH_URL }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      kubeconfig-stg:    ${{ secrets.KUBECONFIG_STG }}
-      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
-      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
-      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
-      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
-      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
+    secrets: inherit
 
   stg-agent-test:
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
@@ -74,9 +65,7 @@ jobs:
     with:
       mode:       stg-test
       health-url: ${{ vars.STG_HEALTH_URL }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit
 
   prd-deploy:
     if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') }}
@@ -87,16 +76,7 @@ jobs:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.PRD_HEALTH_URL }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      kubeconfig-prd:    ${{ secrets.KUBECONFIG_PRD }}
-      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
-      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
-      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
-      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
-      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
+    secrets: inherit
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
@@ -104,8 +84,7 @@ jobs:
     with:
       mode:         observe
       observe-mode: canary-watch
-    secrets:
-      sentry-token: ${{ secrets.SENTRY_TOKEN }}
+    secrets: inherit
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}

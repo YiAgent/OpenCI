@@ -36,11 +36,7 @@ jobs:
     uses: ./.github/workflows/issue.yml
     with:
       mode: ${{ inputs.mode || '' }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
-      linear-token:      ${{ secrets.LINEAR_TOKEN }}
+    secrets: inherit
 
   welcome:
     if: github.event_name == 'pull_request_target' || github.event_name == 'issues'

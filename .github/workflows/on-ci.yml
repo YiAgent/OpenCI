@@ -25,7 +25,4 @@ jobs:
       registry:        ghcr.io
       image-name:      ${{ vars.IMAGE_NAME || github.event.repository.name }}
       enable-ai-smoke: true
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      registry-token:    ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit

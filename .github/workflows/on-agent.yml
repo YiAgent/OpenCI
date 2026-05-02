@@ -45,16 +45,7 @@ jobs:
     with:
       task:  health-digest
       model: ${{ inputs.model || '' }}
-    secrets:
-      api-key:           ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
-      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
-      datadog-app-key:   ${{ secrets.DATADOG_APP_KEY }}
-      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
-      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
-      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
-      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+    secrets: inherit
 
   manual:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'health-digest' }}
@@ -64,7 +55,4 @@ jobs:
       prompt:      ${{ inputs.prompt }}
       prompt-path: ${{ inputs.prompt-path }}
       model:       ${{ inputs.model || '' }}
-    secrets:
-      api-key:       ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:  ${{ secrets.ANTHROPIC_BASE_URL }}
-      slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+    secrets: inherit
