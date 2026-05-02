@@ -136,21 +136,38 @@ outputs:
   prompt-source:
     description: Where the prompt came from — direct | slash-command | caller | builtin.
     value: ${{ steps.resolve.outputs.prompt-source }}
+  # ── Deprecated aliases ──────────────────────────────────────────────────────
+  # Pre-v1 internal OpenCI actions (pr/agent-test-gen, ai-triage, summarize-
+  # failure, error-triage, docubot, flag-audit, eval-smoke, agent-test) read
+  # `result` expecting Claude's text output. claude-code-action@v1.x has no
+  # such output — `execution_file` is a path to a JSON transcript. We expose
+  # `result` as an alias so those callers keep working at the type level
+  # while we migrate them.
+  result:
+    description: "[deprecated] Alias of execution-file. Pre-v1 callers expected text; v1 returns a path."
+    value: ${{ steps.invoke.outputs.execution_file }}
+  comment-id:
+    description: "[deprecated] No longer populated. claude-code-action@v1.x uses sticky comments managed internally."
+    value: ""
 
 runs:
   using: composite
   steps:
     # ── Resolve & render the prompt to text ──────────────────────────────────
+    # Context is passed via env var (not shell arg) because it can contain
+    # arbitrary JSON — including PR diffs with newlines, single quotes, and
+    # parentheses — that would break shell quoting on the call site.
     - name: Resolve prompt
       id: resolve
       shell: bash
+      env:
+        TASK_INPUT:        ${{ inputs.task }}
+        PROMPT_INPUT:      ${{ inputs.prompt }}
+        PROMPT_PATH_INPUT: ${{ inputs.prompt-path }}
+        ACTION_DIR_INPUT:  ${{ github.action_path }}
+        CONTEXT_JSON:      ${{ inputs.context }}
       run: |
-        bash "${{ github.action_path }}/resolve-prompt.sh" \
-          "${{ inputs.task }}" \
-          "${{ inputs.prompt }}" \
-          "${{ inputs.prompt-path }}" \
-          "${{ github.action_path }}" \
-          '${{ inputs.context }}'
+        bash "${{ github.action_path }}/resolve-prompt.sh"
 
     # ── Compose claude_args & settings.json ──────────────────────────────────
     # We build claude_args in shell (not YAML interpolation) so the baseline

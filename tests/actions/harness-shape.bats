@@ -90,3 +90,42 @@ have_yq() { command -v yq >/dev/null 2>&1; }
     grep -E "^\s+${k}:" "$COMPOSITE"
   done
 }
+
+@test "composite passes context via env var (CONTEXT_JSON), not as shell arg" {
+  # Inputs containing PR diffs / error logs include single quotes and parens
+  # that break any shell-quoted invocation. Env transport is the fix.
+  grep -E '^\s+CONTEXT_JSON:\s+\$\{\{ inputs\.context \}\}' "$COMPOSITE"
+}
+
+@test "composite preserves deprecated 'result' output alias for existing callers" {
+  # Internal OpenCI atoms still reference steps.harness.outputs.result.
+  grep -E "^\s+result:" "$COMPOSITE"
+}
+
+@test "resolve-prompt.sh accepts inputs via env (no positional args)" {
+  out_file="$(mktemp)"
+  GITHUB_OUTPUT="$out_file" \
+    TASK_INPUT="pr/review" \
+    PROMPT_INPUT="" \
+    PROMPT_PATH_INPUT="" \
+    ACTION_DIR_INPUT="${PROJECT_ROOT}/actions/_common/claude-harness" \
+    CONTEXT_JSON='{"repo":"acme/web"}' \
+    bash "${PROJECT_ROOT}/actions/_common/claude-harness/resolve-prompt.sh" >/dev/null
+  grep -q '^prompt-source=builtin$' "$out_file"
+  rm -f "$out_file"
+}
+
+@test "resolve-prompt.sh tolerates JSON context with parens and single quotes" {
+  # Real PR-diff JSON contains ()'s; this used to crash in the YAML run: block.
+  out_file="$(mktemp)"
+  ctx='{"diff":"diff --git a/x.py\n+def foo(x): return '"'"'bar'"'"'\n"}'
+  GITHUB_OUTPUT="$out_file" \
+    TASK_INPUT="pr/review" \
+    PROMPT_INPUT="" \
+    PROMPT_PATH_INPUT="" \
+    ACTION_DIR_INPUT="${PROJECT_ROOT}/actions/_common/claude-harness" \
+    CONTEXT_JSON="$ctx" \
+    bash "${PROJECT_ROOT}/actions/_common/claude-harness/resolve-prompt.sh" >/dev/null
+  grep -q '^prompt-source=builtin$' "$out_file"
+  rm -f "$out_file"
+}
