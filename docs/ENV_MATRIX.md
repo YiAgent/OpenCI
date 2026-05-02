@@ -45,7 +45,7 @@
 # .github/workflows/<consumer-stg>.yml
 jobs:
   validate-env:
-    uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
     # ... or invoke the validate-env atom directly:
   custom:
     runs-on: ubuntu-latest

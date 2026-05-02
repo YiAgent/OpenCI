@@ -681,7 +681,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   pr-agent:
     if: ${{ inputs.pr-agent-mode != '' }}
-    uses: ./.github/workflows/reusable/_pr-agent.yml
+    uses: ./.github/workflows/_pr-agent.yml
     with:
       model:           ${{ inputs.model }}
       openci-ref:      ${{ inputs.openci-ref }}

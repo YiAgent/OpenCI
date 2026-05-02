@@ -49,7 +49,7 @@ concurrency:
 jobs:
   stg-deploy:
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode:        deploy
       environment: staging
@@ -70,7 +70,7 @@ jobs:
   stg-agent-test:
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
     needs: stg-deploy
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode:       stg-test
       health-url: ${{ vars.STG_HEALTH_URL }}
@@ -80,7 +80,7 @@ jobs:
 
   prd-deploy:
     if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') }}
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode:        deploy
       environment: production
@@ -100,7 +100,7 @@ jobs:
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode:         observe
       observe-mode: canary-watch
@@ -109,7 +109,7 @@ jobs:
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode:         observe
       observe-mode: terraform-drift
@@ -117,6 +117,6 @@ jobs:
 
   observe-poll:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'poll' }}
-    uses: ./.github/workflows/reusable/deploy.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       mode: poll

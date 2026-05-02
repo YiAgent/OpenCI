@@ -14,7 +14,7 @@
 # private; underscore prefix marks them as not part of the public API.
 #
 # Reusable invocation:
-#   uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
+#   uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
 #   with:
 #     mode: deploy
 #     environment: staging
@@ -124,7 +124,7 @@ permissions: {}
 jobs:
   stg:
     if: ${{ inputs.mode == 'deploy' && inputs.environment == 'staging' }}
-    uses: ./.github/workflows/reusable/_stg.yml
+    uses: ./.github/workflows/_stg.yml
     with:
       openci-ref:     ${{ inputs.openci-ref }}
       image-digest:   ${{ inputs.image-digest }}
@@ -145,7 +145,7 @@ jobs:
 
   prd:
     if: ${{ inputs.mode == 'deploy' && inputs.environment == 'production' }}
-    uses: ./.github/workflows/reusable/_prd.yml
+    uses: ./.github/workflows/_prd.yml
     with:
       openci-ref:           ${{ inputs.openci-ref }}
       model:                ${{ inputs.model }}
@@ -172,7 +172,7 @@ jobs:
 
   observe:
     if: ${{ inputs.mode == 'observe' }}
-    uses: ./.github/workflows/reusable/_prd-observe.yml
+    uses: ./.github/workflows/_prd-observe.yml
     with:
       openci-ref: ${{ inputs.openci-ref }}
       mode:       ${{ inputs.observe-mode }}
@@ -182,7 +182,7 @@ jobs:
 
   stg-test:
     if: ${{ inputs.mode == 'stg-test' }}
-    uses: ./.github/workflows/reusable/_stg-agent-test.yml
+    uses: ./.github/workflows/_stg-agent-test.yml
     with:
       openci-ref:   ${{ inputs.openci-ref }}
       model:        ${{ inputs.model }}
@@ -194,6 +194,6 @@ jobs:
 
   poll:
     if: ${{ inputs.mode == 'poll' }}
-    uses: ./.github/workflows/reusable/_poll-prd-dispatch.yml
+    uses: ./.github/workflows/_poll-prd-dispatch.yml
     with:
       openci-ref: ${{ inputs.openci-ref }}

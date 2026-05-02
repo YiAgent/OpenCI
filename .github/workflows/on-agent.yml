@@ -41,7 +41,7 @@ concurrency:
 jobs:
   health-digest:
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.task == 'health-digest') }}
-    uses: ./.github/workflows/reusable/agent.yml
+    uses: ./.github/workflows/agent.yml
     with:
       task:  health-digest
       model: ${{ inputs.model || '' }}
@@ -58,7 +58,7 @@ jobs:
 
   manual:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'health-digest' }}
-    uses: ./.github/workflows/reusable/agent.yml
+    uses: ./.github/workflows/agent.yml
     with:
       task:        ${{ inputs.task }}
       prompt:      ${{ inputs.prompt }}

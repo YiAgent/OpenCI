@@ -263,7 +263,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   health-digest:
     if: ${{ inputs.task == 'health-digest' }}
-    uses: ./.github/workflows/reusable/_health-report.yml
+    uses: ./.github/workflows/_health-report.yml
     with:
       model:      ${{ inputs.model }}
       openci-ref: ${{ inputs.openci-ref }}
