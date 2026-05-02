@@ -30,7 +30,18 @@
       "Bash(git pull *)",
       "Bash(git fetch *)",
       "mcp__plugin_everything-claude-code_github__get_file_contents",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(sed -i 's|`prompts/`|`skills/`|g' /home/wy/projects/YiAgent/openCI/actions/pr/eval-prompt/action.yml)",
+      "Bash(sed -i 's|prompts/ci/smoke-eval.md|skills/ci-smoke-eval/SKILL.md|g' /home/wy/projects/YiAgent/openCI/actions/ci/eval-smoke/action.yml)",
+      "Bash(chmod +x /home/wy/projects/YiAgent/openCI/scripts/sync-skills.sh)",
+      "Bash(bash /home/wy/projects/YiAgent/openCI/scripts/sync-skills.sh)",
+      "Bash(bats *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git stash *)",
+      "mcp__plugin_everything-claude-code_exa__web_search_exa",
+      "WebFetch(domain:docs.github.com)"
     ]
   }
 }

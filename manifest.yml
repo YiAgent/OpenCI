@@ -93,6 +93,7 @@ deps:
 
   # ── Release (verified) ─────────────────────────────────────────────────
   release-drafter/release-drafter:        "3f0f87098bd6b5c5b9a36d49c41d998ea58f9e0b"  # v6.1.0
+  softprops/action-gh-release:            "b4309332981a82ec1c5618f44dd2e27cc8bfbfda"  # v3.0.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Reusable workflow catalog (consumed via `uses: openCI/.github/workflows/<id>.yml@<ref>`)
@@ -318,3 +319,8 @@ workflows:
       image-digest: { type: string, required: false, default: "" }
     secrets:
       anthropic-api-key: { required: false }
+
+  - id: release
+    path: .github/workflows/release.yml
+    description: Create GitHub Release and update floating v<major>/v<minor> tags on version tag push.
+    secrets: {}
