@@ -1,0 +1,19 @@
+---
+# yamllint configuration for OpenCI
+# The project uses two intentional style patterns that deviate from defaults:
+#   1. Flow mappings with inner spaces: { key: value }   (harden-runner, etc.)
+#   2. Aligned multi-line `with:` blocks for readability
+extends: default
+
+rules:
+  line-length: disable
+  document-start: disable   # --- header is optional in this project
+  truthy: disable            # "on:" trigger keys are valid GitHub Actions YAML
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1    # allow { key: value } style
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: -1    # allow alignment padding after colons
+  commas:
+    max-spaces-after: -1    # allow alignment padding after commas

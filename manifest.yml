@@ -79,6 +79,9 @@ deps:
   # ── AWS (verified) ─────────────────────────────────────────────────────
   aws-actions/amazon-ecs-deploy-task-definition: "a310a830f5c14e583e35d84e4e1ec7dd177c3c9c"  # v2.6.2
 
+  # ── IaC (verified) ────────────────────────────────────────────────────
+  hashicorp/setup-terraform:              "5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85"  # v4.0.0
+
   # ── Deploy / SSH (verified) ────────────────────────────────────────────
   appleboy/ssh-action:                    "0ff4204d59e8e51228ff73bce53f80d53301dee2"  # v1.2.5
 

@@ -27,13 +27,7 @@ runs:
         ISSUE_TITLE: ${{ inputs.issue-title }}
         ISSUE_BODY:  ${{ inputs.issue-body }}
       run: |
-        # jq -n --arg keeps consumer-supplied fields out of shell injection paths.
-        ctx="$(jq -nc \
-          --arg repo  "$REPO" \
-          --arg num   "$ISSUE_NUM" \
-          --arg title "$ISSUE_TITLE" \
-          --arg body  "$ISSUE_BODY" \
-          '{repo: $repo, issue: ($num | tonumber), title: $title, body: $body}')"
+        ctx="$(bash "${{ github.action_path }}/build-context.sh")"
         {
           echo "context<<__OPENCI_EOF__"
           echo "$ctx"

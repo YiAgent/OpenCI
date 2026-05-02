@@ -123,6 +123,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: write
     # Soft-gate: never blocks the deploy. Flip enforce-perf to "true" via
     # repo var once you have a stable baseline (SPEC §aicert #23).
     continue-on-error: true
@@ -136,6 +137,7 @@ jobs:
           perf-dir:                  ${{ vars.PERF_DIR              || 'tests/perf' }}
           enforce-perf:              ${{ vars.ENFORCE_PERF          || 'false' }}
           regress-threshold-percent: ${{ vars.PERF_REGRESS_THRESHOLD || '30' }}
+          health-url:                ${{ vars.STG_HEALTH_URL        || '' }}
 
   deploy-k8s:
     name: Deploy K8s

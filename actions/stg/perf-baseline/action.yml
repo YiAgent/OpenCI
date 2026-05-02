@@ -1,10 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # stg/perf-baseline — record / compare performance against last baseline.
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: skeleton — Blackfire CLI wraps a paid SaaS. We provide the
-# scaffolding so consumers wire scenarios under `tests/perf/` and flip
-# `enforce-perf: true` once they have N weeks of baseline samples (per
-# SPEC §aicert #23).
+# Runs the consumer's `tests/perf/run.sh` script (or a curl timing probe
+# against health-url) and compares p50/p95 latency against the last stored
+# baseline (kept as a GitHub Actions artifact "perf-baseline").
 #
 # Soft-gate by default: `continue-on-error: true` is set on the calling
 # job in stg.yml; `enforce-perf=true` flips that off.
@@ -22,37 +21,132 @@ inputs:
     required: false
     default: "false"
   regress-threshold-percent:
-    description: Maximum tolerated regression vs baseline.
+    description: Maximum tolerated regression vs baseline (p95 latency).
     required: false
     default: "30"
+  health-url:
+    description: Fallback health URL for curl timing probe when no run.sh exists.
+    required: false
+    default: ""
+  probe-count:
+    description: Number of curl requests for the latency probe.
+    required: false
+    default: "20"
 
 runs:
   using: composite
   steps:
-    - name: Skip when perf-dir absent
+    - name: Skip when perf-dir absent and no health-url
       id: gate
       shell: bash
       env:
-        DIR: ${{ inputs.perf-dir }}
+        DIR:        ${{ inputs.perf-dir }}
+        HEALTH_URL: ${{ inputs.health-url }}
       run: |
-        if [ ! -d "$DIR" ]; then
+        if [ ! -d "$DIR" ] && [ -z "$HEALTH_URL" ]; then
           echo "skip=true" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Perf Baseline Skipped::no $DIR directory"
+          echo "::notice title=Perf Baseline Skipped::no $DIR directory and no health-url"
         else
           echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: TODO — run Blackfire (or alternative)
+    - name: Download previous baseline
       if: steps.gate.outputs.skip != 'true'
+      id: baseline-dl
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      with:
+        name: perf-baseline
+        path: .perf-baseline
+      continue-on-error: true
+
+    - name: Run perf test
+      if: steps.gate.outputs.skip != 'true'
+      id: run
       shell: bash
       env:
-        ENFORCE: ${{ inputs.enforce-perf }}
-        THRESH:  ${{ inputs.regress-threshold-percent }}
+        DIR:        ${{ inputs.perf-dir }}
+        HEALTH_URL: ${{ inputs.health-url }}
+        PROBES:     ${{ inputs.probe-count }}
       run: |
-        echo "::warning title=perf-baseline skeleton::Blackfire integration not yet wired up. enforce=${ENFORCE} threshold=${THRESH}%"
-        # When wired:
-        # 1. Auth: blackfire client login --client-id "$BLACKFIRE_ID" --client-token "$BLACKFIRE_TOKEN"
-        # 2. Run scenarios: blackfire run -- node tests/perf/*.js
-        # 3. Compare to baseline; if regression > THRESH:
-        #    if [ "$ENFORCE" = "true" ]; then echo "::error..."; exit 1
-        #    else echo "::warning..."; fi
+        set -euo pipefail
+        mkdir -p .perf-current
+
+        if [ -f "$DIR/run.sh" ]; then
+          # Consumer script must emit lines: p50=NNN p95=NNN (milliseconds).
+          bash "$DIR/run.sh" | tee .perf-current/results.txt
+        elif [ -n "$HEALTH_URL" ]; then
+          # Fallback: curl timing probe.
+          echo "Probing $HEALTH_URL (${PROBES} requests)..."
+          times=()
+          for i in $(seq "$PROBES"); do
+            t="$(curl -so /dev/null -w "%{time_total}" --max-time 10 "$HEALTH_URL" 2>/dev/null || echo "9.999")"
+            times+=("$t")
+          done
+          # Sort and compute p50/p95 in milliseconds.
+          sorted="$(printf '%s\n' "${times[@]}" | sort -n)"
+          n="${#times[@]}"
+          p50_idx=$(( n * 50 / 100 ))
+          p95_idx=$(( n * 95 / 100 ))
+          p50_raw="$(printf '%s\n' "${times[@]}" | sort -n | sed -n "$((p50_idx + 1))p")"
+          p95_raw="$(printf '%s\n' "${times[@]}" | sort -n | sed -n "$((p95_idx + 1))p")"
+          p50="$(awk -v v="$p50_raw" 'BEGIN { printf "%.0f", v * 1000 }')"
+          p95="$(awk -v v="$p95_raw" 'BEGIN { printf "%.0f", v * 1000 }')"
+          printf 'p50=%s\np95=%s\n' "$p50" "$p95" | tee .perf-current/results.txt
+        else
+          echo "::notice title=Perf::no test script or health-url; skipping comparison"
+          exit 0
+        fi
+
+        # Emit step outputs for comparison.
+        p50="$(grep -oP 'p50=\K\d+' .perf-current/results.txt || echo 0)"
+        p95="$(grep -oP 'p95=\K\d+' .perf-current/results.txt || echo 0)"
+        echo "p50=$p50" >> "$GITHUB_OUTPUT"
+        echo "p95=$p95" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Perf Current::p50=${p50}ms p95=${p95}ms"
+
+    - name: Compare vs baseline
+      if: steps.gate.outputs.skip != 'true' && steps.run.outputs.p95 != ''
+      shell: bash
+      env:
+        CURRENT_P95: ${{ steps.run.outputs.p95 }}
+        CURRENT_P50: ${{ steps.run.outputs.p50 }}
+        THRESHOLD:   ${{ inputs.regress-threshold-percent }}
+        ENFORCE:     ${{ inputs.enforce-perf }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f ".perf-baseline/results.txt" ]; then
+          echo "::notice title=Perf Baseline Recorded::first run — p50=${CURRENT_P50}ms p95=${CURRENT_P95}ms"
+          exit 0
+        fi
+
+        baseline_p95="$(grep -oP 'p95=\K\d+' .perf-baseline/results.txt || echo 0)"
+        if [ "${baseline_p95:-0}" -eq 0 ]; then
+          echo "::notice title=Perf::baseline p95 is 0; treating as first run"
+          exit 0
+        fi
+
+        # Compute regression %.
+        regress="$(awk -v cur="$CURRENT_P95" -v base="$baseline_p95" \
+          'BEGIN { printf "%.1f", (cur - base) * 100 / base }')"
+
+        if awk -v r="$regress" -v t="$THRESHOLD" 'BEGIN { exit !(r+0 > t+0) }'; then
+          msg="Perf Regression::p95=${CURRENT_P95}ms vs baseline=${baseline_p95}ms (+${regress}%) exceeds threshold=${THRESHOLD}%"
+          if [ "$ENFORCE" = "true" ]; then
+            echo "::error title=$msg"
+            exit 1
+          else
+            echo "::warning title=$msg"
+          fi
+        else
+          echo "::notice title=Perf OK::p95=${CURRENT_P95}ms vs baseline=${baseline_p95}ms (+${regress}%)"
+        fi
+
+    - name: Upload new baseline
+      if: steps.gate.outputs.skip != 'true' && steps.run.outputs.p95 != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: perf-baseline
+        path: .perf-current/results.txt
+        overwrite: true
+        retention-days: 90
