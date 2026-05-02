@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# stg-agent-test.yml — autonomous L1-L4 tests after stg deploy.
+# stg-agent-test.yml — autonomous L1-L4 tests after stg deploy (reusable).
 # ─────────────────────────────────────────────────────────────────────────────
 # Triggered by stg.yml completion. Runs all 4 levels in parallel; each
 # level's findings land as an artifact for downstream review.
@@ -12,8 +12,23 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
-      health-url:   { required: true, description: Staging health URL }
-      image-digest: { required: true, description: Image digest }
+      health-url:   { required: false, description: Staging health URL }
+      image-digest: { required: false, description: Image digest }
+  workflow_call:
+    inputs:
+      health-url:
+        description: "Staging health endpoint URL (falls back to STG_HEALTH_URL repo var)."
+        type: string
+        required: false
+        default: ""
+      image-digest:
+        description: "Docker image digest for this staging deploy."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      anthropic-api-key:
+        required: false
 
 permissions: {}
 
@@ -24,7 +39,7 @@ concurrency:
 jobs:
   test:
     name: Agent Test (L${{ matrix.level }})
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -42,7 +57,7 @@ jobs:
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
         env:
-          K: ${{ secrets.ANTHROPIC_API_KEY }}
+          K: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -z "$K" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -54,9 +69,9 @@ jobs:
         uses: ./actions/stg/agent-test
         with:
           level:             ${{ matrix.level }}
-          health-url:        ${{ github.event.inputs.health-url || vars.STG_HEALTH_URL }}
-          image-digest:      ${{ github.event.inputs.image-digest || vars.STG_IMAGE_DIGEST || 'unknown' }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          health-url:        ${{ inputs.health-url || github.event.inputs.health-url || vars.STG_HEALTH_URL }}
+          image-digest:      ${{ inputs.image-digest || github.event.inputs.image-digest || vars.STG_IMAGE_DIGEST || 'unknown' }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
 
       - if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

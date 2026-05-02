@@ -6,6 +6,10 @@
 # tagged `<!-- pr-summary-bot -->`. Subsequent triggers update that comment
 # in place (see actions/_common/upsert-pr-comment).
 #
+# Reusable: consumers call this from a thin wrapper on
+#   workflow_run: [pr, ci]: [completed].
+#   Optional input: extra-workflows to summarise beyond the default set.
+#
 # Concurrency cancels older summary runs as soon as a newer event fires —
 # the latest summary always wins, so we never race-write conflicting
 # comment bodies.
@@ -27,6 +31,13 @@ on:
       pr-number:
         description: PR number to summarise (manual debug)
         required: true
+  workflow_call:
+    inputs:
+      extra-workflows:
+        type: string
+        required: false
+        default: ""
+        description: "Space-separated extra workflow names to include in the summary table."
 
 permissions: {}
 
@@ -68,13 +79,18 @@ jobs:
       - name: Build summary markdown
         id: build
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO:     ${{ github.repository }}
-          PR:       ${{ steps.pr.outputs.number }}
+          GH_TOKEN:         ${{ github.token }}
+          REPO:             ${{ github.repository }}
+          PR:               ${{ steps.pr.outputs.number }}
+          EXTRA_WORKFLOWS:  ${{ inputs.extra-workflows }}
         run: |
           set -euo pipefail
-          # Workflows we care about. Add new ones here as the catalogue grows.
-          workflows=(pr ci pr-summary verify-sha-consistency)
+          # Core workflows always summarised; consumers append via extra-workflows.
+          workflows=(pr ci pr-summary verify-sha-consistency dep-auto-merge stg-agent-test prd-verify-fix prd-canary-watch)
+          if [ -n "$EXTRA_WORKFLOWS" ]; then
+            read -ra extra <<< "$EXTRA_WORKFLOWS"
+            workflows+=("${extra[@]}")
+          fi
 
           head_sha="$(gh api -X GET "repos/${REPO}/pulls/${PR}" --jq '.head.sha')"
 
@@ -107,17 +123,13 @@ jobs:
           [ "$worst" = "failure" ] && summary_emoji="❌"
           [ "$worst" = "pending" ] && summary_emoji="⏳"
 
-          body=$(cat <<EOF
-<!-- pr-summary-bot -->
-## ${summary_emoji} CI Summary
-
-| Workflow | Status | Run |
-| --- | --- | --- |
-${rows}
-
-_Updated automatically by openCI \`pr-summary\` for commit \`${head_sha:0:7}\`._
-EOF
-)
+          NL=$'\n'
+          body="<!-- pr-summary-bot -->${NL}"
+          body+="## ${summary_emoji} CI Summary${NL}${NL}"
+          body+="| Workflow | Status | Run |${NL}"
+          body+="| --- | --- | --- |${NL}"
+          body+="${rows}${NL}"
+          body+="_Updated automatically by OpenCI \`pr-summary\` for commit \`${head_sha:0:7}\`._
           {
             echo "body<<__OPENCI_EOF__"
             echo "$body"

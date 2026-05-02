@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd-terraform-drift.yml — advisory drift check.
+# prd-terraform-drift.yml — advisory drift check (reusable workflow).
 # ─────────────────────────────────────────────────────────────────────────────
 # Daily cron + manual dispatch. Detects when prod resources diverge from
 # committed terraform state. Advisory only — never blocks deploys.
@@ -10,6 +10,13 @@ on:
   schedule:
     - cron: "0 4 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      infra-dir:
+        description: "Path to the Terraform infrastructure directory."
+        type: string
+        required: false
+        default: "infrastructure"
 
 permissions: {}
 
@@ -34,5 +41,5 @@ jobs:
         with: { persist-credentials: false }
       - uses: ./actions/prd/terraform-drift
         with:
-          infra-dir:    ${{ vars.TERRAFORM_DIR || 'infrastructure' }}
+          infra-dir:    ${{ inputs.infra-dir || vars.TERRAFORM_DIR || 'infrastructure' }}
           github-token: ${{ github.token }}

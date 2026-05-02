@@ -120,6 +120,7 @@ workflows:
       language:              { type: string, default: "" }
       enable-ai-review:      { type: boolean, default: true }
       enable-eval:           { type: boolean, default: false }
+      enable-copilot-review: { type: boolean, default: false }
       coverage-threshold:    { type: number, default: 80 }
       pr-review-prompt-path: { type: string, default: "" }
     secrets:
@@ -127,6 +128,7 @@ workflows:
       codecov-token:     { required: false }
       sonar-token:       { required: false }
       snyk-token:        { required: false }
+      release-pat:       { required: false, description: "PAT for Copilot review (enable-copilot-review: true)." }
 
   - id: ci
     path: .github/workflows/ci.yml
@@ -233,7 +235,86 @@ workflows:
       anthropic-api-key:   { required: true }
       sentry-token:        { required: false }
       datadog-api-key:     { required: false }
+      datadog-app-key:     { required: false }
       posthog-api-key:     { required: false }
       langsmith-api-key:   { required: false }
       axiom-token:         { required: false }
       slack-webhook-url:   { required: false }
+
+  - id: dep-auto-merge
+    path: .github/workflows/dep-auto-merge.yml
+    description: Auto-merge Renovate patch-labelled dependency PRs.
+    secrets: {}
+
+  - id: issue-branch-from-linear
+    path: .github/workflows/issue-branch-from-linear.yml
+    description: Create a branch from a Linear issue via repository_dispatch.
+    secrets:
+      linear-token: { required: false }
+
+  - id: agent-triage
+    path: .github/workflows/agent-triage.yml
+    description: AI-powered issue triage, routing, and deduplication.
+    secrets:
+      anthropic-api-key: { required: false }
+      sentry-token:      { required: false }
+
+  - id: flag-audit
+    path: .github/workflows/flag-audit.yml
+    description: Weekly feature-flag audit — scans codebase and files tech-debt issues.
+    secrets:
+      anthropic-api-key: { required: false }
+
+  - id: pr-agent-docubot
+    path: .github/workflows/pr-agent-docubot.yml
+    description: AI-generated docs/changelog comment on every opened PR.
+    secrets:
+      anthropic-api-key: { required: false }
+
+  - id: pr-agent-feedback
+    path: .github/workflows/pr-agent-feedback.yml
+    description: Post sticky CI-failure feedback comment on agent-opened PRs.
+    secrets:
+      anthropic-api-key: { required: false }
+
+  - id: pr-agent-test-gen
+    path: .github/workflows/pr-agent-test-gen.yml
+    description: Generate missing tests for a PR via Claude and open a follow-up PR.
+    inputs:
+      pr-number: { type: string, required: false, default: "" }
+    secrets:
+      anthropic-api-key: { required: false }
+
+  - id: pr-summary
+    path: .github/workflows/pr-summary.yml
+    description: Post a weekly workflow-run summary digest on the repo.
+    inputs:
+      extra-workflows: { type: string, required: false, default: "" }
+    secrets: {}
+
+  - id: prd-canary-watch
+    path: .github/workflows/prd-canary-watch.yml
+    description: Post-deploy 3σ canary observer — runs every 15 min after a prd deploy.
+    secrets:
+      sentry-token: { required: false }
+
+  - id: prd-terraform-drift
+    path: .github/workflows/prd-terraform-drift.yml
+    description: Advisory daily Terraform drift check against committed state.
+    inputs:
+      infra-dir: { type: string, default: "infrastructure" }
+
+  - id: prd-verify-fix
+    path: .github/workflows/prd-verify-fix.yml
+    description: Confirm Sentry issues are resolved after a prd deploy.
+    secrets:
+      sentry-token: { required: false }
+
+  - id: stg-agent-test
+    path: .github/workflows/stg-agent-test.yml
+    description: Autonomous L1–L4 agent tests triggered after staging deploy.
+    inputs:
+      health-url:   { type: string, required: false, default: "" }
+      image-digest: { type: string, required: false, default: "" }
+    secrets:
+      anthropic-api-key: { required: false }

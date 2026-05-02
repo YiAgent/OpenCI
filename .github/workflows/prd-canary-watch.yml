@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd-canary-watch.yml — post-deploy 3σ canary observer.
+# prd-canary-watch.yml — post-deploy 3σ canary observer (reusable workflow).
 # ─────────────────────────────────────────────────────────────────────────────
 # Runs every 15 minutes. When a recent prd deploy exists (consumer
 # convention: a `PRD_LAST_DEPLOY` repo var written by prd.yml), pull
@@ -15,6 +15,10 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      sentry-token:
+        required: false
 
 permissions: {}
 
@@ -66,7 +70,7 @@ jobs:
         if: steps.recent.outputs.skip != 'true'
         id: rates
         env:
-          TOKEN:   ${{ secrets.SENTRY_TOKEN }}
+          TOKEN:   ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
           ORG:     ${{ vars.SENTRY_ORG }}
           PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: |
@@ -85,6 +89,6 @@ jobs:
         if: steps.recent.outputs.skip != 'true'
         uses: ./actions/prd/canary-watch
         with:
-          current-rate:    ${{ steps.rates.outputs.current }}
-          history-rates:   ${{ steps.rates.outputs.history }}
+          current-rate:     ${{ steps.rates.outputs.current }}
+          history-rates:    ${{ steps.rates.outputs.history }}
           regression-fails: "false"

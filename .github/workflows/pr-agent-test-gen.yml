@@ -5,6 +5,10 @@
 # scanned by gitleaks. A separate human-driven path (consumer's choice)
 # decides whether to commit them. SPEC §P4-32: "Agent only-read,
 # Reporter only-write".
+#
+# Reusable: consumers call this from a thin wrapper on
+#   pull_request: [opened, synchronize].
+#   Secret: anthropic-api-key (optional; skipped gracefully when unset).
 # ─────────────────────────────────────────────────────────────────────────────
 name: pr-agent-test-gen
 
@@ -14,6 +18,16 @@ on:
   workflow_dispatch:
     inputs:
       pr-number: { required: true, description: "PR to scaffold tests for" }
+  workflow_call:
+    inputs:
+      pr-number:
+        type: string
+        required: false
+        default: ""
+        description: "PR number (falls back to github.event.pull_request.number)"
+    secrets:
+      anthropic-api-key:
+        required: false
 
 permissions: {}
 
@@ -38,7 +52,7 @@ jobs:
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
         env:
-          K: ${{ secrets.ANTHROPIC_API_KEY }}
+          K: ${{ secrets.anthropic-api-key }}
         run: |
           if [ -z "$K" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -49,6 +63,6 @@ jobs:
       - if: steps.gate.outputs.skip != 'true'
         uses: ./actions/pr/agent-test-gen
         with:
-          pr-number:         ${{ github.event.pull_request.number || github.event.inputs.pr-number }}
+          pr-number:         ${{ github.event.pull_request.number || github.event.inputs.pr-number || inputs.pr-number }}
           github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}

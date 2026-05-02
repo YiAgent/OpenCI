@@ -1,19 +1,30 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ops-agent-triage.yml — hourly Sentry → GitHub-issue triage.
+# agent-triage.yml — scheduled Sentry → GitHub-issue triage.
 # ─────────────────────────────────────────────────────────────────────────────
-# Cron: every hour. Skips when SENTRY_TOKEN is unset.
+# Default cron: every hour. Skips gracefully when SENTRY_TOKEN or
+# ANTHROPIC_API_KEY is unset.
+#
+# Reusable: consumers call this from a thin wrapper with their own cron
+#   schedule. Secrets: anthropic-api-key + sentry-token (both optional).
+#   Repo vars consumed: SENTRY_ORG, SENTRY_PROJECT.
 # ─────────────────────────────────────────────────────────────────────────────
-name: ops-agent-triage
+name: agent-triage
 
 on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      anthropic-api-key:
+        required: false
+      sentry-token:
+        required: false
 
 permissions: {}
 
 concurrency:
-  group: ops-agent-triage
+  group: agent-triage
   cancel-in-progress: false
 
 jobs:
@@ -32,8 +43,8 @@ jobs:
         with: { persist-credentials: false }
       - uses: ./actions/_common/error-triage
         with:
-          sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+          sentry-token:      ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
           sentry-org:        ${{ vars.SENTRY_ORG }}
           sentry-project:    ${{ vars.SENTRY_PROJECT }}
           github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}

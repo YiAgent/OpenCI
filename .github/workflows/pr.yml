@@ -9,7 +9,7 @@
 # Required (block merge): lint, test, scan-deps, validate-pr-title,
 #                          validate-pr-desc, build-check.
 # Advisory (don't block):  coverage, scan-secrets, scan-sonarcloud,
-#                          ai-review, eval-prompt.
+#                          ai-review, eval-prompt, copilot-review.
 #
 # Security: every consumer-supplied PR field is forwarded via env: to its
 # composite, never interpolated into shell. The scripts in actions/pr/*
@@ -40,6 +40,11 @@ on:
         type: string
         required: false
         default: ""
+      enable-copilot-review:
+        description: "Request a Copilot review on every opened / ready-for-review PR."
+        type: boolean
+        required: false
+        default: false
     secrets:
       anthropic-api-key:
         required: false
@@ -48,6 +53,9 @@ on:
       sonar-token:
         required: false
       snyk-token:
+        required: false
+      release-pat:
+        description: "PAT used to request Copilot review (required when enable-copilot-review: true)."
         required: false
 
 permissions: {}
@@ -344,3 +352,22 @@ jobs:
         with:
           should-run:        ${{ steps.paths.outputs.skills }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+
+  copilot-review:
+    name: Copilot Review
+    needs: preflight
+    if: inputs.enable-copilot-review == true && github.event.pull_request != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/pr/agent-review
+        with:
+          pr-number:   ${{ github.event.pull_request.number }}
+          release-pat: ${{ secrets.release-pat }}

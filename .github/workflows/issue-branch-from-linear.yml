@@ -1,5 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# issue-branch-from-linear.yml — repository_dispatch handler for Linear webhooks.
+# issue-branch-from-linear.yml — repository_dispatch handler for Linear webhooks
+#                                (reusable workflow).
 # ─────────────────────────────────────────────────────────────────────────────
 # A consumer-deployed bridge function (see examples/linear-webhook-bridge/)
 # verifies Linear's webhook signature and forwards the issue payload as a
@@ -18,11 +19,15 @@ name: issue-branch-from-linear
 on:
   repository_dispatch:
     types: [linear-issue-started]
+  workflow_call:
+    secrets:
+      linear-token:
+        required: false
 
 permissions: {}
 
 concurrency:
-  group: linear-bridge-${{ github.event.client_payload.id }}
+  group: linear-bridge-${{ github.event.client_payload.id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -48,9 +53,9 @@ jobs:
           github-token:  ${{ github.token }}
 
       - name: Comment back
-        if: github.event.client_payload.uuid != '' && secrets.LINEAR_TOKEN != ''
+        if: github.event.client_payload.uuid != '' && (secrets.linear-token != '' || secrets.LINEAR_TOKEN != '')
         uses: ./actions/integrations/linear-comment
         with:
-          linear-token: ${{ secrets.LINEAR_TOKEN }}
+          linear-token: ${{ secrets.linear-token || secrets.LINEAR_TOKEN }}
           issue-id:     ${{ github.event.client_payload.uuid }}
-          body:         ${{ steps.br.outputs.already-existed == 'true' && format('Branch already exists: {0}', steps.br.outputs.branch-url) || format('Branch created: {0}', steps.br.outputs.branch-url) }}
+          body: "${{ steps.br.outputs.already-existed == 'true' && format('Branch already exists: {0}', steps.br.outputs.branch-url) || format('Branch created: {0}', steps.br.outputs.branch-url) }}"

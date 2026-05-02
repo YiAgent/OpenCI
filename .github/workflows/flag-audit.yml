@@ -1,20 +1,26 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ops-flag-audit.yml — weekly feature-flag audit.
+# flag-audit.yml — weekly feature-flag audit (reusable workflow).
 # ─────────────────────────────────────────────────────────────────────────────
 # Cron: Monday 23:00 Beijing = UTC 15:00. Walks the codebase for flag
 # references, hands a summary to Claude, files a tech-debt issue.
+#
+# Consumers: call via workflow_call, or schedule independently.
 # ─────────────────────────────────────────────────────────────────────────────
-name: ops-flag-audit
+name: flag-audit
 
 on:
   schedule:
     - cron: "0 15 * * 1"
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      anthropic-api-key:
+        required: false
 
 permissions: {}
 
 concurrency:
-  group: ops-flag-audit
+  group: flag-audit
   cancel-in-progress: false
 
 jobs:
@@ -34,4 +40,4 @@ jobs:
       - uses: ./actions/_common/flag-audit
         with:
           github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}

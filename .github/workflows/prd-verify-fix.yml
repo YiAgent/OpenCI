@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd-verify-fix.yml — confirm Sentry fixes after a prd deploy.
+# prd-verify-fix.yml — confirm Sentry fixes after a prd deploy (reusable).
 # ─────────────────────────────────────────────────────────────────────────────
 # Listens for prd.yml completion. When success, find the PR that drove
 # the deploy (commit message → linked PR), parse `Fixes #N`, run
@@ -11,17 +11,21 @@ on:
   workflow_run:
     workflows: [prd]
     types: [completed]
+  workflow_call:
+    secrets:
+      sentry-token:
+        required: false
 
 permissions: {}
 
 concurrency:
-  group: prd-verify-fix-${{ github.event.workflow_run.id }}
+  group: prd-verify-fix-${{ github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   verify:
     name: Verify Fix
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_call' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -61,6 +65,6 @@ jobs:
         with:
           pr-number:      ${{ steps.pr.outputs.number }}
           github-token:   ${{ github.token }}
-          sentry-token:   ${{ secrets.SENTRY_TOKEN }}
+          sentry-token:   ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
           sentry-org:     ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}

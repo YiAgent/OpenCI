@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# health-report.yml — daily synthesised observability digest (SPEC §7.8.2).
+# health-report.yml — daily synthesised observability digest (reusable).
 # ─────────────────────────────────────────────────────────────────────────────
 # Pipeline:
 #   collect (5 query-* in parallel) → merge → synthesise (Claude via the
@@ -18,6 +18,24 @@ on:
     # Workdays Beijing 09:00 = UTC 01:00.
     - cron: "0 1 * * 1-5"
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      anthropic-api-key:
+        required: true
+      sentry-token:
+        required: false
+      datadog-api-key:
+        required: false
+      datadog-app-key:
+        required: false
+      posthog-api-key:
+        required: false
+      langsmith-api-key:
+        required: false
+      axiom-token:
+        required: false
+      slack-webhook-url:
+        required: false
 
 permissions: {}
 
@@ -39,14 +57,14 @@ jobs:
         with: { persist-credentials: false }
       - name: Probe secrets
         env:
-          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
-          SENTRY_TOKEN:       ${{ secrets.SENTRY_TOKEN }}
-          DATADOG_API_KEY:    ${{ secrets.DATADOG_API_KEY }}
-          DATADOG_APP_KEY:    ${{ secrets.DATADOG_APP_KEY }}
-          POSTHOG_API_KEY:    ${{ secrets.POSTHOG_API_KEY }}
-          LANGSMITH_API_KEY:  ${{ secrets.LANGSMITH_API_KEY }}
-          AXIOM_TOKEN:        ${{ secrets.AXIOM_TOKEN }}
-          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
+          SENTRY_TOKEN:       ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
+          DATADOG_API_KEY:    ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY:    ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
+          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
+          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
+          AXIOM_TOKEN:        ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
+          SLACK_WEBHOOK_URL:  ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
             --required "ANTHROPIC_API_KEY" \
@@ -80,7 +98,7 @@ jobs:
         id: q-sentry
         uses: ./actions/observability/query-sentry
         with:
-          token:   ${{ secrets.SENTRY_TOKEN }}
+          token:   ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
           org:     ${{ vars.SENTRY_ORG }}
           project: ${{ vars.SENTRY_PROJECT }}
 
@@ -89,8 +107,8 @@ jobs:
         id: q-datadog
         uses: ./actions/observability/query-datadog
         with:
-          api-key: ${{ secrets.DATADOG_API_KEY }}
-          app-key: ${{ secrets.DATADOG_APP_KEY }}
+          api-key: ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
+          app-key: ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
           site:    ${{ vars.DATADOG_SITE || 'datadoghq.com' }}
 
       - name: Query PostHog
@@ -98,7 +116,7 @@ jobs:
         id: q-posthog
         uses: ./actions/observability/query-posthog
         with:
-          api-key:    ${{ secrets.POSTHOG_API_KEY }}
+          api-key:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
           project-id: ${{ vars.POSTHOG_PROJECT_ID }}
           host:       ${{ vars.POSTHOG_HOST || 'app.posthog.com' }}
 
@@ -107,7 +125,7 @@ jobs:
         id: q-langsmith
         uses: ./actions/observability/query-langsmith
         with:
-          api-key: ${{ secrets.LANGSMITH_API_KEY }}
+          api-key: ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
           project: ${{ vars.LANGSMITH_PROJECT }}
 
       - name: Query Axiom
@@ -115,7 +133,7 @@ jobs:
         id: q-axiom
         uses: ./actions/observability/query-axiom
         with:
-          token:   ${{ secrets.AXIOM_TOKEN }}
+          token:   ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
           dataset: ${{ vars.AXIOM_DATASET }}
 
       - name: Stash result
@@ -190,8 +208,8 @@ jobs:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
     secrets:
-      api-key:       ${{ secrets.ANTHROPIC_API_KEY }}
-      slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+      anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
+      slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
 
   publish:
     name: Publish
@@ -212,4 +230,4 @@ jobs:
           body:              ${{ needs.synthesise.outputs.result }}
           date:              ${{ github.event.repository.updated_at }}
           github-token:      ${{ github.token }}
-          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}

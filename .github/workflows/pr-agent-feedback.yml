@@ -5,6 +5,10 @@
 # opened by a known agent, post a sticky comment with a one-line
 # Claude-generated summary so the agent can fix in one round-trip.
 #
+# Reusable: consumers call this from a thin wrapper on
+#   workflow_run: [pr, ci]: [completed].
+#   Secret: anthropic-api-key (optional; summary skipped but comment still posted).
+#
 # We use upsert-pr-comment with a per-sha marker so re-runs of the same
 # commit don't spam the PR.
 #
@@ -18,6 +22,10 @@ on:
   workflow_run:
     workflows: [pr, ci]
     types: [completed]
+  workflow_call:
+    secrets:
+      anthropic-api-key:
+        required: false
 
 permissions: {}
 
@@ -71,7 +79,7 @@ jobs:
         if: steps.id.outputs.agent-type != 'none'
         id: gate
         env:
-          K: ${{ secrets.ANTHROPIC_API_KEY }}
+          K: ${{ secrets.anthropic-api-key }}
         run: |
           if [ -z "$K" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -86,7 +94,7 @@ jobs:
         with:
           run-id:            ${{ github.event.workflow_run.id }}
           github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
 
       - name: Build comment body
         if: steps.id.outputs.agent-type != 'none'
