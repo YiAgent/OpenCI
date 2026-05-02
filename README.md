@@ -3,6 +3,7 @@
 > Reusable GitHub Actions workflow library for CI/CD, security, observability,
 > and AI-augmented development. Pin once, share everywhere.
 
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-OpenCI-blue.svg)](https://github.com/marketplace/actions/openci)
 [![verify-sha-consistency](https://github.com/YiWang24/OpenCI/actions/workflows/verify-sha-consistency.yml/badge.svg)](https://github.com/YiWang24/OpenCI/actions/workflows/verify-sha-consistency.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/conventional%20commits-1.0.0-fe5196.svg)](https://www.conventionalcommits.org)
@@ -123,6 +124,82 @@ jobs:
 > can pin a SHA from `main`; breaking changes are flagged in
 > [`CHANGELOG.md`](CHANGELOG.md).
 
+## AI-powered workflows
+
+OpenCI ships AI-powered workflows at the top level alongside infrastructure
+workflows. All call `claude-harness` under the hood with task-specific prompts.
+
+### Available AI workflows
+
+| Workflow | Description |
+| --- | --- |
+| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
+| [`pr-agent-test-gen.yml`](.github/workflows/pr-agent-test-gen.yml) | Generate test scaffolds for new code |
+| [`issue.yml`](.github/workflows/issue.yml) | Issue lifecycle with AI triage and deduplication |
+| [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
+| [`stg-agent-test.yml`](.github/workflows/stg-agent-test.yml) | L1–L4 autonomous staging tests |
+| [`agent-triage.yml`](.github/workflows/agent-triage.yml) | Deduplicate and route Sentry errors |
+| [`pr-agent-feedback.yml`](.github/workflows/pr-agent-feedback.yml) | CI-failure summary comment on agent-opened PRs |
+| [`flag-audit.yml`](.github/workflows/flag-audit.yml) | Weekly feature-flag audit and tech-debt filing |
+| [`health-report.yml`](.github/workflows/health-report.yml) | Daily AI-synthesised observability digest → Issue + Slack |
+| [`pr-agent-docubot.yml`](.github/workflows/pr-agent-docubot.yml) | Auto-generate docs/changelog comment on PRs |
+
+### Usage examples
+
+```yaml
+# PR Review (AI-powered)
+jobs:
+  quality:
+    uses: YiWang24/OpenCI/.github/workflows/pr.yml@v2
+    with:
+      enable-ai-review: true
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+```yaml
+# Issue Triage + Deduplication
+jobs:
+  triage:
+    uses: YiWang24/OpenCI/.github/workflows/issue.yml@v2
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+```yaml
+# Staging Agent Tests (after deploy)
+jobs:
+  agent-test:
+    uses: YiWang24/OpenCI/.github/workflows/stg-agent-test.yml@v2
+    with:
+      health-url: ${{ vars.STG_HEALTH_URL }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Marketplace Action (single entrypoint)
+
+For a unified single-step entrypoint, use the Marketplace action directly:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: YiWang24/OpenCI@v2
+    with:
+      task: pr/review
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Direct composite action reference
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: YiWang24/OpenCI/actions/pr/review-ai@v2
+    with:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
 ## Workflow catalogue
 
 | Workflow | Purpose |
@@ -142,6 +219,7 @@ jobs:
 | [`docs-build.yml`](.github/workflows/docs-build.yml) | Doc PR validation |
 | [`docs-deploy.yml`](.github/workflows/docs-deploy.yml) | Pages publish on main |
 | [`release-docker.yml`](.github/workflows/release-docker.yml) | Tag-driven Docker release with cosign |
+| [`release.yml`](.github/workflows/release.yml) | Marketplace version tagging + floating major/minor tags |
 | [`dep-auto-merge.yml`](.github/workflows/dep-auto-merge.yml) | Renovate patch PRs auto-merge |
 | [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml) | Manifest enforcement |
 | `pr-agent-{feedback,test-gen,docubot,review}.yml` | Opt-in AI agent enhancements |
@@ -167,7 +245,7 @@ Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
 ## Repository layout
 
 ```
-.github/workflows/      # 28 reusable workflows
+.github/workflows/      # 26 reusable workflows
 .github/scripts/        # cross-workflow shell helpers
 .github/ISSUE_TEMPLATE/ # bug / feature / question / security templates
 actions/                # 83 composite + atomic actions
@@ -177,12 +255,11 @@ actions/                # 83 composite + atomic actions
   observability/        #   query-* + publish-* atoms
   issue/ community/     #   issue lifecycle atoms
   security/             #   weekly scan atoms
-prompts/                # built-in Claude prompts (consumer can override)
+skills/                 # built-in Claude task prompts (consumer can override)
 tests/                  # bats suites + fixtures
 docs/                   # SPEC.md + setup guides
 tasks/                  # P0..P4 implementation plan with status
 manifest.yml            # verified third-party SHAs (single source of truth)
-manifest-pending.yml    # unverified SHAs (cannot be referenced in workflows)
 ```
 
 ## Status

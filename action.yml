@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenCI — GitHub Actions Marketplace entry point
+# ─────────────────────────────────────────────────────────────────────────────
+# This is the Marketplace-facing action. It wraps _common/claude-harness
+# as a single entrypoint for all AI-powered CI/CD tasks.
+#
+# For granular workflows, call top-level reusable workflows directly:
+#   uses: YiWang24/OpenCI/.github/workflows/pr.yml@v2
+#   uses: YiWang24/OpenCI/.github/workflows/health-report.yml@v2
+# ─────────────────────────────────────────────────────────────────────────────
+name: 'OpenCI'
+description: 'AI-powered CI/CD toolkit — PR review, issue triage, smoke eval, observability, and more.'
+author: 'YiWang24'
+
+branding:
+  icon: 'cpu'
+  color: 'blue'
+
+inputs:
+  task:
+    description: |
+      Task to run. Supported values:
+        pr/review, pr/test-gen, issue/triage, ci/smoke-eval,
+        stg/agent-test, ops/error-triage, ops/summarize-failure,
+        ops/flag-audit, observability/health-report,
+        agents/ai-changelog, agents/docubot
+    required: true
+  prompt:
+    description: Custom prompt text or slash command. Overrides built-in skill prompt.
+    required: false
+    default: ''
+  prompt-path:
+    description: Path to a custom prompt file (relative to caller repo).
+    required: false
+    default: ''
+  context:
+    description: JSON object with scalar fields. Keys become {{name}} placeholders in prompt rendering.
+    required: false
+    default: '{}'
+  model:
+    description: Claude model id.
+    required: false
+    default: 'claude-sonnet-4-5-20250929'
+  max-turns:
+    description: Maximum agent turns.
+    required: false
+    default: '10'
+  anthropic-api-key:
+    description: Anthropic API key.
+    required: true
+  github-token:
+    description: GitHub token for MCP tool access and CI data queries.
+    required: false
+    default: ''
+  api-base-url:
+    description: Custom Anthropic-compatible base URL (e.g. self-hosted proxy).
+    required: false
+    default: ''
+
+outputs:
+  execution-file:
+    description: Path to the Claude Code execution output file.
+    value: ${{ steps.harness.outputs.execution-file }}
+  branch-name:
+    description: Branch created by Claude (when applicable).
+    value: ${{ steps.harness.outputs.branch-name }}
+  session-id:
+    description: Claude Code session id (usable with --resume).
+    value: ${{ steps.harness.outputs.session-id }}
+
+runs:
+  using: composite
+  steps:
+    - id: harness
+      uses: ./actions/_common/claude-harness
+      with:
+        task: ${{ inputs.task }}
+        prompt: ${{ inputs.prompt }}
+        prompt-path: ${{ inputs.prompt-path }}
+        context: ${{ inputs.context }}
+        model: ${{ inputs.model }}
+        max-turns: ${{ inputs.max-turns }}
+        api-key: ${{ inputs.anthropic-api-key }}
+        github-token: ${{ inputs.github-token }}
+        api-base-url: ${{ inputs.api-base-url }}

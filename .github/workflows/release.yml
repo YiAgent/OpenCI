@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# release.yml — automated versioning and tag management.
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggered on version tag push. Creates GitHub Release and updates
+# major/minor tags for stable consumer references.
+#
+# Usage:
+#   git tag v2.1.0 && git push origin v2.1.0
+#
+# Creates:
+#   - GitHub Release v2.1.0  (with auto-generated changelog)
+#   - Floating tag v2.1      → same commit
+#   - Floating tag v2        → same commit
+# ─────────────────────────────────────────────────────────────────────────────
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract version info
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/v}"
+          MAJOR="${TAG%%.*}"
+          MINOR="${TAG%.*}"
+          echo "tag=v${TAG}"      >> "$GITHUB_OUTPUT"
+          echo "major=v${MAJOR}"  >> "$GITHUB_OUTPUT"
+          echo "minor=v${MINOR}"  >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          set -euo pipefail
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV" ]; then
+            COMMITS=$(git log --oneline HEAD)
+          else
+            COMMITS=$(git log --oneline "${PREV}..HEAD")
+          fi
+          {
+            echo "body<<__OPENCI_EOF__"
+            printf "## Changes\n\n%s\n\n---\n*Automated release by OpenCI*\n" "$COMMITS"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name:   ${{ steps.version.outputs.tag }}
+          name:       ${{ steps.version.outputs.tag }}
+          body:       ${{ steps.changelog.outputs.body }}
+          draft:      false
+          prerelease: false
+
+      - name: Update floating major/minor tags
+        env:
+          MAJOR: ${{ steps.version.outputs.major }}
+          MINOR: ${{ steps.version.outputs.minor }}
+        run: |
+          set -euo pipefail
+          git tag -f "$MAJOR" HEAD
+          git tag -f "$MINOR" HEAD
+          git push -f origin "$MAJOR" "$MINOR"
