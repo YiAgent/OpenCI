@@ -41,8 +41,69 @@ bats tests/scripts/verify-sha-consistency.bats
 | Live `prd-observe.canary-watch` | `prd-observe.yml` | Needs `vars.PRD_LAST_DEPLOY` and SENTRY creds | Verify next prd deploy cycle |
 | Live `release.docker` | `release.yml` | Needs ghcr.io packages:write OIDC | Verify on first `git push origin v*` after merge |
 | Live `docs.deploy` | `docs.yml` | Needs `github-pages` environment configured | Already in production with prior `docs-deploy.yml` — same env reused |
-| Pre-existing `pr.yml` lint warnings | `pr.yml` | `length()` undefined + `hashFiles` context (lines 147, 301) | Out of scope for consolidation; tracked as pre-existing tech debt |
-| Pre-existing `health-report.yml` warnings | `health-report.yml` | `claude-harness` secret-name mismatch (anthropic-api-key vs api-key) | Out of scope; tracked as pre-existing tech debt |
+
+## Phase 7 — End-to-end test rig (in progress)
+
+External test rig: `YiAgent/openci-test-rig` (private). Each consolidated
+reusable workflow is invoked via a thin caller workflow that pins
+`@feat/marketplace-reusable-workflows`. Doppler secrets pulled from
+`infra/prd` (ANTHROPIC_API_KEY, SENTRY_AUTH_TOKEN→SENTRY_TOKEN, SENTRY_ORG).
+
+### Architectural finding (P0)
+
+Reusable workflows that did `uses: ./actions/...` resolved relative to the
+**caller's** workspace, not OpenCI's. Hit on every external invocation:
+
+```
+##[error] Can't find action.yml under '.../openci-test-rig/actions/issue/auto-label'.
+```
+
+**Root cause**: GitHub Actions resolves `./` relative to GITHUB_WORKSPACE,
+which is the caller's checkout — not the called workflow's repo.
+
+**Applied fix (workflows)**: in each consolidated workflow, after the
+caller checkout, add a second `actions/checkout` for OpenCI to `./.openci/`,
+then rewrite `uses: ./actions/...` → `uses: ./.openci/actions/...`. The
+ref is parsed from `github.workflow_ref` (NOT `github.workflow_sha` — that
+returns the caller's SHA in workflow_call invocations).
+
+**Open issue (composite-to-composite)**: 18 atom action.yml files still
+reference each other via `uses: ./actions/...` (e.g.,
+`actions/issue/ai-triage/action.yml` → `./actions/_common/claude-harness`).
+Same root cause, but mass-rewriting these would also affect OpenCI's own
+internal CI (where `./.openci/` doesn't exist). Needs a strategic decision:
+- (A) rewrite all 18 to `./.openci/actions/...` AND ensure even internal
+  workflow runs perform the .openci self-checkout, OR
+- (B) wrap composite-to-composite calls in absolute refs
+  `YiAgent/OpenCI/actions/...@<branch>`, breaking the
+  "`@` literal needed" GHA constraint via a hard-coded `@v2`.
+
+### Verified working from external rig
+
+| Mode | Outcome | Notes |
+|---|---|---|
+| `release` (mode=marketplace, non-tag ref) | ✅ SUCCESS | Graceful skip kicks in; emits notice |
+| `prd-observe` (mode=canary-watch) | ✅ SUCCESS | Graceful skip when `PRD_LAST_DEPLOY` missing |
+| `prd-observe` (mode=terraform-drift) | ✅ SUCCESS | Composite atom executed cleanly |
+| `prd-observe` (mode=verify-fix) | ✅ SUCCESS | Graceful skip (no PR for SHA) |
+| `release` (mode=marketplace, tag ref) | ⏳ untested | Requires real `git push origin v*` |
+| `docs` (build) | ⚠️ partial | Now opt-in failure on actual dead links only |
+| `issue` (mode=ai-triage) | ❌ blocked | Needs Phase-7 composite-to-composite resolution |
+| `pr-agent` (mode=summarise) | ❌ blocked | Same root cause |
+
+### Side fixes shipped during the test cycle
+
+- `release.yml`: graceful skip when `GITHUB_REF` is not `refs/tags/v*` (workflow_dispatch / workflow_call from non-tag ref)
+- `docs.yml`: link-check now uses `find -print0` glob (markdown-link-check has no native glob support) + only fails on actual `[✖]` dead links
+- `actions/issue/ai-triage/action.yml`: inputs converted from inline-flow to block style (GHA YAML parser rejects `description: "text with :colon"` inside `{ ... }`)
+- `actions/_common/docubot`, `_common/summarize-failure`, `integrations/linear-bridge`, `issue/{auto-label,auto-assign,detect-duplicates,welcome-contributor}`, `community/stale-mark`: descriptions containing `:` quoted
+
+### Pre-existing baseline (tracked, out of scope for this branch)
+
+| Check | Workflow | Reason | Action |
+|---|---|---|---|
+| Pre-existing `pr.yml` lint warnings | `pr.yml` | `length()` undefined + `hashFiles` context (lines 147, 301) | Already fixed by Phase-7 push |
+| Pre-existing `health-report.yml` warnings | `health-report.yml` | `claude-harness` secret-name mismatch (anthropic-api-key vs api-key) | Already fixed by Phase-7 push |
 
 ## Phase change records
 
