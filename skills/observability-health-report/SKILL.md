@@ -1,3 +1,14 @@
+---
+name: observability-health-report
+description: >
+  Synthesize a daily health report from telemetry data (Sentry, metrics, deploys, alerts).
+  Use when generating engineering channel status digests.
+triggers:
+  - health report
+  - daily report
+  - observability report
+---
+
 # Daily Health Report
 
 You are summarising the past 24 hours of telemetry into a digestible status

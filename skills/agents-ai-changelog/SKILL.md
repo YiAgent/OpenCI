@@ -1,3 +1,14 @@
+---
+name: agents-ai-changelog
+description: >
+  Generate release notes in Keep a Changelog style from commit history.
+  Use when creating changelogs for new releases.
+triggers:
+  - changelog
+  - release notes
+  - ai changelog
+---
+
 # AI changelog
 
 You are writing release notes in Keep a Changelog style for `{{version}}`.

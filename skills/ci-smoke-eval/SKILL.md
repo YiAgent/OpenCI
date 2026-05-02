@@ -1,3 +1,14 @@
+---
+name: ci-smoke-eval
+description: >
+  Run smoke evaluation against a freshly built Docker image.
+  Use when validating CI builds with endpoint probes and version checks.
+triggers:
+  - smoke eval
+  - smoke test
+  - ci smoke
+---
+
 # CI Smoke Eval
 
 You are running a fast smoke evaluation against a freshly built image.

@@ -23,7 +23,7 @@ on:
         required: false
         default: ""
       prompt-path:
-        description: "Path to prompt file (relative to caller repo). Falls back to built-in prompts/<task>.md."
+        description: "Path to prompt file (relative to caller repo). Falls back to built-in skills/<task>/SKILL.md."
         type: string
         required: false
         default: ""

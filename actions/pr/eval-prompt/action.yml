@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Runs only when:
 #   • the consumer enabled `enable-eval` at the workflow level, AND
-#   • the PR actually touched files under `prompts/`.
+#   • the PR actually touched files under `skills/`.
 #
 # The path filter is the caller's responsibility (they pass `should-run`).
 # Non-blocking: failures surface as annotations, the job stays green so a

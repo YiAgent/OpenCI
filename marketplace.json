@@ -1,0 +1,90 @@
+{
+  "name": "openci-skills",
+  "owner": {
+    "name": "YiWang24",
+    "email": ""
+  },
+  "metadata": {
+    "description": "CI/CD skills for OpenCI workflow library",
+    "version": "1.7"
+  },
+  "plugins": [
+    {
+      "name": "pr-review",
+      "source": "./skills/pr-review",
+      "description": "Review pull requests for bugs, regressions, security risks, and missing tests.",
+      "category": "code-quality",
+      "keywords": ["review", "pr", "code-review"]
+    },
+    {
+      "name": "pr-test-gen",
+      "source": "./skills/pr-test-gen",
+      "description": "Generate test cases for newly added functions and classes in a PR diff.",
+      "category": "testing",
+      "keywords": ["test", "generation", "coverage"]
+    },
+    {
+      "name": "issue-triage",
+      "source": "./skills/issue-triage",
+      "description": "Classify and prioritize newly opened issues with labels, priority, and next actions.",
+      "category": "productivity",
+      "keywords": ["triage", "issue", "classify"]
+    },
+    {
+      "name": "ci-smoke-eval",
+      "source": "./skills/ci-smoke-eval",
+      "description": "Run smoke evaluation against a freshly built Docker image.",
+      "category": "testing",
+      "keywords": ["smoke", "ci", "docker", "eval"]
+    },
+    {
+      "name": "stg-agent-test",
+      "source": "./skills/stg-agent-test",
+      "description": "Run L1-L4 autonomous tests against a staging deployment.",
+      "category": "testing",
+      "keywords": ["staging", "test", "deploy", "autonomous"]
+    },
+    {
+      "name": "ops-error-triage",
+      "source": "./skills/ops-error-triage",
+      "description": "Deduplicate Sentry errors against existing GitHub issues and decide whether to file new ones.",
+      "category": "monitoring",
+      "keywords": ["sentry", "error", "triage", "dedup"]
+    },
+    {
+      "name": "ops-summarize-failure",
+      "source": "./skills/ops-summarize-failure",
+      "description": "Summarize a CI failure into a single sentence for on-call engineers.",
+      "category": "monitoring",
+      "keywords": ["failure", "ci", "summary", "oncall"]
+    },
+    {
+      "name": "ops-flag-audit",
+      "source": "./skills/ops-flag-audit",
+      "description": "Audit feature flags against the live registry and identify cleanup candidates.",
+      "category": "utilities",
+      "keywords": ["feature-flag", "audit", "cleanup"]
+    },
+    {
+      "name": "observability-health-report",
+      "source": "./skills/observability-health-report",
+      "description": "Synthesize a daily health report from telemetry data (Sentry, metrics, deploys, alerts).",
+      "category": "monitoring",
+      "keywords": ["health", "report", "observability", "telemetry"]
+    },
+    {
+      "name": "agents-ai-changelog",
+      "source": "./skills/agents-ai-changelog",
+      "description": "Generate release notes in Keep a Changelog style from commit history.",
+      "category": "documentation",
+      "keywords": ["changelog", "release", "notes"]
+    },
+    {
+      "name": "agents-docubot",
+      "source": "./skills/agents-docubot",
+      "description": "Answer questions about repository documentation and source code with cited file paths.",
+      "category": "documentation",
+      "keywords": ["docubot", "docs", "question", "documentation"]
+    }
+  ]
+}

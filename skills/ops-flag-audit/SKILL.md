@@ -1,3 +1,14 @@
+---
+name: ops-flag-audit
+description: >
+  Audit feature flags against the live registry and identify cleanup candidates.
+  Use when reviewing feature flag debt and unregistered usages.
+triggers:
+  - flag audit
+  - feature flag
+  - flag cleanup
+---
+
 # Feature flag audit
 
 You are auditing this repo's feature-flag use against the live registry

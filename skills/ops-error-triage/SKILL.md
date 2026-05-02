@@ -1,3 +1,14 @@
+---
+name: ops-error-triage
+description: >
+  Deduplicate Sentry errors against existing GitHub issues and decide whether to file new ones.
+  Use when triaging hourly Sentry error batches.
+triggers:
+  - error triage
+  - sentry triage
+  - error dedup
+---
+
 # Error triage
 
 You receive a list of new Sentry issues from the past hour. For each,

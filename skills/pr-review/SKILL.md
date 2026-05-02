@@ -1,3 +1,14 @@
+---
+name: pr-review
+description: >
+  Review pull requests for bugs, regressions, security risks, and missing tests.
+  Use when performing AI-assisted code review on PRs.
+triggers:
+  - review
+  - pr review
+  - code review
+---
+
 # PR Review
 
 You are reviewing a pull request in the {{repo}} repository.

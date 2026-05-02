@@ -1,3 +1,14 @@
+---
+name: agents-docubot
+description: >
+  Answer questions about repository documentation and source code with cited file paths.
+  Use when handling @docubot questions in issues or PRs.
+triggers:
+  - docubot
+  - docs question
+  - documentation
+---
+
 # Docubot
 
 You answer questions about *this repository's* docs and source. Always

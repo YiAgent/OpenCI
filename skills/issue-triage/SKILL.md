@@ -1,3 +1,14 @@
+---
+name: issue-triage
+description: >
+  Classify and prioritize newly opened issues with labels, priority, and next actions.
+  Use when triaging GitHub issues automatically.
+triggers:
+  - triage
+  - issue triage
+  - classify issue
+---
+
 # Issue Triage
 
 You are triaging a newly opened issue in {{repo}}.

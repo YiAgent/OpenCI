@@ -338,9 +338,9 @@ jobs:
         id: paths
         with:
           filters: |
-            prompts:
-              - 'prompts/**'
+            skills:
+              - 'skills/**'
       - uses: ./actions/pr/eval-prompt
         with:
-          should-run:        ${{ steps.paths.outputs.prompts }}
+          should-run:        ${{ steps.paths.outputs.skills }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}

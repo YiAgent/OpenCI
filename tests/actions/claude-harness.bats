@@ -50,14 +50,14 @@ out_multiline() {
 @test "built-in prompt found for pr/review" {
   run bash "${SCRIPT}" "pr/review" "" "" "${ACTION_DIR}" "{}"
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"prompts/pr/review.md"* ]]
+  [[ "${output}" == *"skills/pr-review/SKILL.md"* ]]
   [[ "${output}" == *"source=builtin"* ]]
 }
 
 @test "built-in prompt found for issue/triage" {
   run bash "${SCRIPT}" "issue/triage" "" "" "${ACTION_DIR}" "{}"
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"prompts/issue/triage.md"* ]]
+  [[ "${output}" == *"skills/issue-triage/SKILL.md"* ]]
 }
 
 @test "direct prompt text takes priority over built-in" {
@@ -116,7 +116,7 @@ out_multiline() {
   out_file="$(mktemp)"
   GITHUB_OUTPUT="$out_file" bash "${SCRIPT}" "pr/review" "" "" "${ACTION_DIR}" "{}" >/dev/null
   [ "$(out_kv "$out_file" prompt-source)" = "builtin" ]
-  [[ "$(out_kv "$out_file" prompt-path)" == *"prompts/pr/review.md" ]]
+  [[ "$(out_kv "$out_file" prompt-path)" == *"skills/pr-review/SKILL.md" ]]
   body="$(out_multiline "$out_file" prompt)"
   [ -n "$body" ]
   rm -f "$out_file"

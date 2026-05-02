@@ -1,3 +1,14 @@
+---
+name: pr-test-gen
+description: >
+  Generate test cases for newly added functions and classes in a PR diff.
+  Use when auto-generating tests for uncovered code.
+triggers:
+  - test generation
+  - generate tests
+  - test gen
+---
+
 # Test generation
 
 You are reading a PR diff. For each newly-added function or class

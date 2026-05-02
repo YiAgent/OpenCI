@@ -2,7 +2,7 @@
 # ci/eval-smoke — AI smoke eval against a freshly built image.
 # ─────────────────────────────────────────────────────────────────────────────
 # Calls the claude-harness composite with task=ci/smoke-eval. The prompt
-# (prompts/ci/smoke-eval.md) returns structured JSON; downstream tooling
+# (skills/ci-smoke-eval/SKILL.md) returns structured JSON; downstream tooling
 # can parse outputs.result if you want to gate beyond the AI's own opinion.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI · AI Smoke Eval

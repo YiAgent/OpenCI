@@ -23,7 +23,7 @@
 #   1. `prompt` input — direct text or /slash-command
 #      /slash-command → reads .claude/commands/<cmd>.md from the caller's repo
 #   2. `prompt-path`  — file path relative to caller's checkout
-#   3. Built-in prompts/<task>.md shipped with OpenCI
+#   3. Built-in skills/<task>/SKILL.md shipped with OpenCI
 # Then Mustache-style {{repo}}, {{run_id}}, {{run_url}}, {{event_name}},
 # {{ref}}, {{sha}}, {{actor}} are auto-injected, plus any keys from `context`.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ inputs:
     required: false
     default: ""
   prompt-path:
-    description: Caller-supplied prompt path (relative to consumer repo). Falls back to built-in prompts/<task>.md.
+    description: Caller-supplied prompt path (relative to consumer repo). Falls back to built-in skills/<task>/SKILL.md.
     required: false
     default: ""
   context:

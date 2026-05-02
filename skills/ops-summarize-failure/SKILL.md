@@ -1,3 +1,14 @@
+---
+name: ops-summarize-failure
+description: >
+  Summarize a CI failure into a single sentence for on-call engineers.
+  Use when distilling failed CI run logs into actionable root causes.
+triggers:
+  - summarize failure
+  - failure summary
+  - ci failure
+---
+
 # Summarise CI failure
 
 You are reading a brief snapshot of a failed CI run. Output **one

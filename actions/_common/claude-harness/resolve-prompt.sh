@@ -24,7 +24,7 @@
 #      /slash-command → resolves to .claude/commands/<cmd>.md (consumer repo)
 #      plain text     → used as-is
 #   2. CALLER_PROMPT_PATH — file path in consumer repo.
-#   3. Built-in $ACTION_DIR/../../../prompts/$TASK.md.
+#   3. Built-in $ACTION_DIR/../../../skills/${TASK/\//-}/SKILL.md.
 #   4. Hard error if none found.
 #
 # GITHUB_OUTPUT keys:
@@ -96,9 +96,10 @@ if [ -z "$source" ] && [ -n "$CALLER_PROMPT_PATH" ]; then
   fi
 fi
 
-# ── Priority 3: built-in prompt ──────────────────────────────────────────────
+# ── Priority 3: built-in skill ───────────────────────────────────────────────
 if [ -z "$source" ]; then
-  builtin="${ACTION_DIR%/}/../../../prompts/${TASK}.md"
+  skill_dir="${TASK/\//-}"
+  builtin="${ACTION_DIR%/}/../../../skills/${skill_dir}/SKILL.md"
   if [ -f "$builtin" ]; then
     resolved_path="$(cd "$(dirname "$builtin")" && pwd)/$(basename "$builtin")"
     raw_text="$(cat "$resolved_path")"
@@ -108,7 +109,7 @@ if [ -z "$source" ]; then
 fi
 
 if [ -z "$source" ]; then
-  echo "::error title=Prompt Not Found::No prompt for task '$TASK' (checked: direct prompt, caller-path='$CALLER_PROMPT_PATH', built-in prompts/${TASK}.md)" >&2
+  echo "::error title=Prompt Not Found::No skill for task '$TASK' (checked: direct prompt, caller-path='$CALLER_PROMPT_PATH', built-in skills/${skill_dir}/SKILL.md)" >&2
   exit 1
 fi
 
