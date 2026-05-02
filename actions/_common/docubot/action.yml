@@ -12,7 +12,7 @@ description: Reply to @docubot mentions with cited answers.
 inputs:
   question:     { required: true, description: User's question (already-extracted) }
   number:       { required: true, description: Issue / PR number }
-  github-token: { required: true, description: GITHUB_TOKEN with issues:write }
+  github-token: { required: true, description: "GITHUB_TOKEN with issues:write" }
   anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
 
 runs:

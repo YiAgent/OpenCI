@@ -4,7 +4,7 @@ description: Search existing issues for similar titles; comment + label if found
 inputs:
   issue-number: { required: true, description: Issue number }
   issue-title:  { required: true, description: Issue title }
-  github-token: { required: true, description: GITHUB_TOKEN with issues:write }
+  github-token: { required: true, description: "GITHUB_TOKEN with issues:write" }
 
 runs:
   using: composite

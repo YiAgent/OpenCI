@@ -6,7 +6,7 @@ inputs:
   linear-title: { required: true, description: Issue title }
   linear-labels: { required: false, default: "", description: Comma-separated labels }
   base-branch:  { required: false, default: main, description: Base ref for the new branch }
-  github-token: { required: true, description: GITHUB_TOKEN with contents:write }
+  github-token: { required: true, description: "GITHUB_TOKEN with contents:write" }
 
 outputs:
   branch:

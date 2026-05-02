@@ -112,12 +112,20 @@ jobs:
             "fallbackRetryDelay": "30s"
           }
           JSON
-          # markdown-link-check is a small npm package; pinning via npm
-          # registry version is sufficient — it has no GitHub Actions side.
-          npx --yes markdown-link-check@3.13.6 \
-            "${DOCS_DIR}/**/*.md" \
-            -q -p \
-            --config /tmp/mlc-config.json
+          # markdown-link-check has no native glob support and processes
+          # one file per invocation; iterate via find. Pinning via npm
+          # registry version is sufficient — no GitHub Actions side.
+          if [ ! -d "$DOCS_DIR" ]; then
+            echo "::notice title=Docs Link Check Skipped::no '$DOCS_DIR' directory in caller repo"
+            exit 0
+          fi
+          fail=0
+          while IFS= read -r -d '' f; do
+            echo "::group::$f"
+            npx --yes markdown-link-check@3.13.6 "$f" -q --config /tmp/mlc-config.json || fail=1
+            echo "::endgroup::"
+          done < <(find "$DOCS_DIR" -type f -name '*.md' -print0)
+          exit "$fail"
 
   deploy:
     name: Deploy to Pages
