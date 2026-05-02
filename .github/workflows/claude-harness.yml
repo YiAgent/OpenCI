@@ -28,6 +28,7 @@ on:
         required: false
         default: ""
       context:
+        description: "JSON object with scalar fields. Keys become {{name}} placeholders during prompt rendering."
         type: string
         required: false
         default: "{}"
@@ -39,8 +40,13 @@ on:
         type: number
         required: false
         default: 10
+      system-prompt:
+        description: "Optional system prompt (passed as --system-prompt)."
+        type: string
+        required: false
+        default: ""
       api-provider:
-        description: "API provider: anthropic (default). Reserved for future multi-provider support."
+        description: "API provider: anthropic | bedrock | vertex | foundry."
         type: string
         required: false
         default: "anthropic"
@@ -49,12 +55,40 @@ on:
         type: number
         required: false
         default: 15
+      extra-allowed-tools:
+        description: "Comma-separated list of extra tools to allow on top of the harness baseline."
+        type: string
+        required: false
+        default: ""
+      extra-disallowed-tools:
+        description: "Comma-separated list of tools to explicitly disallow."
+        type: string
+        required: false
+        default: ""
+      mcp-config:
+        description: "JSON string or path (relative to caller repo) for --mcp-config."
+        type: string
+        required: false
+        default: ""
+      use-sticky-comment:
+        description: "Use a single sticky comment for PR/Issue dedup."
+        type: boolean
+        required: false
+        default: true
+      extra-env:
+        description: "JSON object of additional env vars exposed to Claude's bash context."
+        type: string
+        required: false
+        default: "{}"
     secrets:
       api-key:
-        description: "Anthropic API key."
-        required: true
+        description: "Anthropic API key (required unless oauth-token / bedrock / vertex / foundry is used)."
+        required: false
+      oauth-token:
+        description: "Claude Code OAuth token (alternative to api-key)."
+        required: false
       api-base-url:
-        description: "Custom Anthropic API base URL (optional)."
+        description: "Custom Anthropic-compatible API base URL (optional)."
         required: false
       github-token:
         description: "GitHub token for MCP tool access and CI data queries. Defaults to GITHUB_TOKEN."
@@ -63,12 +97,18 @@ on:
         description: "Slack webhook URL available to Claude as SLACK_WEBHOOK_URL env var."
         required: false
     outputs:
-      result:
-        description: AI output text.
-        value: ${{ jobs.ai-task.outputs.result }}
-      comment-id:
-        description: Sticky PR/Issue comment id.
-        value: ${{ jobs.ai-task.outputs.comment-id }}
+      execution-file:
+        description: Claude Code execution output file path.
+        value: ${{ jobs.ai-task.outputs.execution-file }}
+      session-id:
+        description: Claude Code session id.
+        value: ${{ jobs.ai-task.outputs.session-id }}
+      structured-output:
+        description: Structured JSON output (when --json-schema is used).
+        value: ${{ jobs.ai-task.outputs.structured-output }}
+      prompt-source:
+        description: Where the prompt came from — direct | slash-command | caller | builtin.
+        value: ${{ jobs.ai-task.outputs.prompt-source }}
 
 permissions: {}
 
@@ -94,10 +134,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check required secrets
+      - name: Check required credentials
         env:
           API_KEY: ${{ secrets.api-key }}
-        run: bash .github/scripts/preflight-secrets.sh --required "API_KEY" --optional ""
+          OAUTH_TOKEN: ${{ secrets.oauth-token }}
+          PROVIDER: ${{ inputs.api-provider }}
+        run: |
+          if [ -n "$API_KEY" ] || [ -n "$OAUTH_TOKEN" ]; then exit 0; fi
+          case "$PROVIDER" in
+            bedrock|vertex|foundry) exit 0 ;;
+          esac
+          echo "::error title=Missing credentials::Provide secrets.api-key OR secrets.oauth-token, OR set inputs.api-provider to bedrock/vertex/foundry."
+          exit 1
 
   ai-task:
     name: AI Task
@@ -111,8 +159,10 @@ jobs:
       actions: read          # Claude can query workflow runs & job logs (CI triage)
       id-token: write
     outputs:
-      result:     ${{ steps.harness.outputs.result }}
-      comment-id: ${{ steps.harness.outputs.comment-id }}
+      execution-file:    ${{ steps.harness.outputs.execution-file }}
+      session-id:        ${{ steps.harness.outputs.session-id }}
+      structured-output: ${{ steps.harness.outputs.structured-output }}
+      prompt-source:     ${{ steps.harness.outputs.prompt-source }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -129,13 +179,23 @@ jobs:
         id: harness
         uses: ./actions/_common/claude-harness
         with:
-          task:           ${{ inputs.task }}
-          prompt:         ${{ inputs.prompt }}
-          prompt-path:    ${{ inputs.prompt-path }}
-          context:        ${{ inputs.context }}
-          model:          ${{ inputs.model }}
-          max-turns:      ${{ inputs.max-turns }}
-          api-key:        ${{ secrets.api-key }}
-          api-base-url:   ${{ secrets.api-base-url }}
-          github-token:   ${{ secrets.github-token || github.token }}
-          slack-webhook:  ${{ secrets.slack-webhook }}
+          task:                   ${{ inputs.task }}
+          prompt:                 ${{ inputs.prompt }}
+          prompt-path:            ${{ inputs.prompt-path }}
+          context:                ${{ inputs.context }}
+          model:                  ${{ inputs.model }}
+          max-turns:              ${{ inputs.max-turns }}
+          system-prompt:          ${{ inputs.system-prompt }}
+          api-key:                ${{ secrets.api-key }}
+          oauth-token:            ${{ secrets.oauth-token }}
+          api-base-url:           ${{ secrets.api-base-url }}
+          use-bedrock:            ${{ inputs.api-provider == 'bedrock' }}
+          use-vertex:             ${{ inputs.api-provider == 'vertex' }}
+          use-foundry:            ${{ inputs.api-provider == 'foundry' }}
+          github-token:           ${{ secrets.github-token || github.token }}
+          slack-webhook:          ${{ secrets.slack-webhook }}
+          extra-allowed-tools:    ${{ inputs.extra-allowed-tools }}
+          extra-disallowed-tools: ${{ inputs.extra-disallowed-tools }}
+          mcp-config:             ${{ inputs.mcp-config }}
+          use-sticky-comment:     ${{ inputs.use-sticky-comment }}
+          extra-env:              ${{ inputs.extra-env }}

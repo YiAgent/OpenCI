@@ -2,23 +2,37 @@
 # _common/claude-harness — composite wrapper around anthropics/claude-code-action.
 # ─────────────────────────────────────────────────────────────────────────────
 # DESIGN GOAL: OpenCI is the single pre-configured entrypoint into Claude for
-# all downstream services. Callers (e.g. EvolveCI, OpenCI own workflows) only
-# need to supply: task, prompt/prompt-path, model, api-key, and optional
-# github-token / slack-webhook. Everything else — MCP servers, tool
-# permissions, CI data access, Slack env — is configured here.
+# all downstream services (EvolveCI, OpenCI itself, future consumers). A caller
+# only supplies: task + prompt (or prompt-path) + api-key, and gets back a
+# pre-wired Claude invocation with sticky comments, GitHub MCP, CI/CD MCP,
+# git/jq/curl/gh tool access, and Slack notification env.
 #
-# Prompt resolution priority:
-#   1. `prompt` input — direct text or /slash-command (resolved to a temp file)
+# Why this wrapper exists at all (vs. calling claude-code-action directly):
+#   1. claude-code-action@v1.x exposes only `prompt:` (string) + `claude_args`
+#      + `settings`. There is no `prompt_file`, `prompt_inputs`, or
+#      `sticky_comment_marker` — older wrappers that used those silently sent
+#      empty prompts. We resolve, template, and inline the prompt here.
+#   2. We centralise the tool allowlist so every downstream caller has a
+#      consistent baseline (file ops, git, jq, gh, curl, sha256sum) and lets
+#      callers extend it via `extra-allowed-tools` without re-deriving the
+#      whole list.
+#   3. We thread `ANTHROPIC_BASE_URL` so a caller can point at a self-hosted /
+#      proxy / OpenRouter-style endpoint without forking the action.
+#
+# Prompt resolution priority (handled in resolve-prompt.sh):
+#   1. `prompt` input — direct text or /slash-command
 #      /slash-command → reads .claude/commands/<cmd>.md from the caller's repo
-#   2. `prompt-path` — file path relative to caller's checkout
+#   2. `prompt-path`  — file path relative to caller's checkout
 #   3. Built-in prompts/<task>.md shipped with OpenCI
+# Then Mustache-style {{repo}}, {{run_id}}, {{run_url}}, {{event_name}},
+# {{ref}}, {{sha}}, {{actor}} are auto-injected, plus any keys from `context`.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Claude Harness (composite)
 description: Single pre-configured entrypoint composite for Claude calls.
 
 inputs:
   task:
-    description: Logical task name; controls prompt resolution and sticky-comment scope.
+    description: Logical task name; controls prompt resolution and notice annotations.
     required: true
   prompt:
     description: Direct prompt text or slash command (e.g. /heartbeat). Takes precedence over prompt-path.
@@ -29,47 +43,104 @@ inputs:
     required: false
     default: ""
   context:
-    description: JSON-encoded variables injected into the prompt template.
+    description: JSON object with scalar fields. Keys become {{name}} placeholders during prompt rendering.
     required: false
     default: "{}"
   model:
-    description: Claude model id.
+    description: Claude model id (passed as --model). Use a current id, e.g. claude-sonnet-4-5-20250929.
     required: false
     default: "claude-sonnet-4-5-20250929"
   max-turns:
-    description: Maximum agent turns.
+    description: Maximum agent turns (passed as --max-turns).
     required: false
     default: "10"
-  api-key:
-    description: Anthropic API key.
-    required: true
-  api-base-url:
-    description: Custom Anthropic API base URL (optional).
+  system-prompt:
+    description: Optional system prompt (passed as --system-prompt). Use for cross-task agent persona.
     required: false
     default: ""
+  api-key:
+    description: Anthropic API key. Required unless oauth-token, use-bedrock, use-vertex, or use-foundry is set.
+    required: false
+    default: ""
+  oauth-token:
+    description: Claude Code OAuth token (alternative to api-key).
+    required: false
+    default: ""
+  api-base-url:
+    description: Custom Anthropic-compatible base URL (e.g. self-hosted proxy, OpenRouter). Exported as ANTHROPIC_BASE_URL.
+    required: false
+    default: ""
+  use-bedrock:
+    description: Set to "true" to use AWS Bedrock auth instead of api-key.
+    required: false
+    default: "false"
+  use-vertex:
+    description: Set to "true" to use Google Vertex AI auth instead of api-key.
+    required: false
+    default: "false"
+  use-foundry:
+    description: Set to "true" to use Microsoft Foundry auth instead of api-key.
+    required: false
+    default: "false"
   github-token:
-    description: GitHub token for MCP tool access and CI data queries.
+    description: GitHub token for MCP tool access and CI data queries. Falls back to default workflow token.
     required: false
     default: ""
   slack-webhook:
-    description: Slack webhook URL available to Claude via SLACK_WEBHOOK_URL env var.
+    description: Slack webhook URL exposed to Claude as SLACK_WEBHOOK_URL env var.
     required: false
     default: ""
+  extra-allowed-tools:
+    description: |
+      Comma-separated list of extra tools to allow on top of the harness baseline.
+      Example: "Bash(npm test),mcp__myserver__mytool". Caller-extensible without
+      having to re-derive the whole allow-list.
+    required: false
+    default: ""
+  extra-disallowed-tools:
+    description: Comma-separated list of tools to explicitly disallow (passed as --disallowedTools).
+    required: false
+    default: ""
+  mcp-config:
+    description: |
+      Either a JSON string of {"mcpServers": {...}} or a path (relative to
+      consumer checkout) to such a file. Merged into Claude via --mcp-config.
+      The action also auto-loads .mcp.json at the repo root, so use this only
+      for inline overrides.
+    required: false
+    default: ""
+  use-sticky-comment:
+    description: Use a single sticky comment for PR/Issue dedup ("true" / "false").
+    required: false
+    default: "true"
+  extra-env:
+    description: |
+      Additional env vars to inject into Claude's bash tool context, as a JSON
+      object of {"NAME":"value"}. Merged with SLACK_WEBHOOK_URL and ANTHROPIC_BASE_URL.
+    required: false
+    default: "{}"
 
 outputs:
-  result:
-    description: AI output text.
-    value: ${{ steps.invoke.outputs.result }}
-  comment-id:
-    description: Sticky PR/Issue comment id.
-    value: ${{ steps.invoke.outputs.comment-id }}
+  execution-file:
+    description: Path to the Claude Code execution output file.
+    value: ${{ steps.invoke.outputs.execution_file }}
+  branch-name:
+    description: Branch created by Claude (when applicable).
+    value: ${{ steps.invoke.outputs.branch_name }}
+  session-id:
+    description: Claude Code session id (usable with --resume).
+    value: ${{ steps.invoke.outputs.session_id }}
+  structured-output:
+    description: JSON string of structured outputs when --json-schema is provided.
+    value: ${{ steps.invoke.outputs.structured_output }}
   prompt-source:
-    description: Where the prompt came from — "direct", "slash-command", "caller", or "builtin".
+    description: Where the prompt came from — direct | slash-command | caller | builtin.
     value: ${{ steps.resolve.outputs.prompt-source }}
 
 runs:
   using: composite
   steps:
+    # ── Resolve & render the prompt to text ──────────────────────────────────
     - name: Resolve prompt
       id: resolve
       shell: bash
@@ -78,87 +149,63 @@ runs:
           "${{ inputs.task }}" \
           "${{ inputs.prompt }}" \
           "${{ inputs.prompt-path }}" \
-          "${{ github.action_path }}"
+          "${{ github.action_path }}" \
+          '${{ inputs.context }}'
 
+    # ── Compose claude_args & settings.json ──────────────────────────────────
+    # We build claude_args in shell (not YAML interpolation) so the baseline
+    # tool list, the caller's `extra-allowed-tools`, the optional mcp-config,
+    # and the optional system-prompt merge cleanly without quoting hell.
+    - name: Compose claude_args & settings
+      id: compose
+      shell: bash
+      env:
+        TASK:                ${{ inputs.task }}
+        MODEL:               ${{ inputs.model }}
+        MAX_TURNS:           ${{ inputs.max-turns }}
+        SYSTEM_PROMPT:       ${{ inputs.system-prompt }}
+        EXTRA_ALLOWED_TOOLS: ${{ inputs.extra-allowed-tools }}
+        EXTRA_DISALLOWED:    ${{ inputs.extra-disallowed-tools }}
+        MCP_CONFIG_INPUT:    ${{ inputs.mcp-config }}
+        SLACK_WEBHOOK:       ${{ inputs.slack-webhook }}
+        API_BASE_URL:        ${{ inputs.api-base-url }}
+        EXTRA_ENV_JSON:      ${{ inputs.extra-env }}
+        # Mirror api-key into ANTHROPIC_AUTH_TOKEN so Anthropic-compatible
+        # gateways (Z.AI / GLM Coding Plan / OpenRouter, ...) that require
+        # Bearer auth work with no extra wiring at the caller side.
+        AUTH_TOKEN_PASSTHROUGH: ${{ inputs.api-key }}
+      run: |
+        bash "${{ github.action_path }}/compose-args.sh"
+
+    # ── Annotate invocation context for the run summary ──────────────────────
     - name: Annotate invocation
       shell: bash
       env:
-        TASK:      ${{ inputs.task }}
-        MODEL:     ${{ inputs.model }}
-        MAX_TURNS: ${{ inputs.max-turns }}
+        TASK:   ${{ inputs.task }}
+        MODEL:  ${{ inputs.model }}
+        TURNS:  ${{ inputs.max-turns }}
+        SOURCE: ${{ steps.resolve.outputs.prompt-source }}
       run: |
-        echo "::notice title=AI Task::task=$TASK model=$MODEL turns=$MAX_TURNS"
+        echo "::notice title=Claude Harness::task=$TASK model=$MODEL max-turns=$TURNS prompt-source=$SOURCE"
 
-    # ─── claude-code-action v1.0.99 ──────────────────────────────────────────
-    # Pre-configured for all OpenCI use cases:
-    #   • GitHub MCP:       built-in via github_token (repo, issues, PRs)
-    #   • CI/CD data:       additional_permissions: actions: read
-    #   • Git commit:       Bash(git add), Bash(git commit), Bash(git push)
-    #   • Slack notify:     Bash(curl) + SLACK_WEBHOOK_URL env var
-    #   • File ops:         Read, Edit, Write, Glob, Grep (default)
-    #   • Sticky comments:  use_sticky_comment for PR/Issue dedup
-    #
-    # Callers should NOT need to override claude_args or settings —
-    # adjust them here when new capabilities are required project-wide.
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── claude-code-action v1.0.99 ───────────────────────────────────────────
+    # All baseline configuration lives in compose-args.sh so the "what tools
+    # does Claude get" diff is one shell script, not YAML scattered here.
     - name: Run claude-code-action
       id: invoke
       uses: anthropics/claude-code-action@12310e4417c3473095c957cb311b3cf59a38d659  # v1.0.99
       env:
-        SLACK_WEBHOOK_URL:  ${{ inputs.slack-webhook }}
         ANTHROPIC_BASE_URL: ${{ inputs.api-base-url }}
       with:
-        prompt_file:        ${{ steps.resolve.outputs.resolved-prompt-file }}
-        prompt_inputs:      ${{ inputs.context }}
-        anthropic_api_key:  ${{ inputs.api-key }}
-        github_token:       ${{ inputs.github-token }}
-
-        # ── Model & turn limits ───────────────────────────────────────────────
-        claude_args: |
-          --model ${{ inputs.model }}
-          --max-turns ${{ inputs.max-turns }}
-          --allowedTools "Bash(git add),Bash(git commit),Bash(git push origin),Bash(git status),Bash(git log),Bash(curl -s),Bash(curl -X),Bash(jq),Bash(ls),Bash(cat),Bash(date),Bash(mkdir),Bash(cp),Bash(mv),Bash(find)"
-
-        # ── CI/CD access — lets Claude query workflow runs & job logs ─────────
+        prompt:                  ${{ steps.resolve.outputs.prompt }}
+        anthropic_api_key:       ${{ inputs.api-key }}
+        claude_code_oauth_token: ${{ inputs.oauth-token }}
+        github_token:            ${{ inputs.github-token }}
+        use_bedrock:             ${{ inputs.use-bedrock }}
+        use_vertex:              ${{ inputs.use-vertex }}
+        use_foundry:             ${{ inputs.use-foundry }}
+        claude_args:             ${{ steps.compose.outputs.claude-args }}
+        settings:                ${{ steps.compose.outputs.settings }}
         additional_permissions: |
           actions: read
-
-        # ── Claude Code Settings ──────────────────────────────────────────────
-        # env: make Slack webhook available inside Claude's bash tool context.
-        # permissions: explicit allowlist matches the allowedTools above.
-        settings: |
-          {
-            "env": {
-              "SLACK_WEBHOOK_URL": "${{ inputs.slack-webhook }}",
-              "ANTHROPIC_BASE_URL": "${{ inputs.api-base-url }}"
-            },
-            "permissions": {
-              "allow": [
-                "Bash(git add)",
-                "Bash(git commit)",
-                "Bash(git push origin)",
-                "Bash(git status)",
-                "Bash(git log)",
-                "Bash(curl -s)",
-                "Bash(curl -X)",
-                "Bash(jq)",
-                "Bash(ls)",
-                "Bash(cat)",
-                "Bash(date)",
-                "Bash(mkdir)",
-                "Bash(cp)",
-                "Bash(mv)",
-                "Bash(find)",
-                "Read",
-                "Edit",
-                "Write",
-                "Glob",
-                "Grep"
-              ],
-              "deny": []
-            }
-          }
-
-        # ── Sticky comments — deduplicate across re-runs ───────────────────────
-        use_sticky_comment:     "true"
-        sticky_comment_marker:  "openCI:claude-harness:${{ inputs.task }}"
+        use_sticky_comment:      ${{ inputs.use-sticky-comment }}
