@@ -256,24 +256,8 @@ jobs:
           use-sticky-comment:     ${{ inputs.use-sticky-comment }}
           extra-env:              ${{ inputs.extra-env }}
 
-  # ──────────────────────────────────────────────────────────────────────
-  # health-digest — routes to _health-report.yml when task=health-digest.
-  # Daily multi-source observability synthesis (collect → merge →
-  # synthesise via Claude → publish issue + Slack).
-  # ──────────────────────────────────────────────────────────────────────
-  health-digest:
-    if: ${{ inputs.task == 'health-digest' }}
-    uses: ./.github/workflows/_health-report.yml
-    with:
-      model:      ${{ inputs.model }}
-      openci-ref: ${{ inputs.openci-ref }}
-    secrets:
-      api-base-url:      ${{ secrets.api-base-url }}
-      anthropic-api-key: ${{ secrets.api-key }}
-      sentry-token:      ${{ secrets.sentry-token }}
-      datadog-api-key:   ${{ secrets.datadog-api-key }}
-      datadog-app-key:   ${{ secrets.datadog-app-key }}
-      posthog-api-key:   ${{ secrets.posthog-api-key }}
-      langsmith-api-key: ${{ secrets.langsmith-api-key }}
-      axiom-token:       ${{ secrets.axiom-token }}
-      slack-webhook-url: ${{ secrets.slack-webhook-url }}
+# NOTE: agent.yml is the leaf AI primitive. Higher-level pipelines (e.g.
+# health-digest in _health-report.yml) call agent.yml for synthesis.
+# Routing health-digest INSIDE agent.yml would create a cycle that
+# GitHub's static workflow-depth check rejects, so on-agent.yml
+# dispatches _health-report.yml directly when task=health-digest.
