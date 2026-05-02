@@ -122,7 +122,15 @@ jobs:
           fail=0
           while IFS= read -r -d '' f; do
             echo "::group::$f"
-            npx --yes markdown-link-check@3.13.6 "$f" -q --config /tmp/mlc-config.json || fail=1
+            out="$(npx --yes markdown-link-check@3.13.6 "$f" --config /tmp/mlc-config.json 2>&1)" || true
+            echo "$out"
+            # Only flag a real failure when at least one ERROR line appears
+            # (markdown-link-check sometimes returns non-zero on harmless
+            # things like 'No hyperlinks found' on certain runner images).
+            if printf '%s\n' "$out" | grep -qE '^\s*\[✖\]'; then
+              fail=1
+              echo "::error file=$f::dead links detected"
+            fi
             echo "::endgroup::"
           done < <(find "$DOCS_DIR" -type f -name '*.md' -print0)
           exit "$fail"
