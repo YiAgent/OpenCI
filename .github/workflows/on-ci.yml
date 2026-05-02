@@ -14,6 +14,8 @@ permissions:
   id-token: write
   attestations: write
   actions: read
+  security-events: write
+  pull-requests: write
 concurrency:
   group: on-ci-${{ github.ref }}
   cancel-in-progress: false
