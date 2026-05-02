@@ -178,15 +178,32 @@ jobs:
       # Cross-repo reusable workflows resolve `./` against the calling repo's
       # checkout, so a vanilla `./actions/_common/claude-harness` won't find
       # OpenCI's composite when this workflow is called from EvolveCI etc.
-      # We therefore vendor OpenCI into `.openci/` at the same SHA the
-      # reusable workflow was invoked from, then reference the composite via
-      # a local path. Local refs satisfy verify-sha-consistency, and the SHA
-      # pin via `github.workflow_sha` keeps consumers reproducible.
+      # We therefore vendor OpenCI into `.openci/` at the ref the reusable
+      # workflow was invoked at, then reference the composite via a local
+      # path. Local refs satisfy verify-sha-consistency.
+      #
+      # Why parse `github.workflow_ref` instead of using `github.workflow_sha`:
+      # in a reusable workflow, `workflow_sha` resolves to the *caller's* HEAD
+      # SHA (e.g. EvolveCI's main), which doesn't exist in OpenCI. The
+      # `workflow_ref` context, however, is `OWNER/REPO/.github/workflows/<f>.yml@<ref>`
+      # for the *called* workflow, so we can extract the OpenCI ref directly.
+      - name: Extract OpenCI ref from workflow_ref
+        id: openci_ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # WORKFLOW_REF: e.g. YiAgent/OpenCI/.github/workflows/claude-harness.yml@refs/heads/main
+          REF="${WORKFLOW_REF##*@}"
+          [ -n "$REF" ] || REF="refs/heads/main"
+          printf 'ref=%s\n' "$REF" >> "$GITHUB_OUTPUT"
+          echo "::notice title=OpenCI ref::$REF"
+
       - name: Vendor OpenCI source for the harness composite
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci_ref.outputs.ref }}
           path: .openci
           persist-credentials: false
 
