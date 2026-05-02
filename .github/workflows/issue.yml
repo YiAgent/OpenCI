@@ -477,24 +477,104 @@ jobs:
           model:             ${{ inputs.model }}
 
   # ──────────────────────────────────────────────────────────────────────
-  # stale — routes to _stale.yml when invoked with mode=stale (cron driven).
+  # stale — daily stale-mark / close / lock sweep. One job, sequential
+  # composite calls (cheaper than 5 parallel jobs that each set up).
   # ──────────────────────────────────────────────────────────────────────
   stale:
     if: ${{ inputs.mode == 'stale' }}
-    uses: ./.github/workflows/_stale.yml
-    with:
-      openci-ref:       ${{ inputs.openci-ref }}
-      issue-stale-days: ${{ inputs.issue-stale-days }}
-      issue-close-days: ${{ inputs.issue-close-days }}
-      pr-stale-days:    ${{ inputs.pr-stale-days }}
-      pr-close-days:    ${{ inputs.pr-close-days }}
-      lock-after-days:  ${{ inputs.lock-after-days }}
+    name: Stale Sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/community/stale-mark
+        with:
+          resource:     issues
+          stale-days:   ${{ inputs.issue-stale-days }}
+          github-token: ${{ github.token }}
+      - uses: ./.openci/actions/community/stale-close
+        with:
+          resource:     issues
+          close-days:   ${{ inputs.issue-close-days }}
+          github-token: ${{ github.token }}
+      - uses: ./.openci/actions/community/stale-mark
+        with:
+          resource:      pulls
+          stale-days:    ${{ inputs.pr-stale-days }}
+          exempt-labels: "pinned,security,wip"
+          github-token:  ${{ github.token }}
+      - uses: ./.openci/actions/community/stale-close
+        with:
+          resource:     pulls
+          close-days:   ${{ inputs.pr-close-days }}
+          github-token: ${{ github.token }}
+      - uses: ./.openci/actions/community/lock-resolved
+        with:
+          days-since-close: ${{ inputs.lock-after-days }}
+          github-token:     ${{ github.token }}
 
   # ──────────────────────────────────────────────────────────────────────
-  # welcome — routes to _community.yml on first-time-contributor events.
+  # welcome — first-time-contributor welcome (issues + pull_request_target).
   # ──────────────────────────────────────────────────────────────────────
-  welcome:
-    if: ${{ inputs.mode == 'welcome' }}
-    uses: ./.github/workflows/_community.yml
-    with:
-      openci-ref: ${{ inputs.openci-ref }}
+  welcome-issue:
+    name: Welcome (Issue)
+    if: ${{ inputs.mode == 'welcome' && github.event_name == 'issues' && github.event.issue.author_association == 'FIRST_TIME_CONTRIBUTOR' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/issue/welcome-contributor
+        with:
+          number:          ${{ github.event.issue.number }}
+          is-pull-request: "false"
+          github-token:    ${{ github.token }}
+
+  welcome-pr:
+    name: Welcome (PR)
+    if: ${{ inputs.mode == 'welcome' && github.event_name == 'pull_request_target' && github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/issue/welcome-contributor
+        with:
+          number:          ${{ github.event.pull_request.number }}
+          is-pull-request: "true"
+          github-token:    ${{ github.token }}

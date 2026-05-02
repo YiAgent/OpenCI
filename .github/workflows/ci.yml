@@ -395,7 +395,29 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # verify-sha — manifest SHA drift check (script in .github/scripts).
-  # Same script is also exposed via reusable/security.yml mode=verify-sha.
+  # Same script is also a job inside security.yml mode=verify-sha.
   # ──────────────────────────────────────────────────────────────────────
   verify-sha:
-    uses: ./.github/workflows/_verify-sha-consistency.yml
+    name: Verify SHA Consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+          yq --version
+      - name: Run verify-sha-consistency.sh
+        shell: bash
+        run: bash .github/scripts/verify-sha-consistency.sh
