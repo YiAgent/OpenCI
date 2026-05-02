@@ -1,11 +1,7 @@
-# on-deploy.yml — event entry for the deployment domain.
-# Routes (mode/environment selected by event type):
-#   workflow_run:[on-ci] success            -> deploy.yml mode=deploy environment=staging
-#   push tags v*                             -> deploy.yml mode=deploy environment=production
-#   repository_dispatch[observe-window-done] -> deploy.yml mode=deploy environment=production
-#   schedule */15 * * * *                    -> deploy.yml mode=observe observe-mode=canary-watch
-#   schedule 0 4 * * *                       -> deploy.yml mode=observe observe-mode=terraform-drift
-#   workflow_dispatch                        -> any caller-supplied mode
+# on-deploy.yml — direct event entries for the deploy domain.
+# No facade — each event routes straight to the relevant reusable
+# (stg.yml / prd.yml / prd-observe.yml) or runs an inline job
+# (poll, stg-agent-test). External users mirror this pattern.
 name: on-deploy
 
 on:
@@ -24,15 +20,7 @@ on:
       mode:
         required: false
         type: string
-        default: deploy
-      environment:
-        required: false
-        type: string
-        default: staging
-      observe-mode:
-        required: false
-        type: string
-        default: canary-watch
+        default: stg
 
 permissions:
   contents: write
@@ -42,37 +30,25 @@ permissions:
   issues: write
   deployments: write
   actions: write
+
 concurrency:
   group: on-deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  stg-deploy:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
-    uses: ./.github/workflows/deploy.yml
+  stg:
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg') }}
+    uses: ./.github/workflows/stg.yml
     with:
-      mode:        deploy
-      environment: staging
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.STG_HEALTH_URL }}
     secrets: inherit
 
-  stg-agent-test:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
-    needs: stg-deploy
-    uses: ./.github/workflows/deploy.yml
+  prd:
+    if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd') }}
+    uses: ./.github/workflows/prd.yml
     with:
-      mode:       stg-test
-      health-url: ${{ vars.STG_HEALTH_URL }}
-    secrets: inherit
-
-  prd-deploy:
-    if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') }}
-    uses: ./.github/workflows/deploy.yml
-    with:
-      mode:        deploy
-      environment: production
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.PRD_HEALTH_URL }}
@@ -80,22 +56,103 @@ jobs:
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: ./.github/workflows/deploy.yml
+    uses: ./.github/workflows/prd-observe.yml
     with:
-      mode:         observe
-      observe-mode: canary-watch
+      mode: canary-watch
     secrets: inherit
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: ./.github/workflows/deploy.yml
+    uses: ./.github/workflows/prd-observe.yml
     with:
-      mode:         observe
-      observe-mode: terraform-drift
-      infra-dir:    ${{ vars.INFRA_DIR || 'infrastructure' }}
+      mode:      terraform-drift
+      infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
+    secrets: inherit
 
-  observe-poll:
+  # ──────────────────────────────────────────────────────────────────────
+  # stg-agent-test — autonomous L1-L4 tests after stg deploy.
+  # ──────────────────────────────────────────────────────────────────────
+  stg-agent-test:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    needs: stg
+    name: Staging Agent Test L${{ matrix.level }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [1, 2, 3, 4]
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: gate
+        env:
+          K: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Agent Test Skipped::ANTHROPIC_API_KEY missing"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.skip != 'true'
+        uses: ./actions/stg/agent-test
+        with:
+          level:             ${{ matrix.level }}
+          health-url:        ${{ vars.STG_HEALTH_URL }}
+          image-digest:      ${{ vars.STG_IMAGE_DIGEST || 'unknown' }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      - if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-test-L${{ matrix.level }}
+          path: triage/agent-test/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────
+  # poll — fire repository_dispatch when observation window passes.
+  # ──────────────────────────────────────────────────────────────────────
+  poll:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'poll' }}
-    uses: ./.github/workflows/deploy.yml
-    with:
-      mode: poll
+    name: Poll PRD Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - id: poll
+        uses: ./actions/_common/poll-prd-dispatch
+        with:
+          github-token: ${{ github.token }}
+      - if: steps.poll.outputs.fired-count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          FIRED:    ${{ steps.poll.outputs.fired }}
+        run: |
+          set -euo pipefail
+          echo "$FIRED" | jq -c '.[]' | while IFS= read -r entry; do
+            payload="$(jq -nc --argjson e "$entry" '{
+              event_type: "observe-window-complete",
+              client_payload: {
+                "image-digest":     $e.image_digest,
+                "stg-image-digest": $e.stg_image_digest,
+                "stg-deploy-time":  $e.stg_deploy_time,
+                "image-name":       $e.image_name,
+                "app-name":         $e.app_name
+              }
+            }')"
+            gh api -X POST "repos/${REPO}/dispatches" --input - <<<"$payload"
+            echo "::notice title=PRD Dispatched::digest=$(jq -r '.image_digest' <<<"$entry")"
+          done

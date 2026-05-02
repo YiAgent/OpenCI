@@ -1,35 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd.yml — Production deploy with environment gate (SPEC §5.5).
+# stg.yml — Staging deploy (reusable workflow, SPEC §5.4).
 # ─────────────────────────────────────────────────────────────────────────────
-# Triggers:
-#   • workflow_call          — explicit caller orchestration
-#   • workflow_dispatch      — manual emergency
-#   • push tags v*           — semantic version tag releases
-#   • repository_dispatch    — observe-window-complete (P1-12 chain)
+# Serial chain (stg failures should stop fast and notify):
+#   preflight → deploy-k8s → run-migration? → smoke-test → notify-deployed
 #
-# Critical sequence:
-#   preflight → pre-check (composite: verify-version-align + observe-window)
-#             → deploy-k8s [environment: production] → run-migration?
-#             → smoke-test → create-release + notify-deployed
-#             ↳ on smoke failure → auto-rollback (P1-14)
+# Image is consumed BY DIGEST. The caller is responsible for not pointing at
+# a tag — the deploy atom does NOT do tag→digest resolution to avoid hidden
+# tag-shift races.
 #
-# `environment: production` is the human gate. Reviewers are configured in
-# repo Settings → Environments — this workflow does not bake in a specific
-# reviewer set.
+# Concurrency: same-ref deploys serialize but never cancel; we never want
+# to abandon a half-applied deployment.
 #
-# Security: no PR-form fields are read here; all consumer inputs are via
-# the workflow_call contract or repo-controlled tags / vars.
+# Security: no consumer-supplied PR field is used in shell here. The
+# health-url, app-name, etc. are repo-controlled inputs.
 # ─────────────────────────────────────────────────────────────────────────────
-name: prd
+name: stg
 
 on:
   workflow_call:
     inputs:
-      model:
-        description: Override the AI model name. Defaults to the Anthropic Claude model when empty.
-        required: false
-        type: string
-        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
@@ -37,47 +26,31 @@ on:
         default: main
       image-digest:
         type: string
-        required: true
-      stg-image-digest:
-        type: string
-        required: true
-      stg-deploy-time:
-        type: string
-        required: true
+        required: false
       image-name:
         type: string
-        required: true
+        required: false
       registry:
         type: string
         required: false
         default: ghcr.io
       app-name:
         type: string
-        required: true
+        required: false
       health-url:
         type: string
-        required: true
-      observation-minutes:
-        type: number
         required: false
-        default: 30
       k8s-namespace:
         type: string
         required: false
-        default: production
+        default: staging
       run-migration:
         type: boolean
         required: false
         default: false
     secrets:
-      anthropic-api-key:
-        description: Anthropic-compatible API key — used by AI changelog in create-release.
+      kubeconfig-stg:
         required: false
-      api-base-url:
-        description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
-        required: false
-      kubeconfig-prd:
-        required: true
       slack-webhook-url:
         required: false
       sentry-token:
@@ -90,10 +63,15 @@ on:
         required: false
       axiom-token:
         required: false
+    outputs:
+      deploy-time:
+        description: ISO 8601 deploy timestamp.
+        value: ${{ jobs.deploy-k8s.outputs.deploy-time }}
+
 permissions: {}
 
 concurrency:
-  group: deploy-prd-${{ github.ref }}
+  group: deploy-stg-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -134,20 +112,23 @@ jobs:
           persist-credentials: false
       - name: Probe secrets
         env:
-          KUBECONFIG_PRD:    ${{ secrets.kubeconfig-prd }}
+          KUBECONFIG_STG:    ${{ secrets.kubeconfig-stg }}
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
-            --required "KUBECONFIG_PRD" \
+            --required "KUBECONFIG_STG" \
             --optional "SLACK_WEBHOOK_URL"
 
-  pre-check:
-    name: Pre-Check
+  coverage-gate:
+    name: Coverage Gate
     needs: preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
     permissions:
       contents: read
+    # Optional: when no coverage artifact is available, skip silently. When
+    # an artifact exists, compute % and block stg deploy on shortfall.
+    if: ${{ vars.STG_COVERAGE_THRESHOLD != '' }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -177,29 +158,73 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/pre-check
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          image-digest:        ${{ inputs.image-digest }}
-          stg-image-digest:    ${{ inputs.stg-image-digest }}
-          stg-deploy-time:     ${{ inputs.stg-deploy-time }}
-          observation-minutes: ${{ inputs.observation-minutes }}
-          # Sentry error-rate gate (optional, graceful-skip when token unset).
-          sentry-token:        ${{ secrets.sentry-token }}
-          sentry-org:          ${{ vars.SENTRY_ORG }}
-          sentry-project:      ${{ vars.SENTRY_PROJECT }}
+          name: coverage-report
+          path: .
+        continue-on-error: true
+      - uses: ./.openci/actions/pr/check-coverage
+        with:
+          coverage-file:      ${{ vars.STG_COVERAGE_FILE || 'coverage/lcov.info' }}
+          coverage-threshold: ${{ vars.STG_COVERAGE_THRESHOLD || '60' }}
+          mode:               stg
 
-  deploy-k8s:
-    name: Deploy K8s (production)
-    needs: pre-check
+  perf-baseline:
+    name: Perf Baseline
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment:
-      name: production
+    permissions:
+      contents: read
+      actions: write
+    # Soft-gate: never blocks the deploy. Flip enforce-perf to "true" via
+    # repo var once you have a stable baseline (SPEC §aicert #23).
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/stg/perf-baseline
+        with:
+          perf-dir:                  ${{ vars.PERF_DIR              || 'tests/perf' }}
+          enforce-perf:              ${{ vars.ENFORCE_PERF          || 'false' }}
+          regress-threshold-percent: ${{ vars.PERF_REGRESS_THRESHOLD || '30' }}
+          health-url:                ${{ vars.STG_HEALTH_URL        || '' }}
+
+  deploy-k8s:
+    name: Deploy K8s
+    needs: [preflight, coverage-gate, perf-baseline]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
-      deploy-time:       ${{ steps.deploy.outputs.deploy-time }}
-      previous-revision: ${{ steps.deploy.outputs.previous-revision }}
+      deploy-time: ${{ steps.deploy.outputs.deploy-time }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -230,21 +255,19 @@ jobs:
           path: .openci
           persist-credentials: false
       - id: deploy
-        uses: ./.openci/actions/prd/deploy-k8s
+        uses: ./.openci/actions/stg/deploy-k8s
         with:
           app-name:      ${{ inputs.app-name }}
           image-ref:     ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
           k8s-namespace: ${{ inputs.k8s-namespace }}
-          kubeconfig:    ${{ secrets.kubeconfig-prd }}
+          kubeconfig:    ${{ secrets.kubeconfig-stg }}
 
   run-migration:
-    name: Run Migration (production)
+    name: Run Migration
     needs: deploy-k8s
     if: inputs.run-migration == true
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment:
-      name: production
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -276,12 +299,12 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/run-migration
+      - uses: ./.openci/actions/stg/run-migration
         with:
           migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
 
   smoke-test:
-    name: Smoke Test (production)
+    name: Smoke Test
     needs: [deploy-k8s, run-migration]
     if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
     runs-on: ubuntu-latest
@@ -317,113 +340,16 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/smoke-test
+      - uses: ./.openci/actions/stg/smoke-test
         with:
           health-url: ${{ inputs.health-url }}
-
-  auto-rollback:
-    name: Auto Rollback
-    needs: [deploy-k8s, smoke-test]
-    if: always() && needs.smoke-test.result == 'failure' && needs.deploy-k8s.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - name: Configure kubectl
-        env:
-          KCONF: ${{ secrets.kubeconfig-prd }}
-        run: |
-          set -euo pipefail
-          path="${RUNNER_TEMP:-/tmp}/kubeconfig"
-          echo "$KCONF" | base64 -d > "$path"
-          chmod 600 "$path"
-          echo "::add-mask::$(cat "$path" | tr -d '\n')"
-          echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
-      - uses: ./.openci/actions/prd/auto-rollback
-        with:
-          app-name:          ${{ inputs.app-name }}
-          k8s-namespace:     ${{ inputs.k8s-namespace }}
-          previous-revision: ${{ needs.deploy-k8s.outputs.previous-revision }}
-          failed-image:      ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
-          github-token:      ${{ github.token }}
-
-  create-release:
-    name: Create Release
-    needs: smoke-test
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - uses: ./.openci/actions/prd/create-release
-        with:
-          github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.anthropic-api-key }}
-          api-base-url:      ${{ secrets.api-base-url }}
-          model:             ${{ inputs.model }}
 
   notify-observability:
     name: Notify Observability
     needs: [deploy-k8s, smoke-test]
+    # Always emit deploy markers when the deploy itself succeeded — even if
+    # smoke-test then failed. The deploy *did* happen, downstream tools need
+    # to know about it for accurate metric overlay.
     if: always() && needs.deploy-k8s.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -461,7 +387,7 @@ jobs:
           persist-credentials: false
       - uses: ./.openci/actions/integrations/notify-deploy
         with:
-          environment: prd
+          environment: stg
           version:     ${{ inputs.image-digest }}
           git-sha:     ${{ github.sha }}
           app-name:    ${{ inputs.app-name }}
@@ -481,6 +407,56 @@ jobs:
           langsmith-project: ${{ vars.LANGSMITH_PROJECT }}
           axiom-token:       ${{ secrets.axiom-token }}
           axiom-dataset:     ${{ vars.AXIOM_DATASET }}
+
+  schedule-prd-dispatch:
+    name: Schedule PRD Dispatch
+    needs: [deploy-k8s, smoke-test]
+    if: needs.smoke-test.result == 'success' && vars.PRD_OBSERVATION_MINUTES != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write   # write GitHub repo variables
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/_common/schedule-prd-dispatch
+        with:
+          image-digest:        ${{ inputs.image-digest }}
+          # In a real consumer the stg image digest is the same as the
+          # one passed in (we don't rebuild between ci.yml and stg.yml).
+          stg-image-digest:    ${{ inputs.image-digest }}
+          stg-deploy-time:     ${{ needs.deploy-k8s.outputs.deploy-time }}
+          image-name:          ${{ inputs.image-name }}
+          app-name:            ${{ inputs.app-name }}
+          observation-minutes: ${{ vars.PRD_OBSERVATION_MINUTES || '30' }}
+          github-token:        ${{ github.token }}
 
   notify-deployed:
     name: Notify Deployed
@@ -519,7 +495,7 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/notify-deployed
+      - uses: ./.openci/actions/stg/notify-deployed
         with:
           status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
           app-name:    ${{ inputs.app-name }}
