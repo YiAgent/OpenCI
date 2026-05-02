@@ -101,6 +101,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - name: Resolve PR number
         id: pr
@@ -177,7 +184,7 @@ jobs:
             echo "__OPENCI_EOF__"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: ./actions/_common/upsert-pr-comment
+      - uses: ./.openci/actions/_common/upsert-pr-comment
         with:
           pr-number:    ${{ steps.pr.outputs.number }}
           marker:       "<!-- pr-summary-bot -->"
@@ -205,6 +212,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - id: pr
         env:
@@ -227,7 +241,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - id: id
-        uses: ./actions/_common/identify-pr-agent
+        uses: ./.openci/actions/_common/identify-pr-agent
         with:
           pr-user-login: ${{ steps.pr.outputs.login }}
           pr-head-ref:   ${{ steps.pr.outputs.head }}
@@ -251,7 +265,7 @@ jobs:
 
       - id: summary
         if: steps.id.outputs.agent-type != 'none' && steps.gate.outputs.skip != 'true'
-        uses: ./actions/_common/summarize-failure
+        uses: ./.openci/actions/_common/summarize-failure
         with:
           run-id:            ${{ github.event.workflow_run.id }}
           github-token:      ${{ github.token }}
@@ -291,7 +305,7 @@ jobs:
 
       - name: Post / update sticky comment
         if: steps.id.outputs.agent-type != 'none'
-        uses: ./actions/_common/upsert-pr-comment
+        uses: ./.openci/actions/_common/upsert-pr-comment
         with:
           pr-number:    ${{ steps.pr.outputs.number }}
           marker:       "<!-- agent-feedback:${{ github.event.workflow_run.head_sha }} -->"
@@ -316,6 +330,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
@@ -344,7 +365,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - if: steps.gate.outputs.skip != 'true'
-        uses: ./actions/_common/docubot
+        uses: ./.openci/actions/_common/docubot
         with:
           question:          ${{ steps.q.outputs.question }}
           number:            ${{ github.event.issue.number }}
@@ -369,6 +390,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
         env:
@@ -381,7 +409,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.gate.outputs.skip != 'true'
-        uses: ./actions/pr/agent-test-gen
+        uses: ./.openci/actions/pr/agent-test-gen
         with:
           pr-number:         ${{ github.event.pull_request.number || github.event.inputs.pr-number || inputs.pr-number }}
           github-token:      ${{ github.token }}

@@ -96,7 +96,14 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/issue/auto-label
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/issue/auto-label
         with:
           issue-body:   ${{ github.event.issue.body }}
           issue-title:  ${{ github.event.issue.title }}
@@ -119,7 +126,14 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/issue/detect-duplicates
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/issue/detect-duplicates
         with:
           issue-number: ${{ github.event.issue.number }}
           issue-title:  ${{ github.event.issue.title }}
@@ -142,6 +156,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
         env:
@@ -153,7 +174,7 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./actions/issue/ai-triage
+      - uses: ./.openci/actions/issue/ai-triage
         if: steps.gate.outputs.skip != 'true'
         with:
           issue-number:      ${{ github.event.issue.number }}
@@ -179,7 +200,14 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/issue/auto-assign
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/issue/auto-assign
         with:
           issue-number: ${{ github.event.issue.number }}
           github-token: ${{ github.token }}
@@ -201,15 +229,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - id: parse
-        uses: ./actions/issue/parse-command
+        uses: ./.openci/actions/issue/parse-command
         with:
           comment-body:        ${{ github.event.comment.body }}
           author-association:  ${{ github.event.comment.author_association }}
 
       - if: steps.parse.outputs.command != 'none'
-        uses: ./actions/issue/execute-command
+        uses: ./.openci/actions/issue/execute-command
         with:
           command:      ${{ steps.parse.outputs.command }}
           args:         ${{ steps.parse.outputs.args }}
@@ -232,9 +267,16 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - id: br
-        uses: ./actions/integrations/linear-bridge
+        uses: ./.openci/actions/integrations/linear-bridge
         with:
           linear-id:     ${{ github.event.client_payload.id }}
           linear-title:  ${{ github.event.client_payload.title }}
@@ -255,7 +297,7 @@ jobs:
           fi
       - name: Comment back to Linear
         if: steps.linear-gate.outputs.skip != 'true'
-        uses: ./actions/integrations/linear-comment
+        uses: ./.openci/actions/integrations/linear-comment
         with:
           linear-token: ${{ secrets.linear-token }}
           issue-id:     ${{ github.event.client_payload.uuid }}
@@ -279,7 +321,14 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/_common/error-triage
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/_common/error-triage
         with:
           sentry-token:      ${{ secrets.sentry-token }}
           sentry-org:        ${{ vars.SENTRY_ORG }}

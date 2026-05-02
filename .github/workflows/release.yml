@@ -92,6 +92,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - name: Extract version info
         id: version
@@ -174,6 +181,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
 
@@ -204,6 +218,6 @@ jobs:
           cache-to:   "type=gha,mode=max"
 
       - name: Sign image (Cosign keyless)
-        uses: ./actions/ci/sign-image
+        uses: ./.openci/actions/ci/sign-image
         with:
           image-ref: ${{ inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/${{ inputs.image-name || github.event.repository.name }}@${{ steps.push.outputs.digest }}

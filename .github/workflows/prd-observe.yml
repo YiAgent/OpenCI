@@ -95,6 +95,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - name: Has recent deploy?
         id: recent
@@ -197,7 +204,7 @@ jobs:
 
       - name: Run canary-watch atom
         if: steps.recent.outputs.skip != 'true'
-        uses: ./actions/prd/canary-watch
+        uses: ./.openci/actions/prd/canary-watch
         with:
           current-rate:     ${{ steps.rates.outputs.current }}
           history-rates:    ${{ steps.rates.outputs.history }}
@@ -222,7 +229,14 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/prd/terraform-drift
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/prd/terraform-drift
         with:
           infra-dir:    ${{ inputs.infra-dir || vars.TERRAFORM_DIR || 'infrastructure' }}
           github-token: ${{ github.token }}
@@ -245,6 +259,13 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
 
       - name: Find associated PR
         id: pr
@@ -274,7 +295,7 @@ jobs:
 
       - name: Verify fix per ref
         if: steps.pr.outputs.found == 'true'
-        uses: ./actions/prd/verify-fix
+        uses: ./.openci/actions/prd/verify-fix
         with:
           pr-number:      ${{ steps.pr.outputs.number }}
           github-token:   ${{ github.token }}
