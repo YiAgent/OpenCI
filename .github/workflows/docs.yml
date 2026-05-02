@@ -37,6 +37,11 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      openci-ref:
+        description: OpenCI ref (consistency with the catalog; not used by docs build/deploy directly).
+        required: false
+        type: string
+        default: main
       build-cmd:
         type: string
         required: false
