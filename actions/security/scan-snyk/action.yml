@@ -1,9 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # security/scan-snyk — Snyk scan with graceful-skip.
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: skeleton (snyk/actions SHA pending). Graceful-skip implemented now
-# so the workflow stays green when SNYK_TOKEN is unset.
-# ─────────────────────────────────────────────────────────────────────────────
 name: Security · Scan Snyk
 description: Snyk vulnerability scan; skip gracefully when SNYK_TOKEN is unset.
 
@@ -29,12 +26,7 @@ runs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: TODO — invoke Snyk
+    - uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
       if: steps.check.outputs.skip != 'true'
-      shell: bash
-      run: |
-        echo "::warning title=scan-snyk skeleton::Snyk step not yet wired up; SHA pending verification (manifest-pending.yml: snyk/actions)."
-        # When verified:
-        # - uses: snyk/actions/<lang>@<SHA>
-        #   env:
-        #     SNYK_TOKEN: ${{ inputs.snyk-token }}
+      env:
+        SNYK_TOKEN: ${{ inputs.snyk-token }}

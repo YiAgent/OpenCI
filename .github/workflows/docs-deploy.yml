@@ -1,11 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # docs-deploy.yml — publish docs to GitHub Pages on main push.
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: scaffold — actions/upload-pages-artifact and actions/deploy-pages
-# SHAs are still in manifest-pending.yml. Until verified, the deploy step
-# is a no-op annotation. The build step is functional so consumers can
-# wire it up first and only flip the deploy on once SHAs land.
-# ─────────────────────────────────────────────────────────────────────────────
 name: docs-deploy
 
 on:
@@ -77,13 +72,8 @@ jobs:
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
-      - name: TODO — upload + deploy Pages artifact
-        shell: bash
-        run: |
-          echo "::warning title=docs-deploy skeleton::actions/upload-pages-artifact + actions/deploy-pages SHAs pending verification (manifest-pending.yml). Not deploying."
-          # When SHAs verified:
-          # - uses: actions/upload-pages-artifact@<SHA>
-          #   with:
-          #     path: ${{ needs.build.outputs.site-dir }}
-          # - uses: actions/deploy-pages@<SHA>
-          #   id: deployment
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: ${{ needs.build.outputs.site-dir }}
+      - uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128
+        id: deployment

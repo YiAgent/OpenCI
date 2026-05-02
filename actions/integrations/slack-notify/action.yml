@@ -1,11 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # integrations/slack-notify — atomic Slack notifier (graceful-skip).
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: skeleton — slackapi/slack-github-action SHA is in
-# manifest-pending.yml. Until it's verified, this atom emits a `::notice`
-# with the message it WOULD have sent, so callers can integrate against it
-# now and the wire-up flips on with a SHA migration later.
-#
 # This is an ATOM (single responsibility, no other composites/atoms called),
 # so callers from a composite (e.g. stg/notify-deployed) don't break the
 # "composite cannot call composite" rule (SPEC GC2).
@@ -69,19 +64,21 @@ runs:
         echo "::notice title=Slack Notify (would-send)::status=$STATUS title=$TITLE link=$LINK"
         echo "emoji=$emoji" >> "$GITHUB_OUTPUT"
 
-    - name: TODO — actually post to Slack
+    - uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c
       if: steps.check.outputs.skip != 'true'
-      shell: bash
-      run: |
-        echo "::warning title=slack-notify skeleton::SHA pending verification (see manifest-pending.yml: slackapi/slack-github-action)."
-        # When verified:
-        #
-        # - uses: slackapi/slack-github-action@<VERIFIED_SHA>
-        #   with:
-        #     webhook:      ${{ inputs.webhook-url }}
-        #     webhook-type: incoming-webhook
-        #     payload: |
-        #       {
-        #         "text": "${{ steps.payload.outputs.emoji }} ${{ inputs.title }}",
-        #         "blocks": [ ... ]
-        #       }
+      with:
+        webhook:      ${{ inputs.webhook-url }}
+        webhook-type: incoming-webhook
+        payload: |
+          {
+            "text": "${{ steps.payload.outputs.emoji }} ${{ inputs.title }}",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "${{ steps.payload.outputs.emoji }} *${{ inputs.title }}*\n${{ inputs.body }}"
+                }
+              }
+            ]
+          }
