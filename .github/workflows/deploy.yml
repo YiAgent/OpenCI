@@ -182,18 +182,95 @@ jobs:
 
   stg-test:
     if: ${{ inputs.mode == 'stg-test' }}
-    uses: ./.github/workflows/_stg-agent-test.yml
-    with:
-      openci-ref:   ${{ inputs.openci-ref }}
-      model:        ${{ inputs.model }}
-      health-url:   ${{ inputs.health-url }}
-      image-digest: ${{ inputs.image-digest }}
-    secrets:
-      api-base-url:      ${{ secrets.api-base-url }}
-      anthropic-api-key: ${{ secrets.anthropic-api-key }}
+    name: Staging Agent Test L${{ matrix.level }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [1, 2, 3, 4]
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Agent Test Skipped::ANTHROPIC_API_KEY missing"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.skip != 'true'
+        uses: ./.openci/actions/stg/agent-test
+        with:
+          level:             ${{ matrix.level }}
+          health-url:        ${{ inputs.health-url }}
+          image-digest:      ${{ inputs.image-digest || 'unknown' }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
+      - if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-test-L${{ matrix.level }}
+          path: triage/agent-test/
+          retention-days: 14
 
   poll:
     if: ${{ inputs.mode == 'poll' }}
-    uses: ./.github/workflows/_poll-prd-dispatch.yml
-    with:
-      openci-ref: ${{ inputs.openci-ref }}
+    name: Poll + Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - id: poll
+        uses: ./.openci/actions/_common/poll-prd-dispatch
+        with:
+          github-token: ${{ github.token }}
+      - name: Fire repository_dispatch for each due entry
+        if: steps.poll.outputs.fired-count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          FIRED:    ${{ steps.poll.outputs.fired }}
+        run: |
+          set -euo pipefail
+          echo "$FIRED" | jq -c '.[]' | while IFS= read -r entry; do
+            payload="$(jq -nc --argjson e "$entry" '{
+              event_type: "observe-window-complete",
+              client_payload: {
+                "image-digest":     $e.image_digest,
+                "stg-image-digest": $e.stg_image_digest,
+                "stg-deploy-time":  $e.stg_deploy_time,
+                "image-name":       $e.image_name,
+                "app-name":         $e.app_name
+              }
+            }')"
+            gh api -X POST "repos/${REPO}/dispatches" --input - <<<"$payload"
+            echo "::notice title=PRD Dispatched::digest=$(jq -r '.image_digest' <<<"$entry")"
+          done
