@@ -42,9 +42,11 @@ concurrency:
 jobs:
   health-digest:
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.task == 'health-digest') }}
-    uses: ./.github/workflows/agent.yml
+    # Skip agent.yml routing — _health-report.yml internally calls
+    # agent.yml for synthesis, so going on-agent -> agent -> _health-report
+    # -> agent would form a cycle that GitHub static-rejects.
+    uses: ./.github/workflows/_health-report.yml
     with:
-      task:  health-digest
       model: ${{ inputs.model || '' }}
     secrets: inherit
 
