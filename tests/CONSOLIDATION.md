@@ -86,10 +86,77 @@ internal CI (where `./.openci/` doesn't exist). Needs a strategic decision:
 | `prd-observe` (mode=canary-watch) | ✅ SUCCESS | Graceful skip when `PRD_LAST_DEPLOY` missing |
 | `prd-observe` (mode=terraform-drift) | ✅ SUCCESS | Composite atom executed cleanly |
 | `prd-observe` (mode=verify-fix) | ✅ SUCCESS | Graceful skip (no PR for SHA) |
+| `issue` (issues:opened natural trigger) | ✅ 4/7 SUCCESS | auto-label · detect-duplicates · auto-assign all green; ai-triage red only due to placeholder Anthropic key in Doppler |
 | `release` (mode=marketplace, tag ref) | ⏳ untested | Requires real `git push origin v*` |
-| `docs` (build) | ⚠️ partial | Now opt-in failure on actual dead links only |
-| `issue` (mode=ai-triage) | ❌ blocked | Needs Phase-7 composite-to-composite resolution |
-| `pr-agent` (mode=summarise) | ❌ blocked | Same root cause |
+| `docs` (build) | ✅ SUCCESS | link check now opt-in failure only on real `[✖]` dead links |
+| `docs` (deploy to Pages) | ⚠️ env-blocked | rig has no `github-pages` environment configured (must enable Pages on the test repo) |
+| `issue` (mode=ai-triage / sentry-triage) | ⚠️ creds-blocked | rig's Doppler ANTHROPIC_API_KEY is a 3-char placeholder; real key needed for end-to-end Claude call |
+| `pr-agent` (mode=summarise) | ⏳ untested | Needs an actual PR run to fire the workflow_run trigger |
+
+### Phase 7 — Option A applied (all 27 files)
+
+**Atom-to-atom rewrites (16 files):** every composite that previously
+referenced another via `uses: ./actions/...` now uses `./.openci/actions/...`:
+`_common/{docubot,error-triage,flag-audit,summarize-failure}`,
+`ci/eval-smoke`, `observability/{publish-report,post-slack-report}`,
+`pr/{agent-test-gen,review-ai}`, `integrations/notify-deploy`,
+`issue/ai-triage`, `prd/{create-release,pre-check,notify-deployed}`,
+`stg/{agent-test,notify-deployed}`.
+
+**Workflow-side checkout pattern (15 workflows):** `ci`, `pr`, `stg`, `prd`,
+`community`, `stale`, `flag-audit`, `health-report`, `security-schedule`,
+`stg-agent-test`, `claude-harness`, `project/poll-prd-dispatch` plus the
+4 Phase-1-4 consolidated workflows. Each affected job:
+
+  1. checks out caller content (default)
+  2. resolves the OpenCI ref via `inputs.openci-ref` (default `main`),
+     falling back to parsing `github.workflow_ref` for OpenCI self-calls
+  3. checks out OpenCI to `.openci/`
+  4. invokes `uses: ./.openci/actions/X` which now resolves correctly
+     in both internal CI runs and external workflow_call invocations
+
+**New consumer-facing input — `openci-ref`:** every reusable workflow now
+accepts an `openci-ref` input (default `main`). Pin it in the caller
+to match whatever ref you used in `uses:`:
+
+```yaml
+jobs:
+  call:
+    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v2
+    with:
+      openci-ref: v2     # match the ref pinned in `uses:`
+      mode: ai-triage
+```
+
+This is necessary because `github.workflow_ref` always returns the
+*root caller's* ref, not the called workflow's; without an explicit
+input the `.openci` checkout would always fall back to OpenCI's main.
+
+### Side fixes shipped during Phase 7 cycle
+
+In addition to the Phase-1-4 fixes:
+
+- 9 atom action.yml files: `description: "text:colon"` inside inline-flow
+  inputs blockified (GHA's parser refuses the colon even when quoted)
+- `actions/issue/auto-assign/action.yml`: malformed `description:" "..."` "`
+  artifact from an earlier mass-fix script — repaired
+- `actions/observability/post-issue-report/action.yml`: unindented
+  multi-line string in `run:` block (which terminated YAML literal scalar)
+  replaced with `printf`
+- 4 workflows (`flag-audit`, `health-report`, `stg-agent-test`, plus
+  `pr` + `health-report`): dropped `secrets.foo-bar || secrets.FOO_BAR`
+  fallbacks (UPPER_SNAKE form was dead because workflow_call schema
+  declares only the kebab form)
+- `pr.yml`: `length()` undefined function → `requested_reviewers[0] == null`
+- `pr.yml`: `hashFiles()` job-level `if:` not allowed → step-level guard
+- `health-report.yml`: secret names mismatched against `claude-harness`
+  workflow's declared schema → renamed
+- `release.yml`: graceful-skip when `GITHUB_REF` isn't `refs/tags/v*`
+- `docs.yml`: link check now uses `find -print0` glob iterator + only
+  fails on actual `[✖]` dead links
+- `lefthook.yml`: `forbid-unpinned-actions` bash process substitution
+  replaced with sh-compatible pipe + tmpfile; `actionlint` glob narrowed
+  to workflows only (composite action.yml has a different schema)
 
 ### Side fixes shipped during the test cycle
 
