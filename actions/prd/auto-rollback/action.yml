@@ -29,7 +29,7 @@ inputs:
     description: Image ref that failed smoke test.
     required: true
   github-token:
-    description: GITHUB_TOKEN with `issues: write`.
+    description: "GITHUB_TOKEN with `issues: write`."
     required: true
 
 runs:
@@ -77,20 +77,18 @@ runs:
         fi
 
         title="P1: Production rollback — ${APP}"
-        body=$(cat <<EOF
-## Auto-rollback fired
-
-- App: \`${APP}\`
-- Failed image: \`${FAILED_IMG}\`
-- Rolled back to revision: \`${REV:-previous}\`
-- Workflow: ${WORKFLOW}
-- Commit: \`${SHA}\`
-- Run: ${RUN_URL}
-- ${marker}
-
-Please investigate the smoke-test failure and decide on root cause.
-EOF
-)
+        body=$(printf '%s\n' \
+          "## Auto-rollback fired" \
+          "" \
+          "- App: \`${APP}\`" \
+          "- Failed image: \`${FAILED_IMG}\`" \
+          "- Rolled back to revision: \`${REV:-previous}\`" \
+          "- Workflow: ${WORKFLOW}" \
+          "- Commit: \`${SHA}\`" \
+          "- Run: ${RUN_URL}" \
+          "- ${marker}" \
+          "" \
+          "Please investigate the smoke-test failure and decide on root cause.")
         gh issue create \
           --title "$title" \
           --body  "$body" \

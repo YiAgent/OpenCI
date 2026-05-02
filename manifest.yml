@@ -271,21 +271,16 @@ workflows:
     secrets:
       anthropic-api-key: { required: false }
 
-  - id: prd-canary-watch
-    path: .github/workflows/prd-canary-watch.yml
-    description: Post-deploy 3σ canary observer — runs every 15 min after a prd deploy.
-    secrets:
-      sentry-token: { required: false }
-
-  - id: prd-terraform-drift
-    path: .github/workflows/prd-terraform-drift.yml
-    description: Advisory daily Terraform drift check against committed state.
+  - id: prd-observe
+    path: .github/workflows/prd-observe.yml
+    description: >-
+      Unified post-deploy observability — 3σ canary watch (every 15 min),
+      daily Terraform drift check, and Sentry fix verification (workflow_run
+      after prd). Routed via cron / event_name and optional `inputs.mode`.
+      All three jobs are advisory and never block deploys.
     inputs:
-      infra-dir: { type: string, default: "infrastructure" }
-
-  - id: prd-verify-fix
-    path: .github/workflows/prd-verify-fix.yml
-    description: Confirm Sentry issues are resolved after a prd deploy.
+      mode:      { type: string, required: false, default: "" }
+      infra-dir: { type: string, required: false, default: "infrastructure" }
     secrets:
       sentry-token: { required: false }
 

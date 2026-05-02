@@ -127,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           # Core workflows always summarised; consumers append via extra-workflows.
-          workflows=(pr ci pr-agent verify-sha-consistency dep-auto-merge stg-agent-test prd-verify-fix prd-canary-watch)
+          workflows=(pr ci pr-agent verify-sha-consistency dep-auto-merge stg-agent-test prd-observe)
           if [ -n "$EXTRA_WORKFLOWS" ]; then
             read -ra extra <<< "$EXTRA_WORKFLOWS"
             workflows+=("${extra[@]}")

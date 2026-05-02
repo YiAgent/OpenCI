@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ""
   github-token:
-    description: GITHUB_TOKEN with `contents: write`.
+    description: "GITHUB_TOKEN with `contents: write`."
     required: true
   use-ai-changelog:
     description: When "true" + ANTHROPIC_API_KEY is set, replace --generate-notes with an AI-written Keep a Changelog body.

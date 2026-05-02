@@ -10,7 +10,7 @@ Each phase consolidates a domain, then verifies via actionlint, yamllint, and ba
 | 0 | Infra setup (lefthook fixes, hardening) | — | ✅ done |
 | 1 | Issue lifecycle | 4 → 1 (`issue.yml`) | ✅ done |
 | 2 | PR agent workflows | 4 → 1 (`pr-agent.yml`) | ✅ done |
-| 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ⏳ pending |
+| 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ✅ done |
 | 4 | Release & docs | 4 → 2 | ⏳ pending |
 | 5 | Community action audit | — | ⏳ pending |
 | 6 | L1 marketplace `action.yml` polish | — | ⏳ pending |
@@ -99,3 +99,29 @@ bats tests/scripts/verify-sha-consistency.bats
 - `actionlint .github/workflows/pr-agent.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 25 → 22; total non-secret actionlint baseline 14 → 9
+
+### Phase 3 — production observability (done)
+
+**Removed (3):** `prd-canary-watch.yml`, `prd-terraform-drift.yml`, `prd-verify-fix.yml`.
+
+**Kept & created (1):** `prd-observe.yml` — multi-trigger, mode-routed:
+- `schedule "*/15 * * * *"` → `canary-watch` (3σ deviation, requires recent deploy)
+- `schedule "0 4 * * *"` → `terraform-drift` (advisory)
+- `workflow_run [prd] success` → `verify-fix` (Sentry confirm + 15-min wait)
+- `workflow_dispatch` / `workflow_call` → `inputs.mode` selects which job
+
+**Side fixes (action-atom YAML):**
+- `actions/prd/canary-watch/action.yml`: outputs converted from inline-flow to block style
+- `actions/_common/schedule-prd-dispatch/action.yml`: same + quoted description containing `:`
+- `actions/prd/auto-rollback/action.yml`: quoted description containing `:`; replaced unindented `<<EOF` heredoc (which terminated the YAML literal block scalar) with multi-arg `printf '%s\n'`
+- `actions/prd/create-release/action.yml`: quoted description containing `:`
+- `pr-agent.yml`: `summarise` workflow list updated `prd-canary-watch prd-verify-fix` → `prd-observe`
+
+**Doc updates:**
+- `manifest.yml`: 3 entries collapsed into one `prd-observe`
+- `README.md`: full inventory table updated
+
+**Verification:**
+- `actionlint .github/workflows/prd-observe.yml` → clean
+- `bats tests/actions/` → 275/275 passing
+- Workflow count 22 → 20; total non-secret actionlint baseline 9 → 5

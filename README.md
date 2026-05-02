@@ -218,7 +218,7 @@ steps:
 | [`dep-auto-merge.yml`](.github/workflows/dep-auto-merge.yml) | Renovate patch PRs auto-merge |
 | [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml) | Manifest enforcement |
 | `pr-agent.yml` | Opt-in AI agent enhancements (summarise / feedback / docubot / test-gen, mode-routed) |
-| `prd-{canary-watch,verify-fix,terraform-drift}.yml` | Post-deploy advisory monitors |
+| `prd-observe.yml` | Post-deploy advisory monitors (canary-watch / terraform-drift / verify-fix, mode-routed) |
 | `flag-audit.yml` | Weekly cron flag-debt audit |
 | `stg-agent-test.yml` | L1–L4 autonomous staging tests |
 
