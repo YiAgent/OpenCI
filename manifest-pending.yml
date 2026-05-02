@@ -25,35 +25,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 version: "1.7"
 
-deps:
-  # Pages / docs deploy
-  actions/upload-pages-artifact:          "<待验证 SHA>"
-  actions/deploy-pages:                   "<待验证 SHA>"
-
-  # Node / package managers
-  actions/setup-node:                     "<待验证 SHA>"
-  pnpm/action-setup:                      "<待验证 SHA>"
-  astral-sh/setup-uv:                     "<待验证 SHA>"
-
-  # AWS deploy
-  aws-actions/amazon-ecs-deploy-task-definition: "<待验证 SHA>"
-
-  # Security tooling
-  trufflesecurity/trufflehog:             "<待验证 SHA>"
-  aquasecurity/trivy-action:              "<待验证 SHA>"
-  SonarSource/sonarcloud-github-action:   "<待验证 SHA>"
-  oxsecurity/megalinter:                  "<待验证 SHA>"
-  snyk/actions:                           "<待验证 SHA>"
-  amannn/action-semantic-pull-request:    "<待验证 SHA>"
-
-  # Deploy / SSH
-  appleboy/ssh-action:                    "<待验证 SHA>"
-
-  # Issue / community
-  stale-org/stale:                        "<待验证 SHA>"   # community fork of archived actions/stale
-  dessant/lock-threads:                   "<待验证 SHA>"
-  kentaro/auto-assign-action:             "<待验证 SHA>"
-
-  # Notifications / external SaaS
-  slackapi/slack-github-action:           "<待验证 SHA>"
-  getsentry/action-release:               "<待验证 SHA>"
+deps: {}
+# All entries verified and promoted to manifest.yml as of 2026-05-01.
+# New entries go below this line following the rules above.
