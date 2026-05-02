@@ -30,6 +30,7 @@ permissions:
   security-events: write
   id-token: write
   statuses: write
+  packages: read
 concurrency:
   group: on-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
