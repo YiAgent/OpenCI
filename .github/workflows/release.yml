@@ -97,16 +97,29 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF#refs/tags/v}"
-          MAJOR="${TAG%%.*}"
-          MINOR="${TAG%.*}"
-          {
-            echo "tag=v${TAG}"
-            echo "major=v${MAJOR}"
-            echo "minor=v${MINOR}"
-          } >> "$GITHUB_OUTPUT"
+          # Marketplace mode requires a tag ref. Workflow_dispatch / workflow_call
+          # on a branch ref (e.g. main) has no tag — graceful-skip the rest of
+          # the job. Real release flow always pushes a `v*` tag.
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              TAG="${GITHUB_REF#refs/tags/v}"
+              MAJOR="${TAG%%.*}"
+              MINOR="${TAG%.*}"
+              {
+                echo "skip=false"
+                echo "tag=v${TAG}"
+                echo "major=v${MAJOR}"
+                echo "minor=v${MINOR}"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Marketplace Skipped::GITHUB_REF '$GITHUB_REF' is not a refs/tags/v* — push a version tag to publish a release"
+              ;;
+          esac
 
       - name: Generate changelog
+        if: steps.version.outputs.skip != 'true'
         id: changelog
         run: |
           set -euo pipefail
@@ -123,6 +136,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name:   ${{ steps.version.outputs.tag }}
@@ -132,6 +146,7 @@ jobs:
           prerelease: false
 
       - name: Update floating major/minor tags
+        if: steps.version.outputs.skip != 'true'
         env:
           MAJOR: ${{ steps.version.outputs.major }}
           MINOR: ${{ steps.version.outputs.minor }}
