@@ -33,27 +33,6 @@
 name: issue
 
 on:
-  issues:
-    types: [opened, reopened, edited]
-  issue_comment:
-    types: [created]
-  repository_dispatch:
-    types: [linear-issue-started]
-  schedule:
-    - cron: "0 * * * *"
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-      mode:
-        description: Which job to run (sentry-triage by default for manual runs)
-        required: false
-        default: sentry-triage
-        type: choice
-        options: [sentry-triage, auto-label, dedupe, ai-triage, auto-assign]
   workflow_call:
     inputs:
       openci-ref:
@@ -71,6 +50,26 @@ on:
         required: false
         type: string
         default: ""
+      issue-stale-days:
+        type: number
+        required: false
+        default: 60
+      issue-close-days:
+        type: number
+        required: false
+        default: 14
+      pr-stale-days:
+        type: number
+        required: false
+        default: 30
+      pr-close-days:
+        type: number
+        required: false
+        default: 7
+      lock-after-days:
+        type: number
+        required: false
+        default: 30
     secrets:
       anthropic-api-key:
         required: false
@@ -476,3 +475,26 @@ jobs:
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
           api-base-url:      ${{ secrets.api-base-url }}
           model:             ${{ inputs.model }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # stale — routes to _stale.yml when invoked with mode=stale (cron driven).
+  # ──────────────────────────────────────────────────────────────────────
+  stale:
+    if: ${{ inputs.mode == 'stale' }}
+    uses: ./.github/workflows/reusable/_stale.yml
+    with:
+      openci-ref:       ${{ inputs.openci-ref }}
+      issue-stale-days: ${{ inputs.issue-stale-days }}
+      issue-close-days: ${{ inputs.issue-close-days }}
+      pr-stale-days:    ${{ inputs.pr-stale-days }}
+      pr-close-days:    ${{ inputs.pr-close-days }}
+      lock-after-days:  ${{ inputs.lock-after-days }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # welcome — routes to _community.yml on first-time-contributor events.
+  # ──────────────────────────────────────────────────────────────────────
+  welcome:
+    if: ${{ inputs.mode == 'welcome' }}
+    uses: ./.github/workflows/reusable/_community.yml
+    with:
+      openci-ref: ${{ inputs.openci-ref }}

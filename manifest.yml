@@ -9,7 +9,7 @@
 #      Unverified or placeholder SHAs MUST live in manifest-pending.yml.
 #   2. Every `uses:` reference in .github/workflows/**/*.yml or actions/**/*.yml
 #      MUST match the SHA in this file. Inconsistencies are blocked by
-#      .github/workflows/verify-sha-consistency.yml.
+#      .github/workflows/reusable/security.yml.
 #   3. `@v1`, `@v1.2.3`, `@main`, `@master` references are forbidden — pin
 #      everything to a 40-char commit SHA.
 #   4. Actions listed in docs/SPEC.md Appendix B.2 (deprecated) MUST NOT be
@@ -99,11 +99,13 @@ deps:
   softprops/action-gh-release:            "b4309332981a82ec1c5618f44dd2e27cc8bfbfda"  # v3.0.0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Reusable workflow catalog (consumed via `uses: openCI/.github/workflows/<id>.yml@<ref>`)
+# Reusable workflow catalog (consumed via `uses: YiAgent/OpenCI/.github/workflows/reusable/<id>.yml@<ref>`)
+# Public surface = 9 unprefixed reusables under .github/workflows/reusable/.
+# Underscore-prefixed siblings are private implementation files.
 # ─────────────────────────────────────────────────────────────────────────────
 workflows:
   - id: claude-harness
-    path: .github/workflows/claude-harness.yml
+    path: .github/workflows/reusable/agent.yml
     description: AI execution engine — single entrypoint for every Claude call.
     inputs:
       task:         { type: string, required: true }
@@ -118,7 +120,7 @@ workflows:
       anthropic-api-key: { required: true }
 
   - id: pr
-    path: .github/workflows/pr.yml
+    path: .github/workflows/reusable/pr.yml
     description: PR quality gate (lint / test / scan / optional AI review).
     inputs:
       language:              { type: string, default: "" }
@@ -135,7 +137,7 @@ workflows:
       release-pat:       { required: false, description: "PAT for Copilot review (enable-copilot-review: true)." }
 
   - id: ci
-    path: .github/workflows/ci.yml
+    path: .github/workflows/reusable/ci.yml
     description: Merge-to-main build and smoke pipeline.
     inputs:
       language:           { type: string, default: "" }
@@ -151,7 +153,7 @@ workflows:
       anthropic-api-key:  { required: false }
 
   - id: stg
-    path: .github/workflows/stg.yml
+    path: .github/workflows/reusable/deploy.yml
     description: Staging deploy.
     inputs:
       image-digest:   { type: string, required: true }
@@ -167,7 +169,7 @@ workflows:
       slack-webhook-url:  { required: false }
 
   - id: prd
-    path: .github/workflows/prd.yml
+    path: .github/workflows/reusable/deploy.yml
     description: Production release with pre-check window.
     inputs:
       image-digest:        { type: string, required: true }
@@ -184,7 +186,7 @@ workflows:
       slack-webhook-url:  { required: false }
 
   - id: security-schedule
-    path: .github/workflows/security-schedule.yml
+    path: .github/workflows/reusable/security.yml
     description: Weekly full security scan.
     inputs:
       image-ref: { type: string, required: false }
@@ -192,7 +194,7 @@ workflows:
       snyk-token: { required: false }
 
   - id: issue
-    path: .github/workflows/issue.yml
+    path: .github/workflows/reusable/issue.yml
     description: >-
       Unified issue domain — issue lifecycle (auto-label / ai-triage /
       detect-duplicates / auto-assign), slash-command handling, Linear
@@ -204,12 +206,12 @@ workflows:
       linear-token:      { required: false }
 
   - id: community
-    path: .github/workflows/community.yml
+    path: .github/workflows/reusable/issue.yml
     description: New-contributor welcome plus PR/Issue cross-link checks.
     secrets: {}
 
   - id: stale
-    path: .github/workflows/stale.yml
+    path: .github/workflows/reusable/issue.yml
     description: Auto-mark and auto-close stale Issues/PRs.
     inputs:
       issue-stale-days: { type: number, default: 60 }
@@ -219,7 +221,7 @@ workflows:
     secrets: {}
 
   - id: docs
-    path: .github/workflows/docs.yml
+    path: .github/workflows/reusable/docs.yml
     description: >-
       Unified docs domain — link-check + optional build on PR; build +
       Pages publish on main push (and via dispatch / workflow_call).
@@ -230,7 +232,7 @@ workflows:
     secrets: {}
 
   - id: health-report
-    path: .github/workflows/health-report.yml
+    path: .github/workflows/reusable/agent.yml
     description: Scheduled health report (collect → synthesize → publish).
     secrets:
       anthropic-api-key:   { required: true }
@@ -243,18 +245,18 @@ workflows:
       slack-webhook-url:   { required: false }
 
   - id: dep-auto-merge
-    path: .github/workflows/dep-auto-merge.yml
+    path: .github/workflows/reusable/deps.yml
     description: Auto-merge Renovate patch-labelled dependency PRs.
     secrets: {}
 
   - id: flag-audit
-    path: .github/workflows/flag-audit.yml
+    path: .github/workflows/reusable/security.yml
     description: Weekly feature-flag audit — scans codebase and files tech-debt issues.
     secrets:
       anthropic-api-key: { required: false }
 
   - id: pr-agent
-    path: .github/workflows/pr-agent.yml
+    path: .github/workflows/reusable/pr.yml
     description: >-
       Unified PR-agent domain — sticky CI summary (workflow_run),
       @-mention agent feedback on failure, @docubot Q&A reply, and
@@ -268,7 +270,7 @@ workflows:
       anthropic-api-key: { required: false }
 
   - id: prd-observe
-    path: .github/workflows/prd-observe.yml
+    path: .github/workflows/reusable/deploy.yml
     description: >-
       Unified post-deploy observability — 3σ canary watch (every 15 min),
       daily Terraform drift check, and Sentry fix verification (workflow_run
@@ -281,7 +283,7 @@ workflows:
       sentry-token: { required: false }
 
   - id: stg-agent-test
-    path: .github/workflows/stg-agent-test.yml
+    path: .github/workflows/reusable/deploy.yml
     description: Autonomous L1–L4 agent tests triggered after staging deploy.
     inputs:
       health-url:   { type: string, required: false, default: "" }
@@ -290,7 +292,7 @@ workflows:
       anthropic-api-key: { required: false }
 
   - id: release
-    path: .github/workflows/release.yml
+    path: .github/workflows/reusable/release.yml
     description: >-
       Unified release — marketplace tagging (GitHub Release + floating
       v<major>/v<minor>) and Docker image release with cosign keyless

@@ -101,6 +101,13 @@ on:
       slack-webhook:
         description: "Slack webhook URL available to Claude as SLACK_WEBHOOK_URL env var."
         required: false
+      sentry-token:        { required: false }
+      datadog-api-key:     { required: false }
+      datadog-app-key:     { required: false }
+      posthog-api-key:     { required: false }
+      langsmith-api-key:   { required: false }
+      axiom-token:         { required: false }
+      slack-webhook-url:   { required: false }
     outputs:
       execution-file:
         description: Claude Code execution output file path.
@@ -248,3 +255,25 @@ jobs:
           mcp-config:             ${{ inputs.mcp-config }}
           use-sticky-comment:     ${{ inputs.use-sticky-comment }}
           extra-env:              ${{ inputs.extra-env }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # health-digest — routes to _health-report.yml when task=health-digest.
+  # Daily multi-source observability synthesis (collect → merge →
+  # synthesise via Claude → publish issue + Slack).
+  # ──────────────────────────────────────────────────────────────────────
+  health-digest:
+    if: ${{ inputs.task == 'health-digest' }}
+    uses: ./.github/workflows/reusable/_health-report.yml
+    with:
+      model:      ${{ inputs.model }}
+      openci-ref: ${{ inputs.openci-ref }}
+    secrets:
+      api-base-url:      ${{ secrets.api-base-url }}
+      anthropic-api-key: ${{ secrets.api-key }}
+      sentry-token:      ${{ secrets.sentry-token }}
+      datadog-api-key:   ${{ secrets.datadog-api-key }}
+      datadog-app-key:   ${{ secrets.datadog-app-key }}
+      posthog-api-key:   ${{ secrets.posthog-api-key }}
+      langsmith-api-key: ${{ secrets.langsmith-api-key }}
+      axiom-token:       ${{ secrets.axiom-token }}
+      slack-webhook-url: ${{ secrets.slack-webhook-url }}

@@ -1,23 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# flag-audit.yml — weekly feature-flag audit (reusable workflow).
+# stg-agent-test.yml — autonomous L1-L4 tests after stg deploy (reusable).
 # ─────────────────────────────────────────────────────────────────────────────
-# Cron: Monday 23:00 Beijing = UTC 15:00. Walks the codebase for flag
-# references, hands a summary to Claude, files a tech-debt issue.
-#
-# Consumers: call via workflow_call, or schedule independently.
+# Triggered by stg.yml completion. Runs all 4 levels in parallel; each
+# level's findings land as an artifact for downstream review.
 # ─────────────────────────────────────────────────────────────────────────────
-name: flag-audit
+name: stg-agent-test
 
 on:
-  schedule:
-    - cron: "0 15 * * 1"
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
   workflow_call:
     inputs:
       model:
@@ -30,6 +19,16 @@ on:
         required: false
         type: string
         default: main
+      health-url:
+        description: "Staging health endpoint URL (falls back to STG_HEALTH_URL repo var)."
+        type: string
+        required: false
+        default: ""
+      image-digest:
+        description: "Docker image digest for this staging deploy."
+        type: string
+        required: false
+        default: ""
     secrets:
       api-base-url:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
@@ -40,18 +39,22 @@ on:
 permissions: {}
 
 concurrency:
-  group: flag-audit
+  group: stg-agent-test-${{ github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
-  audit:
-    name: Flag Audit
+  test:
+    name: Agent Test (L${{ matrix.level }})
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
-      issues: write
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [1, 2, 3, 4]
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -81,9 +84,29 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/_common/flag-audit
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Agent Test Skipped::ANTHROPIC_API_KEY missing"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.skip != 'true'
+        uses: ./.openci/actions/stg/agent-test
         with:
-          github-token:      ${{ github.token }}
+          level:             ${{ matrix.level }}
+          health-url:        ${{ inputs.health-url || github.event.inputs.health-url || vars.STG_HEALTH_URL }}
+          image-digest:      ${{ inputs.image-digest || github.event.inputs.image-digest || vars.STG_IMAGE_DIGEST || 'unknown' }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
           api-base-url:      ${{ secrets.api-base-url }}
           model:             ${{ inputs.model }}
+      - if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: agent-test-L${{ matrix.level }}
+          path: triage/agent-test/
+          retention-days: 14

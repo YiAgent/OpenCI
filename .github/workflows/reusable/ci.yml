@@ -392,3 +392,10 @@ jobs:
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
           api-base-url:      ${{ secrets.api-base-url }}
           model:             ${{ inputs.model }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # verify-sha — manifest SHA drift check (script in .github/scripts).
+  # Same script is also exposed via reusable/security.yml mode=verify-sha.
+  # ──────────────────────────────────────────────────────────────────────
+  verify-sha:
+    uses: ./.github/workflows/reusable/_verify-sha-consistency.yml

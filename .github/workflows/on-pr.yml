@@ -1,0 +1,85 @@
+# on-pr.yml — event entry for the PR domain.
+# Routes:
+#   pull_request:[opened,synchronize,reopened,ready_for_review] -> reusable/pr.yml (deterministic checks + ai-review)
+#   pull_request:[opened,synchronize]                            -> reusable/pr.yml with pr-agent-mode=test-gen
+#   workflow_run:[on-pr,on-ci] success                           -> reusable/pr.yml with pr-agent-mode=summarise
+#   workflow_run:[on-pr,on-ci] failure                           -> reusable/pr.yml with pr-agent-mode=feedback
+#   issue_comment:[created] containing @docubot                  -> reusable/pr.yml with pr-agent-mode=docubot
+name: on-pr
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_run:
+    workflows: [on-pr, on-ci]
+    types: [completed]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: on-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/reusable/pr.yml
+    with:
+      enable-ai-review: true
+      enable-eval:      false
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      codecov-token:     ${{ secrets.CODECOV_TOKEN }}
+      sonar-token:       ${{ secrets.SONAR_TOKEN }}
+      snyk-token:        ${{ secrets.SNYK_TOKEN }}
+      release-pat:       ${{ secrets.RELEASE_PAT }}
+
+  test-gen:
+    if: github.event_name == 'pull_request' && github.event.action != 'reopened'
+    uses: ./.github/workflows/reusable/pr.yml
+    with:
+      pr-agent-mode: test-gen
+      pr-number:     ${{ github.event.pull_request.number }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+
+  summarise:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/reusable/pr.yml
+    with:
+      pr-agent-mode:   summarise
+      extra-workflows: on-pr,on-ci
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+
+  feedback:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' }}
+    uses: ./.github/workflows/reusable/pr.yml
+    with:
+      pr-agent-mode: feedback
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+
+  docubot:
+    if: >-
+      github.event_name == 'issue_comment'
+      && github.event.issue.pull_request != null
+      && contains(github.event.comment.body, '@docubot')
+    uses: ./.github/workflows/reusable/pr.yml
+    with:
+      pr-agent-mode: docubot
+      pr-number:     ${{ github.event.issue.number }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}

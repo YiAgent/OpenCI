@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# security.yml — unified security domain (reusable workflow).
+# ─────────────────────────────────────────────────────────────────────────────
+# Public entry point for the security domain. Routes by mode input:
+#   mode=full        -> _security-schedule.yml (CodeQL, Snyk, image, SBOM, scorecard)
+#   mode=flag-audit  -> _flag-audit.yml         (Claude-driven feature-flag audit)
+#   mode=verify-sha  -> _verify-sha-consistency.yml (manifest SHA drift check)
+#
+# The verify-sha mode is also called from reusable/ci.yml as a job, so
+# every push-to-main and every PR exercises the same script. The script
+# itself lives at .github/scripts/verify-sha-consistency.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+name: security
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: full | flag-audit | verify-sha
+        required: false
+        type: string
+        default: full
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; pin a tag in production).
+        required: false
+        type: string
+        default: main
+      model:
+        description: Override the AI model name (used by flag-audit). Defaults to the Anthropic Claude model when empty.
+        required: false
+        type: string
+        default: ''
+      image-ref:
+        description: Optional image to scan (registry/owner/name@sha256). Used by mode=full.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      anthropic-api-key: { required: false }
+      api-base-url:      { required: false }
+      snyk-token:        { required: false }
+
+permissions: {}
+
+jobs:
+  full:
+    if: ${{ inputs.mode == 'full' }}
+    uses: ./.github/workflows/reusable/_security-schedule.yml
+    with:
+      openci-ref: ${{ inputs.openci-ref }}
+      image-ref:  ${{ inputs.image-ref }}
+    secrets:
+      snyk-token: ${{ secrets.snyk-token }}
+
+  flag-audit:
+    if: ${{ inputs.mode == 'flag-audit' || inputs.mode == 'full' }}
+    uses: ./.github/workflows/reusable/_flag-audit.yml
+    with:
+      model:      ${{ inputs.model }}
+      openci-ref: ${{ inputs.openci-ref }}
+    secrets:
+      api-base-url:      ${{ secrets.api-base-url }}
+      anthropic-api-key: ${{ secrets.anthropic-api-key }}
+
+  verify-sha:
+    if: ${{ inputs.mode == 'verify-sha' }}
+    uses: ./.github/workflows/reusable/_verify-sha-consistency.yml

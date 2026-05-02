@@ -1,0 +1,69 @@
+# on-security.yml — event entry for the security domain.
+# Runs the full sweep weekly + flag-audit weekly + verify-sha on PR/push.
+name: on-security
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"        # Monday 02:00 UTC — full sweep
+    - cron: "0 15 * * 1"       # Monday 23:00 BJT — flag-audit
+  pull_request:
+    paths:
+      - "manifest.yml"
+      - "marketplace.json"
+      - "actions/**/action.yml"
+      - ".github/workflows/**.yml"
+  push:
+    branches: [main]
+    paths:
+      - "manifest.yml"
+      - "marketplace.json"
+      - "actions/**/action.yml"
+      - ".github/workflows/**.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: false
+        type: string
+        default: full
+
+permissions: {}
+
+concurrency:
+  group: on-security-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 2 * * 1' }}
+    uses: ./.github/workflows/reusable/security.yml
+    with:
+      mode:      full
+      image-ref: ${{ vars.IMAGE_REF }}
+    secrets:
+      snyk-token: ${{ secrets.SNYK_TOKEN }}
+
+  flag-audit:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 15 * * 1' }}
+    uses: ./.github/workflows/reusable/security.yml
+    with:
+      mode: flag-audit
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+
+  verify-sha:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    uses: ./.github/workflows/reusable/security.yml
+    with:
+      mode: verify-sha
+
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/reusable/security.yml
+    with:
+      mode:      ${{ inputs.mode }}
+      image-ref: ${{ vars.IMAGE_REF }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      snyk-token:        ${{ secrets.SNYK_TOKEN }}

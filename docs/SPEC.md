@@ -55,7 +55,7 @@
 本仓库是一个 GitHub Actions 共享库,提供三层可复用单元:
 
 - **主工作流（Reusable Workflow）**：完整的阶段流水线，调用方一行引入  
-  `uses: org/openCI/.github/workflows/pr.yml@v2`
+  `uses: org/openCI/.github/workflows/reusable/pr.yml@v3`
 - **Composite Action**：阶段内的组合逻辑，封装多个原子  
   `uses: org/openCI/actions/pr/lint-code@v2`
 - **原子 Action**：最小职责单元，单一功能，明确输入输出  
@@ -226,7 +226,7 @@ version: "1.7"
 # ─────────────────────────────────────────────────────────────────────────────
 # 第三方依赖 SHA 注册表(仅已验证条目)
 # 更新方式:Renovate Bot 自动提 PR + 人工 review,或手动 PR
-# 校验:.github/workflows/verify-sha-consistency.yml(每个 PR 触发)
+# 校验:.github/workflows/reusable/security.yml(每个 PR 触发)
 # ─────────────────────────────────────────────────────────────────────────────
 deps:
   # ── GitHub 官方(全部已验证) ──────────────────────────────────────────
@@ -299,7 +299,7 @@ deps:
 # ─────────────────────────────────────────────────────────────────────────────
 workflows:
   - id: claude-harness
-    path: .github/workflows/claude-harness.yml
+    path: .github/workflows/reusable/agent.yml
     description: AI 执行引擎,所有 Claude 调用的唯一入口
     inputs:
       task: { type: string, required: true }
@@ -314,7 +314,7 @@ workflows:
       anthropic-api-key: { required: true }
 
   - id: pr
-    path: .github/workflows/pr.yml
+    path: .github/workflows/reusable/pr.yml
     description: PR 质量门
     inputs:
       language: { type: string, default: "" }
@@ -329,7 +329,7 @@ workflows:
       snyk-token: { required: false }
 
   - id: ci
-    path: .github/workflows/ci.yml
+    path: .github/workflows/reusable/ci.yml
     description: Merge to main 构建与冒烟
     inputs:
       language: { type: string, default: "" }
@@ -345,7 +345,7 @@ workflows:
       anthropic-api-key: { required: false }
 
   - id: stg
-    path: .github/workflows/stg.yml
+    path: .github/workflows/reusable/deploy.yml
     description: Staging 部署
     inputs:
       image-digest: { type: string, required: true }
@@ -361,7 +361,7 @@ workflows:
       slack-webhook-url: { required: false }
 
   - id: prd
-    path: .github/workflows/prd.yml
+    path: .github/workflows/reusable/deploy.yml
     description: 生产发布（含 pre-check）
     inputs:
       image-digest: { type: string, required: true }
@@ -378,7 +378,7 @@ workflows:
       slack-webhook-url: { required: false }
 
   - id: security-schedule
-    path: .github/workflows/security-schedule.yml
+    path: .github/workflows/reusable/security.yml
     description: 每周全量安全扫描
     inputs:
       image-ref: { type: string, required: false }
@@ -387,7 +387,7 @@ workflows:
 
   # ── 完整工作流目录 ────────────────────────────────────────────────
   - id: issue
-    path: .github/workflows/issue.yml
+    path: .github/workflows/reusable/issue.yml
     description: Issue 生命周期管理(auto-label / ai-triage / detect-duplicates)
     secrets:
       anthropic-api-key: { required: false }
@@ -398,12 +398,12 @@ workflows:
     secrets: {}
 
   - id: community
-    path: .github/workflows/community.yml
+    path: .github/workflows/reusable/issue.yml
     description: 新贡献者欢迎 + PR/Issue 联动检查
     secrets: {}
 
   - id: stale
-    path: .github/workflows/stale.yml
+    path: .github/workflows/reusable/issue.yml
     description: 过期 Issue/PR 自动标记与关闭
     inputs:
       issue-stale-days: { type: number, default: 60 }
@@ -428,7 +428,7 @@ workflows:
     secrets: {}
 
   - id: health-report
-    path: .github/workflows/health-report.yml
+    path: .github/workflows/reusable/agent.yml
     description: 定时健康日报(collect → synthesize → publish)
     secrets:
       anthropic-api-key: { required: true }
@@ -1037,7 +1037,7 @@ GitHub 与 Linear 双向同步走官方 Linear GitHub App,OpenCI 不重造。仅
 
 定时从外部服务拉数据 + Claude 合成日报,三步走:
 
-`.github/workflows/health-report.yml`:
+`.github/workflows/reusable/agent.yml`:
 
 **触发**:`schedule: cron: '0 1 * * 1-5'`(工作日北京 09:00)+ `workflow_dispatch`。
 
@@ -1401,7 +1401,7 @@ template: |
   
   ## 消费方升级
   ```yaml
-  uses: org/openCI/.github/workflows/pr.yml@v$MAJOR_VERSION
+  uses: org/openCI/.github/workflows/reusable/pr.yml@v$MAJOR_VERSION
   ```
 categories:
   - title: '破坏性变更'
@@ -1426,7 +1426,7 @@ version-resolver:
 ### 15.1 最简集成(Node.js)
 
 ```yaml
-# .github/workflows/pr.yml（消费方仓库）
+# .github/workflows/reusable/pr.yml（消费方仓库）
 name: PR
 on:
   pull_request:
@@ -1434,7 +1434,7 @@ on:
 
 jobs:
   quality:
-    uses: your-org/openCI/.github/workflows/pr.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/pr.yml@v3
     with:
       enable-ai-review: true
     secrets:
@@ -1447,7 +1447,7 @@ jobs:
 > **关于 outputs 的语法注意**:消费方调用 reusable workflow 时,**job 不需要也不能在自己声明 `outputs:` 段**——reusable workflow 的 outputs 由它自身的 `on.workflow_call.outputs` 声明,调用方通过 `needs.<job-id>.outputs.<key>` 直接读取。下面示例已修正。
 
 ```yaml
-# .github/workflows/ci.yml（消费方仓库）
+# .github/workflows/reusable/ci.yml（消费方仓库）
 name: CI & Deploy
 on:
   push:
@@ -1456,7 +1456,7 @@ on:
 jobs:
   build:
     # 调用 OpenCI 的 ci.yml,outputs 由该 reusable workflow 内部定义
-    uses: your-org/openCI/.github/workflows/ci.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/ci.yml@v3
     with:
       image-name: my-app
       run-migration: true
@@ -1465,7 +1465,7 @@ jobs:
 
   deploy-stg:
     needs: build
-    uses: your-org/openCI/.github/workflows/stg.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/deploy.yml@v3
     with:
       # 通过 needs.<job>.outputs.<key> 读取上游 reusable workflow 的输出
       image-digest: ${{ needs.build.outputs.image-digest }}
@@ -1475,7 +1475,7 @@ jobs:
 
   deploy-prd:
     needs: [build, deploy-stg]
-    uses: your-org/openCI/.github/workflows/prd.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/deploy.yml@v3
     with:
       image-digest: ${{ needs.build.outputs.image-digest }}
       stg-image-digest: ${{ needs.build.outputs.image-digest }}
@@ -1491,7 +1491,7 @@ jobs:
 ```yaml
 jobs:
   quality:
-    uses: your-org/openCI/.github/workflows/pr.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/pr.yml@v3
     with:
       pr-review-prompt-path: .agents/skills/my-project-review.md
 ```
@@ -1501,7 +1501,7 @@ jobs:
 ```yaml
 jobs:
   quality:
-    uses: your-org/openCI/.github/workflows/pr.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/pr.yml@v3
     with:
       enable-ai-review: true
       enable-eval: true          # prompt 变更时自动跑回归 eval
@@ -1509,7 +1509,7 @@ jobs:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
   build:
-    uses: your-org/openCI/.github/workflows/ci.yml@v2
+    uses: your-org/openCI/.github/workflows/reusable/ci.yml@v3
     with:
       image-name: my-ai-app
       enable-ai-smoke: true      # merge 后用真实镜像跑冒烟 eval
@@ -1919,7 +1919,7 @@ openCI-e2e/
 └── package.json
 ```
 
-**基础设施准备**(每个 e2e workflow 内部完成):前置 `setup-k8s` job 用 `helm/kind-action` 启 kind 集群,kind export kubeconfig 后 base64 编码 + `::add-mask::` 后塞到 step output;后续 `test-stg` job `needs: setup-k8s`,`uses: ./.github/workflows/stg.yml`,通过 `secrets.kubeconfig-stg: ${{ needs.setup-k8s.outputs.kubeconfig }}` 传递。
+**基础设施准备**(每个 e2e workflow 内部完成):前置 `setup-k8s` job 用 `helm/kind-action` 启 kind 集群,kind export kubeconfig 后 base64 编码 + `::add-mask::` 后塞到 step output;后续 `test-stg` job `needs: setup-k8s`,`uses: ./.github/workflows/reusable/deploy.yml`,通过 `secrets.kubeconfig-stg: ${{ needs.setup-k8s.outputs.kubeconfig }}` 传递。
 
 **关键基础设施组件**:
 
