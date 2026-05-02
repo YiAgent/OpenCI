@@ -175,14 +175,24 @@ jobs:
           persist-credentials: false
           token: ${{ secrets.github-token || github.token }}
 
-      # NOTE: cross-repo reusable workflows resolve `./` against the *calling*
-      # repo's checkout, not OpenCI's. We therefore reference the composite by
-      # full repo path so EvolveCI (and any other consumer) can pull it in
-      # without first vendoring the action. Internal OpenCI workflows that use
-      # the composite directly (e.g. pr-agent-test-gen) keep using `./`.
+      # Cross-repo reusable workflows resolve `./` against the calling repo's
+      # checkout, so a vanilla `./actions/_common/claude-harness` won't find
+      # OpenCI's composite when this workflow is called from EvolveCI etc.
+      # We therefore vendor OpenCI into `.openci/` at the same SHA the
+      # reusable workflow was invoked from, then reference the composite via
+      # a local path. Local refs satisfy verify-sha-consistency, and the SHA
+      # pin via `github.workflow_sha` keeps consumers reproducible.
+      - name: Vendor OpenCI source for the harness composite
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ github.workflow_sha }}
+          path: .openci
+          persist-credentials: false
+
       - name: Run claude-harness composite
         id: harness
-        uses: YiAgent/OpenCI/actions/_common/claude-harness@main
+        uses: ./.openci/actions/_common/claude-harness
         with:
           task:                   ${{ inputs.task }}
           prompt:                 ${{ inputs.prompt }}
