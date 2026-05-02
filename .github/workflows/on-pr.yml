@@ -1,25 +1,15 @@
-# on-pr.yml — event entry for the PR domain.
-# Routes:
-#   pull_request:[opened,synchronize,reopened,ready_for_review] -> reusable/pr.yml (deterministic checks + ai-review)
-#   pull_request:[opened,synchronize]                            -> reusable/pr.yml with pr-agent-mode=test-gen
-#   workflow_run:[on-pr,on-ci] success                           -> reusable/pr.yml with pr-agent-mode=summarise
-#   workflow_run:[on-pr,on-ci] failure                           -> reusable/pr.yml with pr-agent-mode=feedback
-#   issue_comment:[created] containing @docubot                  -> reusable/pr.yml with pr-agent-mode=docubot
+# on-pr.yml — event entry that fires the PR quality gate on every PR.
+# OpenCI no longer ships standalone "pr-agent" task workflows — consumers
+# write their own thin scheduled / event-driven workflows that call
+# agent.yml directly with task + prompt-path + context (see EvolveCI
+# repo for the canonical pattern). This shim only runs the deterministic
+# PR checks via pr.yml.
 name: on-pr
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_run:
-    workflows: [on-ci]
-    types: [completed]
-  issue_comment:
-    types: [created]
   workflow_dispatch:
-    inputs:
-      pr-number:
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -31,49 +21,14 @@ permissions:
   id-token: write
   statuses: write
   packages: read
+
 concurrency:
   group: on-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   checks:
-    if: github.event_name == 'pull_request'
     uses: ./.github/workflows/pr.yml
     with:
       enable-ai-review: true
-      enable-eval:      false
-    secrets: inherit
-
-  test-gen:
-    if: github.event_name == 'pull_request' && github.event.action != 'reopened'
-    uses: ./.github/workflows/pr.yml
-    with:
-      pr-agent-mode: test-gen
-      pr-number:     ${{ github.event.pull_request.number }}
-    secrets: inherit
-
-  summarise:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
-    uses: ./.github/workflows/pr.yml
-    with:
-      pr-agent-mode:   summarise
-      extra-workflows: on-pr,on-ci
-    secrets: inherit
-
-  feedback:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' }}
-    uses: ./.github/workflows/pr.yml
-    with:
-      pr-agent-mode: feedback
-    secrets: inherit
-
-  docubot:
-    if: >-
-      github.event_name == 'issue_comment'
-      && github.event.issue.pull_request != null
-      && contains(github.event.comment.body, '@docubot')
-    uses: ./.github/workflows/pr.yml
-    with:
-      pr-agent-mode: docubot
-      pr-number:     ${{ github.event.issue.number }}
     secrets: inherit

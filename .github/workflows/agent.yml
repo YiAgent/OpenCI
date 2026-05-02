@@ -256,8 +256,7 @@ jobs:
           use-sticky-comment:     ${{ inputs.use-sticky-comment }}
           extra-env:              ${{ inputs.extra-env }}
 
-# NOTE: agent.yml is the leaf AI primitive. Higher-level pipelines (e.g.
-# health-digest in _health-report.yml) call agent.yml for synthesis.
-# Routing health-digest INSIDE agent.yml would create a cycle that
-# GitHub's static workflow-depth check rejects, so on-agent.yml
-# dispatches _health-report.yml directly when task=health-digest.
+# agent.yml is the leaf AI primitive. There are no task-specific reusable
+# workflows in OpenCI — consumers compose data collection + agent.yml
+# invocation in their own workflow files (see EvolveCI's
+# agent-{daily,weekly,heartbeat,triage}.yml for the canonical pattern).

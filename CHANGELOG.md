@@ -26,10 +26,10 @@ External consumers MUST update `uses:` references:
 | `YiAgent/OpenCI/.github/workflows/docs.yml@v2` | `YiAgent/OpenCI/.github/workflows/docs.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/dep-auto-merge.yml@v2` | `YiAgent/OpenCI/.github/workflows/deps.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/claude-harness.yml@v2` | `YiAgent/OpenCI/.github/workflows/agent.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/health-report.yml@v2` | `YiAgent/OpenCI/.github/workflows/agent.yml@v3` (with `task: health-digest`) |
+| `YiAgent/OpenCI/.github/workflows/health-report.yml@v2` | DROPPED — write your own data-collect job + call `agent.yml` with `task: health-digest`, `prompt-path: .openci/skills/observability/daily-health-report/SKILL.md` (see EvolveCI's `agent-daily.yml` for canonical pattern) |
 | `YiAgent/OpenCI/.github/workflows/community.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: welcome`) |
 | `YiAgent/OpenCI/.github/workflows/stale.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: stale`) |
-| `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | `YiAgent/OpenCI/.github/workflows/pr.yml@v3` (with `pr-agent-mode: …`) |
+| `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | DROPPED — write your own thin event-driven workflow that calls `agent.yml` with the right `task` + `prompt-path` (e.g. `.openci/skills/pr-review/SKILL.md`); see EvolveCI's pattern |
 | `YiAgent/OpenCI/.github/workflows/verify-sha-consistency.yml@v2` | `YiAgent/OpenCI/.github/workflows/security.yml@v3` (with `mode: verify-sha`) — also a job inside `reusable/ci.yml` |
 
 **Why:** OpenCI now has two clear identities — (1) a normal project that
