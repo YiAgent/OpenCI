@@ -6,85 +6,99 @@
   },
   "metadata": {
     "description": "CI/CD skills for OpenCI workflow library",
-    "version": "1.7"
+    "version": "1.8"
   },
   "plugins": [
     {
       "name": "pr-review",
       "source": "./skills/pr-review",
-      "description": "Review pull requests for bugs, regressions, security risks, and missing tests.",
+      "description": "Review pull requests for bugs, regressions, security risks, and missing tests. Enhanced with security-first differential review and blast-radius analysis.",
       "category": "code-quality",
-      "keywords": ["review", "pr", "code-review"]
+      "keywords": ["review", "pr", "code-review", "security", "differential"]
     },
     {
       "name": "pr-test-gen",
       "source": "./skills/pr-test-gen",
-      "description": "Generate test cases for newly added functions and classes in a PR diff.",
+      "description": "Generate test cases for newly added functions and classes in a PR diff. Enhanced with TDD workflow, property-based testing, and E2E patterns.",
       "category": "testing",
-      "keywords": ["test", "generation", "coverage"]
+      "keywords": ["test", "generation", "coverage", "tdd", "property-based"]
     },
     {
       "name": "issue-triage",
       "source": "./skills/issue-triage",
-      "description": "Classify and prioritize newly opened issues with labels, priority, and next actions.",
+      "description": "Classify and prioritize newly opened issues with labels, priority, and next actions. Enhanced with complexity estimation and decomposition suggestions.",
       "category": "productivity",
-      "keywords": ["triage", "issue", "classify"]
+      "keywords": ["triage", "issue", "classify", "complexity", "decompose"]
     },
     {
       "name": "ci-smoke-eval",
       "source": "./skills/ci-smoke-eval",
-      "description": "Run smoke evaluation against a freshly built Docker image.",
+      "description": "Run smoke evaluation against a freshly built Docker image. Enhanced with eval-harness metrics, browser smoke checks, and flakiness detection.",
       "category": "testing",
-      "keywords": ["smoke", "ci", "docker", "eval"]
+      "keywords": ["smoke", "ci", "docker", "eval", "browser", "flaky"]
     },
     {
       "name": "stg-agent-test",
       "source": "./skills/stg-agent-test",
-      "description": "Run L1-L4 autonomous tests against a staging deployment.",
+      "description": "Run L1-L4 autonomous tests against a staging deployment. Enhanced with Playwright browser automation, visual regression, and accessibility testing.",
       "category": "testing",
-      "keywords": ["staging", "test", "deploy", "autonomous"]
+      "keywords": ["staging", "test", "deploy", "autonomous", "playwright", "a11y"]
     },
     {
       "name": "ops-error-triage",
       "source": "./skills/ops-error-triage",
-      "description": "Deduplicate Sentry errors against existing GitHub issues and decide whether to file new ones.",
+      "description": "Deduplicate Sentry errors against existing GitHub issues and decide whether to file new ones. Enhanced with deploy correlation and canary monitoring.",
       "category": "monitoring",
-      "keywords": ["sentry", "error", "triage", "dedup"]
+      "keywords": ["sentry", "error", "triage", "dedup", "canary", "deploy"]
     },
     {
       "name": "ops-summarize-failure",
       "source": "./skills/ops-summarize-failure",
-      "description": "Summarize a CI failure into a single sentence for on-call engineers.",
+      "description": "Summarize a CI failure into a single sentence for on-call engineers. Enhanced with runbook generation and structured failure analysis.",
       "category": "monitoring",
-      "keywords": ["failure", "ci", "summary", "oncall"]
+      "keywords": ["failure", "ci", "summary", "oncall", "runbook"]
     },
     {
       "name": "ops-flag-audit",
       "source": "./skills/ops-flag-audit",
-      "description": "Audit feature flags against the live registry and identify cleanup candidates.",
+      "description": "Audit feature flags against the live registry and identify cleanup candidates. Enhanced with lifecycle analysis and evidence-based prioritization.",
       "category": "utilities",
-      "keywords": ["feature-flag", "audit", "cleanup"]
+      "keywords": ["feature-flag", "audit", "cleanup", "lifecycle"]
     },
     {
       "name": "observability-health-report",
       "source": "./skills/observability-health-report",
-      "description": "Synthesize a daily health report from telemetry data (Sentry, metrics, deploys, alerts).",
+      "description": "Synthesize a daily health report from telemetry data. Enhanced with SLI/SLO framework, golden signals, and burn-rate analysis.",
       "category": "monitoring",
-      "keywords": ["health", "report", "observability", "telemetry"]
+      "keywords": ["health", "report", "observability", "telemetry", "slo", "sli"]
     },
     {
       "name": "agents-ai-changelog",
       "source": "./skills/agents-ai-changelog",
-      "description": "Generate release notes in Keep a Changelog style from commit history.",
+      "description": "Generate release notes in Keep a Changelog style from commit history. Enhanced with breaking change detection and PR enrichment.",
       "category": "documentation",
-      "keywords": ["changelog", "release", "notes"]
+      "keywords": ["changelog", "release", "notes", "breaking-changes"]
     },
     {
       "name": "agents-docubot",
       "source": "./skills/agents-docubot",
-      "description": "Answer questions about repository documentation and source code with cited file paths.",
+      "description": "Answer questions about repository documentation and source code with cited file paths. Enhanced with Context7 lookup and codebase onboarding.",
       "category": "documentation",
-      "keywords": ["docubot", "docs", "question", "documentation"]
+      "keywords": ["docubot", "docs", "question", "documentation", "context7"]
+    },
+    {
+      "name": "security-audit",
+      "source": "./skills/security-audit",
+      "description": "Perform comprehensive security audits of code changes or full codebase. Covers OWASP Top 10, secrets, injection, auth, and dependency vulnerabilities.",
+      "category": "security",
+      "keywords": ["security", "audit", "owasp", "vulnerability", "secrets"]
+    },
+    {
+      "name": "deployment-patterns",
+      "source": "./skills/deployment-patterns",
+      "description": "Review and generate deployment configurations: Docker, docker-compose, CI/CD pipelines, health checks, and rollback strategies.",
+      "category": "devops",
+      "keywords": ["deployment", "docker", "ci-cd", "kubernetes", "health-check"]
     }
   ]
 }
