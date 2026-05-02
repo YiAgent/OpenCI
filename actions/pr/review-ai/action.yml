@@ -27,6 +27,10 @@ inputs:
   anthropic-api-key:
     description: ANTHROPIC_API_KEY (caller forwards from secrets).
     required: true
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy)
 
 runs:
   using: composite
@@ -60,3 +64,4 @@ runs:
         model:        ${{ inputs.model }}
         max-turns:    ${{ inputs.max-turns }}
         api-key:      ${{ inputs.anthropic-api-key }}
+        api-base-url: ${{ inputs.api-base-url }}

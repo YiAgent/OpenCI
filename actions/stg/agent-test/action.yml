@@ -16,6 +16,15 @@ inputs:
   image-digest: { required: true,  description: Deployed image digest }
   anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
 
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy)
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
+
 runs:
   using: composite
   steps:
@@ -45,6 +54,8 @@ runs:
         max-turns: "10"
         api-key:   ${{ inputs.anthropic-api-key }}
 
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
     - name: Stage findings
       shell: bash
       env:

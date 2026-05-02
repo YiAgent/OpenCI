@@ -25,6 +25,11 @@ name: prd
 on:
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
@@ -65,6 +70,12 @@ on:
         required: false
         default: false
     secrets:
+      anthropic-api-key:
+        description: Anthropic-compatible API key (Claude, GLM, OpenRouter, etc.) — used by AI changelog in create-release.
+        required: false
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        required: false
       kubeconfig-prd:
         required: true
       slack-webhook-url:
@@ -417,7 +428,10 @@ jobs:
           persist-credentials: false
       - uses: ./.openci/actions/prd/create-release
         with:
-          github-token: ${{ github.token }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
 
   notify-observability:
     name: Notify Observability

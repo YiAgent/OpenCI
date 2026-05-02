@@ -20,6 +20,11 @@ name: ci
 on:
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
@@ -45,6 +50,9 @@ on:
         required: false
         default: false
     secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        required: false
       registry-token:
         required: true
       anthropic-api-key:
@@ -382,3 +390,5 @@ jobs:
         with:
           image-digest:      ${{ needs.build-docker.outputs.image-digest }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}

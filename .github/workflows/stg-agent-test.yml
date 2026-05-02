@@ -21,6 +21,11 @@ on:
       image-digest: { required: false, description: Image digest }
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
@@ -37,6 +42,9 @@ on:
         required: false
         default: ""
     secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        required: false
       anthropic-api-key:
         required: false
 
@@ -106,7 +114,8 @@ jobs:
           health-url:        ${{ inputs.health-url || github.event.inputs.health-url || vars.STG_HEALTH_URL }}
           image-digest:      ${{ inputs.image-digest || github.event.inputs.image-digest || vars.STG_IMAGE_DIGEST || 'unknown' }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
-
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
       - if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:

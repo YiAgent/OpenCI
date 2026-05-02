@@ -51,6 +51,11 @@ on:
         type: string
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
@@ -72,6 +77,9 @@ on:
         default: ""
         description: Space-separated extra workflows to include in the summary table
     secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        required: false
       anthropic-api-key:
         required: false
 
@@ -314,7 +322,8 @@ jobs:
           run-id:            ${{ github.event.workflow_run.id }}
           github-token:      ${{ github.token }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
-
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
       - name: Build comment body
         if: steps.id.outputs.agent-type != 'none'
         id: body
@@ -432,6 +441,8 @@ jobs:
           number:            ${{ github.event.issue.number }}
           github-token:      ${{ github.token }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
 
   # ── pull_request → scaffold tests as artifact ──────────────────────────
   test-gen:
@@ -492,3 +503,5 @@ jobs:
           pr-number:         ${{ github.event.pull_request.number || github.event.inputs.pr-number || inputs.pr-number }}
           github-token:      ${{ github.token }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}

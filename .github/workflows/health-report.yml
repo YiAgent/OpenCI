@@ -26,12 +26,20 @@ on:
         default: main
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
         type: string
         default: main
     secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        required: false
       anthropic-api-key:
         required: true
       sentry-token:
@@ -267,8 +275,10 @@ jobs:
     with:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
+      model:   ${{ inputs.model }}
     secrets:
       api-key:       ${{ secrets.anthropic-api-key }}
+      api-base-url:  ${{ secrets.api-base-url }}
       slack-webhook: ${{ secrets.slack-webhook-url }}
 
   publish:
