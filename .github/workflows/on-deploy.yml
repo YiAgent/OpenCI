@@ -34,8 +34,14 @@ on:
         type: string
         default: canary-watch
 
-permissions: {}
-
+permissions:
+  contents: write
+  packages: read
+  id-token: write
+  pull-requests: write
+  issues: write
+  deployments: write
+  actions: read
 concurrency:
   group: on-deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
   cancel-in-progress: false

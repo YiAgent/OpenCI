@@ -13,8 +13,10 @@ on:
       - "**/*.md"
   workflow_dispatch:
 
-permissions: {}
-
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 concurrency:
   group: on-docs-${{ github.ref }}
   cancel-in-progress: false

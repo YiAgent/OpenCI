@@ -26,8 +26,13 @@ on:
         type: string
         default: full
 
-permissions: {}
-
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+  id-token: write
+  issues: write
+  actions: read
 concurrency:
   group: on-security-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false

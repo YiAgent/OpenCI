@@ -6,8 +6,9 @@ on:
     types: [opened, labeled, synchronize, reopened]
   workflow_dispatch:
 
-permissions: {}
-
+permissions:
+  contents: write
+  pull-requests: write
 concurrency:
   group: on-deps-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
