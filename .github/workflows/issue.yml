@@ -96,11 +96,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
       - uses: ./.openci/actions/issue/auto-label
@@ -126,11 +137,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
       - uses: ./.openci/actions/issue/detect-duplicates
@@ -156,11 +178,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
       - name: Skip when ANTHROPIC_API_KEY missing
@@ -200,11 +233,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
       - uses: ./.openci/actions/issue/auto-assign
@@ -229,11 +273,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
 
@@ -267,11 +322,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
 
@@ -321,11 +387,22 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: YiAgent/OpenCI
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
       - uses: ./.openci/actions/_common/error-triage
