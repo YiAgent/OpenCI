@@ -39,9 +39,7 @@ runs:
         title="Daily Health Report - ${date}"
         # GitHub issue body limit 65535; truncate generously and append a hint.
         if [ "${#BODY}" -gt 60000 ]; then
-          BODY="${BODY:0:60000}
-
-…(truncated, see workflow run for full report)"
+          BODY="$(printf '%s\n\n%s' "${BODY:0:60000}" '…(truncated, see workflow run for full report)')"
         fi
         url="$(gh issue create \
           --title "$title" \

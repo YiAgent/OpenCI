@@ -12,14 +12,16 @@ description: Read PENDING_PRD_DISPATCHES, return entries whose fire_at has passe
 inputs:
   github-token:
     required: true
-    description: GITHUB_TOKEN with `actions: write` (variables RW).
+    description: "GITHUB_TOKEN with `actions: write` (variables RW)."
 
 outputs:
   fired:
     description: JSON array of entries to dispatch (post-poll, pre-fire).
     value: ${{ steps.run.outputs.fired }}
-  fired-count: { value: ${{ steps.run.outputs.fired-count }} }
-  kept-count:  { value: ${{ steps.run.outputs.kept-count }} }
+  fired-count:
+    value: ${{ steps.run.outputs.fired-count }}
+  kept-count:
+    value: ${{ steps.run.outputs.kept-count }}
 
 runs:
   using: composite
