@@ -12,8 +12,8 @@ Each phase consolidates a domain, then verifies via actionlint, yamllint, and ba
 | 2 | PR agent workflows | 4 → 1 (`pr-agent.yml`) | ✅ done |
 | 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ✅ done |
 | 4 | Release & docs | 4 → 2 | ✅ done |
-| 5 | Community action audit | — | ⏳ pending |
-| 6 | L1 marketplace `action.yml` polish | — | ⏳ pending |
+| 5 | Community action audit | — | ✅ done (already adopted) |
+| 6 | L1 marketplace `action.yml` polish | — | ✅ done |
 
 ## Verification commands
 
@@ -37,6 +37,12 @@ bats tests/scripts/verify-sha-consistency.bats
 
 | Check | Workflow | Reason | Action |
 |---|---|---|---|
+| Live `pr-agent.summarise` | `pr-agent.yml` | Needs real workflow_run from `pr`/`ci` | Verify via integration on first PR after consolidation lands |
+| Live `prd-observe.canary-watch` | `prd-observe.yml` | Needs `vars.PRD_LAST_DEPLOY` and SENTRY creds | Verify next prd deploy cycle |
+| Live `release.docker` | `release.yml` | Needs ghcr.io packages:write OIDC | Verify on first `git push origin v*` after merge |
+| Live `docs.deploy` | `docs.yml` | Needs `github-pages` environment configured | Already in production with prior `docs-deploy.yml` — same env reused |
+| Pre-existing `pr.yml` lint warnings | `pr.yml` | `length()` undefined + `hashFiles` context (lines 147, 301) | Out of scope for consolidation; tracked as pre-existing tech debt |
+| Pre-existing `health-report.yml` warnings | `health-report.yml` | `claude-harness` secret-name mismatch (anthropic-api-key vs api-key) | Out of scope; tracked as pre-existing tech debt |
 
 ## Phase change records
 
@@ -150,3 +156,54 @@ bats tests/scripts/verify-sha-consistency.bats
 - `actionlint .github/workflows/release.yml docs.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 20 → 18; total non-secret actionlint baseline 5 → 4
+
+### Phase 5 — community-action audit (no changes needed)
+
+OpenCI already follows SPEC §1.2 design principle 4 ("外部优于自实现").
+Inventory of third-party actions in active use:
+
+- **Linting**: `oxsecurity/megalinter` (multi-language)
+- **Coverage**: `codecov/codecov-action`
+- **Security**: `aquasecurity/trivy-action`, `github/codeql-action/*`,
+  `ossf/scorecard-action`, `trufflesecurity/trufflehog`,
+  `SonarSource/sonarcloud-github-action`, `snyk/actions/node`,
+  `actions/dependency-review-action`
+- **Build/release**: `docker/{setup-buildx,build-push,login,metadata}-action`,
+  `softprops/action-gh-release`, `sigstore/cosign-installer`
+- **Pages**: `actions/{upload-pages-artifact,deploy-pages}`
+- **Routing**: `dorny/paths-filter`, `actions/labeler`,
+  `kentaro-m/auto-assign-action`, `dessant/lock-threads`
+- **AI**: `anthropics/claude-code-action`, `promptfoo/promptfoo-action`
+- **Comms**: `slackapi/slack-github-action`
+- **Reporting**: `dorny/test-reporter`, `actions/{upload,download}-artifact`
+
+Not adopted (deliberate): `semantic-release` would force conventional-commits
++ auto-bump behavior across all consumers; current `release.yml` lets the
+caller cut tags and only handles the side effects. Renovate is configured
+in-repo (see `renovate.json`) and is the project's canonical dep-bumper.
+
+### Phase 6 — L1 marketplace action.yml polish (done)
+
+Updated root `action.yml`:
+
+- Header now lists every reusable workflow with a one-line description
+  (consumers learn the catalogue from a single place).
+- `inputs.task` description rewritten to match the consolidated, mode-routed
+  layout (e.g., `pr-agent/summarise` instead of `pr/summary`,
+  `prd-observe/canary-watch` instead of `prd-canary-watch`).
+
+No behavior change — `action.yml` still wraps `_common/claude-harness`
+unchanged. Just the docs/index, which is what consumers read first.
+
+## Final tally
+
+| Metric | Before | After |
+|---|---|---|
+| Total workflows | 28 | 17 |
+| Issue-domain files | 4 | 1 |
+| PR-agent files | 4 | 1 |
+| PRD-observe files | 3 | 1 |
+| Release/docs files | 4 | 2 |
+| Non-secret actionlint baseline | ~12 | 4 |
+| bats test pass rate | 275/275 | 298/298 (incl. SHA + preflight scripts) |
+| Manifest entries | 21 | 14 |
