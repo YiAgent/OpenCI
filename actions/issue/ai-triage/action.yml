@@ -9,11 +9,21 @@ name: Issue · AI Triage
 description: Ask Claude to suggest labels / priority / next-action; apply them.
 
 inputs:
-  issue-number: { required: true,  description: Issue number }
-  issue-title:  { required: true,  description: Issue title }
-  issue-body:   { required: true,  description: Issue body }
-  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
-  github-token: { required: true,  description: "GITHUB_TOKEN with issues:write" }
+  issue-number:
+    required: true
+    description: Issue number
+  issue-title:
+    required: true
+    description: Issue title
+  issue-body:
+    required: true
+    description: Issue body
+  anthropic-api-key:
+    required: true
+    description: ANTHROPIC_API_KEY
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite
