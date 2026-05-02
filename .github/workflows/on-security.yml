@@ -44,17 +44,14 @@ jobs:
     with:
       mode:      full
       image-ref: ${{ vars.IMAGE_REF }}
-    secrets:
-      snyk-token: ${{ secrets.SNYK_TOKEN }}
+    secrets: inherit
 
   flag-audit:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 15 * * 1' }}
     uses: ./.github/workflows/security.yml
     with:
       mode: flag-audit
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    secrets: inherit
 
   verify-sha:
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
@@ -68,7 +65,4 @@ jobs:
     with:
       mode:      ${{ inputs.mode }}
       image-ref: ${{ vars.IMAGE_REF }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
-      snyk-token:        ${{ secrets.SNYK_TOKEN }}
+    secrets: inherit
