@@ -4,10 +4,12 @@
 # (e.g. composite gains an input but the workflow doesn't expose it) and
 # guards against accidental return to bug-prone v1.x inputs like prompt_file.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   COMPOSITE="${PROJECT_ROOT}/actions/_common/claude-harness/action.yml"
-  WORKFLOW="${PROJECT_ROOT}/.github/workflows/claude-harness.yml"
+  WORKFLOW="${PROJECT_ROOT}/.github/workflows/reusable/agent.yml"
 }
 
 # Helpers
@@ -30,16 +32,16 @@ have_yq() { command -v yq >/dev/null 2>&1; }
 }
 
 @test "composite does NOT use the non-existent prompt_file input" {
-  ! grep -E '^\s*prompt_file\s*:' "$COMPOSITE"
+  run ! grep -E '^\s*prompt_file\s*:' "$COMPOSITE"
 }
 
 @test "composite does NOT use the non-existent prompt_inputs input" {
-  ! grep -E '^\s*prompt_inputs\s*:' "$COMPOSITE"
+  run ! grep -E '^\s*prompt_inputs\s*:' "$COMPOSITE"
 }
 
 @test "composite does NOT use the non-existent sticky_comment_marker input" {
   # Match only as a YAML key (i.e. ignore the explanatory comment).
-  ! grep -E '^[[:space:]]+sticky_comment_marker[[:space:]]*:' "$COMPOSITE"
+  run ! grep -E '^[[:space:]]+sticky_comment_marker[[:space:]]*:' "$COMPOSITE"
 }
 
 @test "composite passes prompt: from resolve step output" {
