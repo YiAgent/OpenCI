@@ -143,8 +143,9 @@ jobs:
   auto-assign-fallback:
     name: Auto Assign (fallback)
     needs: preflight
-    # Only when CODEOWNERS hasn't already populated reviewers.
-    if: github.event.pull_request != null && length(github.event.pull_request.requested_reviewers) == 0
+    # Only when CODEOWNERS hasn't already populated reviewers. GitHub
+    # expression syntax has no `length()`, so check first element instead.
+    if: github.event.pull_request != null && github.event.pull_request.requested_reviewers[0] == null
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -298,7 +299,6 @@ jobs:
     needs: detect-language
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: hashFiles('Dockerfile') != ''
     permissions:
       contents: read
     steps:
@@ -306,7 +306,16 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/pr/build-check
+      # `hashFiles` is not allowed in job-level `if:`; gate at step level.
+      - id: probe
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Build Check Skipped::no Dockerfile in repo root"
+          fi
+      - if: steps.probe.outputs.exists == 'true'
+        uses: ./actions/pr/build-check
 
   ai-review:
     name: AI Review

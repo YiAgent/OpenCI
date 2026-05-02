@@ -40,4 +40,4 @@ jobs:
       - uses: ./actions/_common/flag-audit
         with:
           github-token:      ${{ github.token }}
-          anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}

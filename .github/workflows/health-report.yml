@@ -57,14 +57,14 @@ jobs:
         with: { persist-credentials: false }
       - name: Probe secrets
         env:
-          ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
-          SENTRY_TOKEN:       ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
-          DATADOG_API_KEY:    ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
-          DATADOG_APP_KEY:    ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
-          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
-          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
-          AXIOM_TOKEN:        ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
-          SLACK_WEBHOOK_URL:  ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+          ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key }}
+          SENTRY_TOKEN:       ${{ secrets.sentry-token }}
+          DATADOG_API_KEY:    ${{ secrets.datadog-api-key }}
+          DATADOG_APP_KEY:    ${{ secrets.datadog-app-key }}
+          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key }}
+          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key }}
+          AXIOM_TOKEN:        ${{ secrets.axiom-token }}
+          SLACK_WEBHOOK_URL:  ${{ secrets.slack-webhook-url }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
             --required "ANTHROPIC_API_KEY" \
@@ -98,7 +98,7 @@ jobs:
         id: q-sentry
         uses: ./actions/observability/query-sentry
         with:
-          token:   ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
+          token:   ${{ secrets.sentry-token }}
           org:     ${{ vars.SENTRY_ORG }}
           project: ${{ vars.SENTRY_PROJECT }}
 
@@ -107,8 +107,8 @@ jobs:
         id: q-datadog
         uses: ./actions/observability/query-datadog
         with:
-          api-key: ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
-          app-key: ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
+          api-key: ${{ secrets.datadog-api-key }}
+          app-key: ${{ secrets.datadog-app-key }}
           site:    ${{ vars.DATADOG_SITE || 'datadoghq.com' }}
 
       - name: Query PostHog
@@ -116,7 +116,7 @@ jobs:
         id: q-posthog
         uses: ./actions/observability/query-posthog
         with:
-          api-key:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
+          api-key:    ${{ secrets.posthog-api-key }}
           project-id: ${{ vars.POSTHOG_PROJECT_ID }}
           host:       ${{ vars.POSTHOG_HOST || 'app.posthog.com' }}
 
@@ -125,7 +125,7 @@ jobs:
         id: q-langsmith
         uses: ./actions/observability/query-langsmith
         with:
-          api-key: ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
+          api-key: ${{ secrets.langsmith-api-key }}
           project: ${{ vars.LANGSMITH_PROJECT }}
 
       - name: Query Axiom
@@ -133,7 +133,7 @@ jobs:
         id: q-axiom
         uses: ./actions/observability/query-axiom
         with:
-          token:   ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
+          token:   ${{ secrets.axiom-token }}
           dataset: ${{ vars.AXIOM_DATASET }}
 
       - name: Stash result
@@ -208,8 +208,8 @@ jobs:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
     secrets:
-      anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
-      slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+      api-key:       ${{ secrets.anthropic-api-key }}
+      slack-webhook: ${{ secrets.slack-webhook-url }}
 
   publish:
     name: Publish
@@ -227,7 +227,7 @@ jobs:
         with: { persist-credentials: false }
       - uses: ./actions/observability/publish-report
         with:
-          body:              ${{ needs.synthesise.outputs.result }}
+          body:              ${{ needs.synthesise.outputs.structured-output }}
           date:              ${{ github.event.repository.updated_at }}
           github-token:      ${{ github.token }}
-          slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+          slack-webhook-url: ${{ secrets.slack-webhook-url }}
