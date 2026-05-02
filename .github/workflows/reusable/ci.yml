@@ -74,7 +74,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
@@ -119,7 +119,7 @@ jobs:
   detect-language:
     name: Detect Language
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
@@ -170,7 +170,7 @@ jobs:
   build-docker:
     name: Build Docker
     needs: detect-language
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
@@ -219,7 +219,7 @@ jobs:
   scan-image:
     name: Scan Image
     needs: build-docker
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read
@@ -260,7 +260,7 @@ jobs:
   sign-image:
     name: Sign Image
     needs: build-docker
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: read
@@ -308,7 +308,7 @@ jobs:
     name: Check Migration
     needs: build-docker
     if: inputs.run-migration == true
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: read
@@ -351,7 +351,7 @@ jobs:
     name: AI Smoke Eval
     needs: build-docker
     if: inputs.enable-ai-smoke == true
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read
@@ -399,7 +399,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   verify-sha:
     name: Verify SHA Consistency
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read

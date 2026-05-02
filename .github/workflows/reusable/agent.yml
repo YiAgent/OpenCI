@@ -131,7 +131,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
@@ -162,7 +162,7 @@ jobs:
   ai-task:
     name: AI Task
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: write        # Claude can git commit memory updates
