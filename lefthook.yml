@@ -88,25 +88,30 @@ pre-commit:
       exclude: "manifest.yml|manifest-pending.yml"
       run: |
         bad=0
+        marker="$(mktemp)"
         for f in {staged_files}; do
           [ -f "$f" ] || continue
           # Look for `uses: <owner>/<repo>@<ref>` where ref is NOT a 40-char hex SHA.
           # Local refs (./...) and docker:// refs are allowed.
-          while IFS= read -r line; do
-            ref="${line##*@}"
-            ref="${ref%%[[:space:]]*}"
-            ref="${ref%\"}"
-            ref="${ref#\"}"
-            case "$ref" in
-              "")           continue ;;
-              ./*|docker:*) continue ;;
-            esac
-            if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
-              echo "::error file=$f::Unpinned action ref '@$ref' — pin to a 40-char SHA (see manifest.yml)."
-              bad=1
-            fi
-          done < <(grep -nE '^[[:space:]]*uses:[[:space:]]*[^./[:space:]][^[:space:]]+@' "$f" || true)
+          # Pipe to while; mark errors via tmpfile (subshell can't mutate parent vars).
+          grep -nE '^[[:space:]]*uses:[[:space:]]*[^./[:space:]][^[:space:]]+@' "$f" 2>/dev/null \
+          | while IFS= read -r line; do
+              ref="${line##*@}"
+              ref="${ref%%[[:space:]]*}"
+              ref="${ref%\"}"
+              ref="${ref#\"}"
+              case "$ref" in
+                "")           continue ;;
+                ./*|docker:*) continue ;;
+              esac
+              if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
+                echo "::error file=$f::Unpinned action ref '@$ref' — pin to a 40-char SHA (see manifest.yml)."
+                echo 1 >> "$marker"
+              fi
+            done
         done
+        [ -s "$marker" ] && bad=1
+        rm -f "$marker"
         exit "$bad"
 
     # ── format / lint ─────────────────────────────────────────────────────
@@ -144,8 +149,8 @@ pre-commit:
 
     actionlint:
       tags: lint
-      # Lint workflow files and reusable composite action.yml definitions.
-      glob: "{.github/workflows/**/*.{yml,yaml},actions/**/action.yml,actions/**/action.yaml,action.yml}"
+      # actionlint validates workflows only; composite action.yml has a different schema.
+      glob: ".github/workflows/**/*.{yml,yaml}"
       run: |
         if command -v actionlint >/dev/null 2>&1; then
           actionlint -color {staged_files}

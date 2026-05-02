@@ -9,6 +9,8 @@ ISSUE_NUM="${ISSUE_NUM:-}"
 ISSUE_TITLE="${ISSUE_TITLE:-}"
 ISSUE_BODY="${ISSUE_BODY:-}"
 
+[ -n "$ISSUE_NUM" ] || { echo "::error::ISSUE_NUM is required and must be a positive integer" >&2; exit 1; }
+
 jq -nc \
   --arg repo  "$REPO" \
   --arg num   "$ISSUE_NUM" \

@@ -49,6 +49,10 @@ runs:
       run: |
         set -euo pipefail
 
+        # Validate slugs — prevent SSRF via crafted org/project inputs.
+        [[ "$ORG"     =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::sentry-org contains invalid characters"; exit 1; }
+        [[ "$PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::sentry-project contains invalid characters"; exit 1; }
+
         # Compute start timestamp (GNU + BSD date fallback).
         if start_ts="$(date -u -d "-${WINDOW} minutes" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then :;
         else start_ts="$(date -u -v "-${WINDOW}M" +%Y-%m-%dT%H:%M:%SZ)"; fi
@@ -124,9 +128,11 @@ runs:
 
           case "$decision" in
             create)
+              first_seen="$(jq -r '.first_seen // ""' <<<"$row")"
+              issue_id="$(jq  -r '.id // ""'          <<<"$row")"
               gh issue create --repo "$REPO" \
                 --title "[Sentry] $summary (fp:$fp)" \
-                --body  "Fingerprint: \`$fp\`\nFirst seen: ${row}\n\n_Triaged automatically; see SECURITY.md for sensitive errors._" \
+                --body  "Fingerprint: \`$fp\`\nFirst seen: ${first_seen}\nSentry ID: ${issue_id}\n\n_Triaged automatically; see SECURITY.md for sensitive errors._" \
                 --label "from-sentry,ops-generated,priority:$prio"
               ;;
             duplicate)

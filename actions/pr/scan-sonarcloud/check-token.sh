@@ -5,7 +5,7 @@ set -euo pipefail
 
 SONAR_TOKEN="${SONAR_TOKEN:-}"
 
-if [ -z "$SONAR_TOKEN" ]; then
+if [ -z "${SONAR_TOKEN// }" ]; then
   skip="true"
   echo "::notice title=SonarCloud Skipped::SONAR_TOKEN not configured, graceful skip"
 else
