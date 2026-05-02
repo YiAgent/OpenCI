@@ -22,7 +22,7 @@ on:
   workflow_call:
     inputs:
       model:
-        description: Override the AI model name (e.g. `glm-5.1` for Zhipu via api-base-url).
+        description: Override the AI model name. Defaults to the Anthropic Claude model when empty.
         required: false
         type: string
         default: ""
@@ -43,7 +43,7 @@ on:
         default: ""
     secrets:
       api-base-url:
-        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy).
+        description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
         required: false
       anthropic-api-key:
         required: false

@@ -27,7 +27,7 @@ inputs:
   api-base-url:
     required: false
     default: ""
-    description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy)
+    description: Custom Anthropic-compatible base URL
   model:
     required: false
     default: ""

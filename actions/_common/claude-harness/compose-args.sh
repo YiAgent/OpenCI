@@ -153,9 +153,9 @@ fi
 # settings.env is the channel that survives into Claude Code's session, so
 # SLACK_WEBHOOK_URL, ANTHROPIC_BASE_URL, and ANTHROPIC_AUTH_TOKEN go here. The
 # auth-token pass-through is what makes Anthropic-compatible gateways
-# (Z.AI / Zhipu BigModel / OpenRouter / etc.) work with no extra config: they
-# require Bearer auth, while direct Anthropic uses x-api-key. Setting both is
-# safe — the SDK picks whichever it prefers.
+# work with no extra config: they require Bearer auth, while direct
+# Anthropic uses x-api-key. Setting both is safe — the SDK picks
+# whichever it prefers.
 if command -v jq >/dev/null 2>&1; then
   settings_json="$(jq -nc \
     --arg slack      "${SLACK_WEBHOOK:-}" \
