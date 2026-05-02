@@ -21,8 +21,15 @@ on:
         required: false
         type: string
 
-permissions: {}
-
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  issues: write
+  pull-requests: write
+  security-events: write
+  id-token: write
+  statuses: write
 concurrency:
   group: on-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false

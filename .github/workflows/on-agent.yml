@@ -28,8 +28,12 @@ on:
         type: string
         default: ""
 
-permissions: {}
-
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  id-token: write
+  actions: read
 concurrency:
   group: on-agent-${{ inputs.task || 'health-digest' }}-${{ github.run_id }}
   cancel-in-progress: false

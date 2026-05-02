@@ -8,8 +8,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions: {}
-
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+  actions: read
 concurrency:
   group: on-ci-${{ github.ref }}
   cancel-in-progress: false

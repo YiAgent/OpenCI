@@ -21,8 +21,11 @@ on:
         type: string
         default: ""
 
-permissions: {}
-
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
 concurrency:
   group: on-issue-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
