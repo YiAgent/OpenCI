@@ -193,6 +193,7 @@ jobs:
       - name: Run claude-harness composite
         id: harness
         uses: ./.openci/actions/_common/claude-harness
+>>>>>>> origin/main
         with:
           task:                   ${{ inputs.task }}
           prompt:                 ${{ inputs.prompt }}
