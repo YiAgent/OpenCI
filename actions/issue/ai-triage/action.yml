@@ -20,7 +20,15 @@ inputs:
     description: Issue body
   anthropic-api-key:
     required: true
-    description: ANTHROPIC_API_KEY
+    description: ANTHROPIC_API_KEY (or any Anthropic-compatible key when api-base-url is set)
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL (e.g. GLM, OpenRouter, self-hosted proxy)
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
   github-token:
     required: true
     description: "GITHUB_TOKEN with issues:write"
@@ -51,6 +59,8 @@ runs:
         task:          issue/triage
         context:       ${{ steps.ctx.outputs.context }}
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
     - name: Apply triage decision

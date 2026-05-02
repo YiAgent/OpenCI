@@ -66,8 +66,16 @@ on:
         required: false
         type: string
         default: ""
+      model:
+        description: Override the AI model name. Leave empty for the upstream default; e.g. `glm-5.1` when targeting Zhipu via api-base-url.
+        required: false
+        type: string
+        default: ""
     secrets:
       anthropic-api-key:
+        required: false
+      api-base-url:
+        description: Custom Anthropic-compatible base URL (GLM, OpenRouter, self-hosted proxy). When set, anthropic-api-key is sent to that endpoint.
         required: false
       sentry-token:
         required: false
@@ -242,6 +250,8 @@ jobs:
           issue-title:       ${{ github.event.issue.title }}
           issue-body:        ${{ github.event.issue.body }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
           github-token:      ${{ github.token }}
 
   auto-assign:
@@ -464,3 +474,5 @@ jobs:
           sentry-project:    ${{ vars.SENTRY_PROJECT }}
           github-token:      ${{ github.token }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
