@@ -55,21 +55,6 @@ on:
         type: boolean
         required: false
         default: false
-      pr-agent-mode:
-        description: "Optional pr-agent mode (summarise | feedback | docubot | test-gen). Empty = run deterministic PR checks only."
-        type: string
-        required: false
-        default: ""
-      pr-number:
-        description: "PR number, used by pr-agent modes when not derivable from the event payload."
-        type: string
-        required: false
-        default: ""
-      extra-workflows:
-        description: "Comma-separated list of additional workflow names tracked by the pr-agent summarise mode (in addition to pr,ci)."
-        type: string
-        required: false
-        default: ""
     secrets:
       api-base-url:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
@@ -674,20 +659,3 @@ jobs:
         with:
           pr-number:   ${{ github.event.pull_request.number }}
           release-pat: ${{ secrets.release-pat }}
-
-  # ──────────────────────────────────────────────────────────────────────
-  # pr-agent — routes to _pr-agent.yml when pr-agent-mode input is set.
-  # Triggered from on-pr.yml on workflow_run / issue_comment / dispatch.
-  # ──────────────────────────────────────────────────────────────────────
-  pr-agent:
-    if: ${{ inputs.pr-agent-mode != '' }}
-    uses: ./.github/workflows/_pr-agent.yml
-    with:
-      model:           ${{ inputs.model }}
-      openci-ref:      ${{ inputs.openci-ref }}
-      mode:            ${{ inputs.pr-agent-mode }}
-      pr-number:       ${{ inputs.pr-number }}
-      extra-workflows: ${{ inputs.extra-workflows }}
-    secrets:
-      api-base-url:      ${{ secrets.api-base-url }}
-      anthropic-api-key: ${{ secrets.anthropic-api-key }}

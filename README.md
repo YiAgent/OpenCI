@@ -140,12 +140,9 @@ workflows. All call `claude-harness` under the hood with task-specific prompts.
 | Workflow | Description |
 | --- | --- |
 | [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
-| [`pr-agent.yml`](.github/workflows/pr.yml) | Unified PR-agent — sticky CI summary, agent feedback on failure, @docubot Q&A, test scaffolding (mode-routed) |
 | [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle, slash commands, Linear bridge, scheduled Sentry triage (mode-routed) |
 | [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
-| [`stg-agent-test.yml`](.github/workflows/deploy.yml) | L1–L4 autonomous staging tests |
-| [`flag-audit.yml`](.github/workflows/security.yml) | Weekly feature-flag audit and tech-debt filing |
-| [`health-report.yml`](.github/workflows/agent.yml) | Daily AI-synthesised observability digest → Issue + Slack |
+| [`agent.yml`](.github/workflows/agent.yml) | The Claude harness — single AI primitive. Consumers compose data-collection + agent.yml invocations in their own scheduled / event-driven workflows (see EvolveCI for the canonical pattern). OpenCI does not ship task-specific AI workflows. |
 
 ### Usage examples
 
@@ -213,7 +210,7 @@ files.
 | Public reusable | Purpose |
 | --- | --- |
 | [`reusable/ci.yml`](.github/workflows/ci.yml) | Merge-to-main build + scan + sign + AI smoke + SHA drift verification |
-| [`reusable/pr.yml`](.github/workflows/pr.yml) | PR quality gate (lint / test / scan / build / coverage) + opt-in AI review + opt-in pr-agent (summarise / feedback / docubot / test-gen) |
+| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate (lint / test / scan / build / coverage) + opt-in AI review |
 | [`reusable/issue.yml`](.github/workflows/issue.yml) | Issue lifecycle (auto-label / AI triage / dedupe / assign / slash commands / Linear bridge / Sentry triage) + first-contributor welcome + stale sweep |
 | [`reusable/release.yml`](.github/workflows/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
 | [`reusable/deploy.yml`](.github/workflows/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1–L4) / poll-prd-dispatch (mode-routed by `mode` and `environment`) |
