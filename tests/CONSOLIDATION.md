@@ -78,7 +78,57 @@ internal CI (where `./.openci/` doesn't exist). Needs a strategic decision:
   `YiAgent/OpenCI/actions/...@<branch>`, breaking the
   "`@` literal needed" GHA constraint via a hard-coded `@v2`.
 
-### Verified working from external rig
+### Phase 8 — GLM proxy fully wired (end-to-end verified)
+
+Every AI surface now accepts a Zhipu / OpenRouter / self-hosted Anthropic-
+compatible endpoint via the same secret name (`anthropic-api-key`):
+
+**Atoms** (each forwards new `api-base-url` + `model` inputs into the
+`_common/claude-harness` composite call):
+`_common/{flag-audit, docubot, summarize-failure, error-triage}`,
+`ci/eval-smoke`, `pr/{agent-test-gen, review-ai}`,
+`prd/create-release`, `stg/agent-test`, `issue/ai-triage`.
+Special case: `pr/eval-prompt` exports `ANTHROPIC_BASE_URL` +
+`PROMPTFOO_MODEL` envs to the `promptfoo-action`.
+
+**Workflows** (each adds `inputs.model` + `secrets.api-base-url` to the
+workflow_call surface and forwards to every atom call): `issue.yml`,
+`pr-agent.yml`, `flag-audit.yml`, `health-report.yml`,
+`stg-agent-test.yml`, `ci.yml`, `pr.yml`, `prd.yml`.
+
+**Verified live (run on YiAgent/openci-test-rig):**
+
+| Mode | Outcome |
+|---|---|
+| `issue.yml` issues:opened (auto-label / detect-duplicates / **ai-triage** / auto-assign) | ✅ all green via GLM |
+| `issue.yml` workflow_dispatch mode=sentry-triage | ✅ via GLM (`MODEL: glm-5.1` + `api-base-url: ***` confirmed in logs) |
+| `pr-agent.yml` issue_comment with `@docubot` mention | ✅ docubot replied via GLM |
+| `release.yml` mode=marketplace | ✅ |
+| `prd-observe.yml` mode=canary-watch / terraform-drift / verify-fix | ✅ ✅ ✅ |
+| `docs.yml` build | ✅ |
+| `docs.yml` deploy | ⚠️ rig has no `github-pages` env configured |
+| `pr.yml` ai-review + eval-prompt | ⏳ untested (needs a real PR; wiring confirmed via lint) |
+| `health-report.yml`, `flag-audit.yml`, `stg-agent-test.yml`, `ci.yml` AI smoke | ⏳ untested (wiring confirmed via lint) |
+
+**Consumer pattern (final form):**
+
+```yaml
+jobs:
+  call:
+    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v2   # or any AI workflow
+    with:
+      openci-ref: v2          # vendor matching ref into .openci/
+      model:      glm-5.1     # or claude-sonnet-4-5-20250929 (default)
+    secrets:
+      anthropic-api-key: ${{ secrets.ZHIPU_API_KEY }}                # value can be GLM
+      api-base-url:      "https://open.bigmodel.cn/api/anthropic"    # the endpoint
+```
+
+The downstream code never knows it's talking to GLM — it just sees an
+Anthropic-shaped endpoint. Zhipu, OpenRouter, AWS Bedrock proxies, and
+self-hosted shims all work identically.
+
+### Verified working from external rig (Phase 7)
 
 | Mode | Outcome | Notes |
 |---|---|---|
