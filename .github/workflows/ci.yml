@@ -54,7 +54,8 @@ on:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
         required: false
       registry-token:
-        required: true
+        description: "Token used to push to the registry. Defaults to GITHUB_TOKEN at the use site."
+        required: false
       anthropic-api-key:
         required: false
     outputs:
@@ -109,7 +110,7 @@ jobs:
           persist-credentials: false
       - name: Probe secrets
         env:
-          REGISTRY_TOKEN:    ${{ secrets.registry-token }}
+          REGISTRY_TOKEN:    ${{ secrets.registry-token || github.token }}
           ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
@@ -214,7 +215,7 @@ jobs:
         with:
           image-name:     ${{ inputs.image-name }}
           registry:       ${{ inputs.registry }}
-          registry-token: ${{ secrets.registry-token }}
+          registry-token: ${{ secrets.registry-token || github.token }}
 
   scan-image:
     name: Scan Image
@@ -299,7 +300,7 @@ jobs:
         with:
           registry: ${{ inputs.registry }}
           username: ${{ github.actor }}
-          password: ${{ secrets.registry-token }}
+          password: ${{ secrets.registry-token || github.token }}
       - uses: ./.openci/actions/ci/sign-image
         with:
           image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
