@@ -395,7 +395,7 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # verify-sha — manifest SHA drift check (script in .github/scripts).
-  # Same script is also a job inside security.yml mode=verify-sha.
+  # Same script is also a job in on-security.yml.
   # ──────────────────────────────────────────────────────────────────────
   verify-sha:
     name: Verify SHA Consistency

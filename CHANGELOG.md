@@ -17,12 +17,12 @@ External consumers MUST update `uses:` references:
 | `YiAgent/OpenCI/.github/workflows/ci.yml@v2` | `YiAgent/OpenCI/.github/workflows/ci.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/issue.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/release.yml@v2` | `YiAgent/OpenCI/.github/workflows/release.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/stg.yml@v2` | `YiAgent/OpenCI/.github/workflows/deploy.yml@v3` (with `environment: staging`) |
-| `YiAgent/OpenCI/.github/workflows/prd.yml@v2` | `YiAgent/OpenCI/.github/workflows/deploy.yml@v3` (with `environment: production`) |
-| `YiAgent/OpenCI/.github/workflows/prd-observe.yml@v2` | `YiAgent/OpenCI/.github/workflows/deploy.yml@v3` (with `mode: observe`) |
-| `YiAgent/OpenCI/.github/workflows/stg-agent-test.yml@v2` | `YiAgent/OpenCI/.github/workflows/deploy.yml@v3` (with `mode: stg-test`) |
-| `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v2` | `YiAgent/OpenCI/.github/workflows/security.yml@v3` (with `mode: full`) |
-| `YiAgent/OpenCI/.github/workflows/flag-audit.yml@v2` | `YiAgent/OpenCI/.github/workflows/security.yml@v3` (with `mode: flag-audit`) |
+| `YiAgent/OpenCI/.github/workflows/stg.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `environment: staging`) |
+| `YiAgent/OpenCI/.github/workflows/prd.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `environment: production`) |
+| `YiAgent/OpenCI/.github/workflows/prd-observe.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `mode: observe`) |
+| `YiAgent/OpenCI/.github/workflows/stg-agent-test.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `mode: stg-test`) |
+| `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: full`) |
+| `YiAgent/OpenCI/.github/workflows/flag-audit.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: flag-audit`) |
 | `YiAgent/OpenCI/.github/workflows/docs.yml@v2` | `YiAgent/OpenCI/.github/workflows/docs.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/dep-auto-merge.yml@v2` | `YiAgent/OpenCI/.github/workflows/deps.yml@v3` |
 | `YiAgent/OpenCI/.github/workflows/claude-harness.yml@v2` | `YiAgent/OpenCI/.github/workflows/agent.yml@v3` |
@@ -30,7 +30,7 @@ External consumers MUST update `uses:` references:
 | `YiAgent/OpenCI/.github/workflows/community.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: welcome`) |
 | `YiAgent/OpenCI/.github/workflows/stale.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: stale`) |
 | `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | DROPPED — write your own thin event-driven workflow that calls `agent.yml` with the right `task` + `prompt-path` (e.g. `.openci/skills/pr-review/SKILL.md`); see EvolveCI's pattern |
-| `YiAgent/OpenCI/.github/workflows/verify-sha-consistency.yml@v2` | `YiAgent/OpenCI/.github/workflows/security.yml@v3` (with `mode: verify-sha`) — also a job inside `reusable/ci.yml` |
+| `YiAgent/OpenCI/.github/workflows/verify-sha-consistency.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: verify-sha`) — also a job inside `reusable/ci.yml` |
 
 **Why:** OpenCI now has two clear identities — (1) a normal project that
 dogfoods its own workflows via 9 thin `on-*.yml` event entries at the

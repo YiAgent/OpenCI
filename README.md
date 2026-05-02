@@ -29,7 +29,7 @@ No fork required.
 
 External users only call the **9 unprefixed reusable workflows** under
 `.github/workflows/` — `ci.yml`, `pr.yml`, `issue.yml`,
-`release.yml`, `deploy.yml`, `security.yml`, `docs.yml`, `deps.yml`,
+`release.yml`, `stg.yml`, `prd.yml`, `prd-observe.yml`, `security-schedule.yml`, `docs.yml`, `deps.yml`,
 `agent.yml`. The `_*.yml` siblings are private implementation files that
 the public reusables route to internally; do not depend on their names.
 
@@ -50,7 +50,7 @@ on top of OpenCI without modifying it.
 5. **Secure by default.** Every job runs `step-security/harden-runner`,
    every workflow declares `permissions: {}` then opts in per-job, every
    third-party action is pinned to a verified 40-char commit SHA enforced
-   by [`verify-sha-consistency.yml`](.github/workflows/security.yml).
+   by [`verify-sha-consistency.yml`](.github/workflows/security-schedule.yml).
 
 Full reasoning: [`docs/SPEC.md`](docs/SPEC.md).
 
@@ -87,7 +87,7 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/on-deploy.yml — runs after CI succeeds (staging)
+# .github/workflows/on-deploy.yml — your event entry (e.g. workflow_run on CI completion)
 name: on-deploy-stg
 on:
   workflow_run:
@@ -96,7 +96,7 @@ on:
 jobs:
   deploy:
     if: github.event.workflow_run.conclusion == 'success'
-    uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
     with:
       image-digest: ${{ github.event.workflow_run.outputs.image-digest }}
       image-name:   my-app
@@ -114,7 +114,7 @@ on:
   repository_dispatch: { types: [observe-window-complete] }
 jobs:
   deploy:
-    uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
     with:
       image-digest:     ${{ github.event.client_payload.image-digest || vars.LAST_CI_DIGEST }}
       stg-image-digest: ${{ github.event.client_payload.stg-image-digest || vars.LAST_STG_DIGEST }}
@@ -170,7 +170,7 @@ jobs:
 # Staging Agent Tests (after deploy)
 jobs:
   agent-test:
-    uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
     with:
       health-url: ${{ vars.STG_HEALTH_URL }}
     secrets:
@@ -214,7 +214,7 @@ files.
 | [`reusable/issue.yml`](.github/workflows/issue.yml) | Issue lifecycle (auto-label / AI triage / dedupe / assign / slash commands / Linear bridge / Sentry triage) + first-contributor welcome + stale sweep |
 | [`reusable/release.yml`](.github/workflows/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
 | [`reusable/deploy.yml`](.github/workflows/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1–L4) / poll-prd-dispatch (mode-routed by `mode` and `environment`) |
-| [`reusable/security.yml`](.github/workflows/security.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check (mode-routed) |
+| [`reusable/security.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check (mode-routed) |
 | [`reusable/docs.yml`](.github/workflows/docs.yml) | Link-check on PR + optional build + Pages publish on main |
 | [`reusable/deps.yml`](.github/workflows/deps.yml) | Renovate patch PR auto-merge |
 | [`reusable/agent.yml`](.github/workflows/agent.yml) | Single Claude harness — generic ai-task + scheduled health-digest (multi-source observability synthesis) |
