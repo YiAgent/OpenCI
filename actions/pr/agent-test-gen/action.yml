@@ -17,6 +17,15 @@ inputs:
   github-token: { required: true,  description: GITHUB_TOKEN with read-only PR scope }
   language:     { required: false, default: "", description: detect-language output }
 
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
+
 runs:
   using: composite
   steps:
@@ -54,12 +63,14 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          pr/test-gen
         context:       ${{ steps.ctx.outputs.context }}
         max-turns:     "8"
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
     - name: Stage generated files (no auto-commit)
@@ -73,7 +84,7 @@ runs:
         echo "::notice title=Test Gen Staged::triage/test-gen/result.json"
 
     - name: Scan for leaks
-      uses: ./actions/_common/gitleaks-artifact
+      uses: ./.openci/actions/_common/gitleaks-artifact
       with:
         scan-path: triage/test-gen
 

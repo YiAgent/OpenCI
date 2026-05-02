@@ -1,12 +1,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # OpenCI — GitHub Actions Marketplace entry point
 # ─────────────────────────────────────────────────────────────────────────────
-# This is the Marketplace-facing action. It wraps _common/claude-harness
-# as a single entrypoint for all AI-powered CI/CD tasks.
+# This is the Marketplace-facing action. It wraps _common/claude-harness as a
+# single entrypoint for AI-powered tasks. For full pipelines and non-AI work,
+# call the top-level reusable workflows directly:
 #
-# For granular workflows, call top-level reusable workflows directly:
-#   uses: YiWang24/OpenCI/.github/workflows/pr.yml@v2
-#   uses: YiWang24/OpenCI/.github/workflows/health-report.yml@v2
+#   .github/workflows/pr.yml          — PR quality gate
+#   .github/workflows/ci.yml          — build + sign (push to main)
+#   .github/workflows/stg.yml         — staging deploy
+#   .github/workflows/prd.yml         — production deploy
+#   .github/workflows/issue.yml       — issue domain (mode-routed)
+#   .github/workflows/pr-agent.yml    — PR-agent domain (mode-routed)
+#   .github/workflows/prd-observe.yml — post-deploy observability (mode-routed)
+#   .github/workflows/release.yml     — release domain (mode-routed)
+#   .github/workflows/docs.yml        — docs build + Pages deploy
+#   .github/workflows/health-report.yml, flag-audit.yml, security-schedule.yml
+#   .github/workflows/community.yml, stale.yml, dep-auto-merge.yml
+#   .github/workflows/claude-harness.yml — sole AI entrypoint (workflow form)
 # ─────────────────────────────────────────────────────────────────────────────
 name: 'OpenCI'
 description: 'AI-powered CI/CD toolkit — PR review, issue triage, smoke eval, observability, and more.'
@@ -20,10 +30,27 @@ inputs:
   task:
     description: |
       Task to run. Supported values:
-        pr/review, pr/test-gen, issue/triage, ci/smoke-eval,
-        stg/agent-test, ops/error-triage, ops/summarize-failure,
-        ops/flag-audit, observability/health-report,
-        agents/ai-changelog, agents/docubot
+        pr/review              — AI PR review (single PR comment)
+        pr-agent/summarise     — sticky CI summary on a PR
+        pr-agent/feedback      — @-mention agent on CI failure
+        pr-agent/docubot       — answer @docubot mentions
+        pr-agent/test-gen      — generate test scaffolds
+        issue/auto-label       — auto label issues
+        issue/dedupe           — detect duplicate issues
+        issue/ai-triage        — AI triage open issues
+        issue/sentry-triage    — Sentry → GitHub-issue triage
+        issue/linear-branch    — Linear → branch from repository_dispatch
+        ci/smoke-eval          — promptfoo / claude smoke eval
+        stg/agent-test         — autonomous L1–L4 staging tests
+        prd-observe/canary-watch     — 3σ post-deploy canary watch
+        prd-observe/terraform-drift  — daily Terraform drift check
+        prd-observe/verify-fix       — Sentry fix verification
+        ops/error-triage             — alias of issue/sentry-triage
+        ops/summarize-failure  — summarise a failed run
+        ops/flag-audit         — weekly feature-flag audit
+        observability/health-report  — daily AI-synthesised digest
+        agents/ai-changelog          — auto Keep-a-Changelog body
+        agents/docubot               — alias of pr-agent/docubot
     required: true
   prompt:
     description: Custom prompt text or slash command. Overrides built-in skill prompt.

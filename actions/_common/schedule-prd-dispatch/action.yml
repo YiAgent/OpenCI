@@ -19,11 +19,13 @@ inputs:
   observation-minutes: { required: false, default: "30" }
   github-token:
     required: true
-    description: GITHUB_TOKEN with `actions: write` (variables RW).
+    description: "GITHUB_TOKEN with `actions: write` (variables RW)."
 
 outputs:
-  fire-at:    { value: ${{ steps.run.outputs.fire-at }} }
-  queue-size: { value: ${{ steps.run.outputs.queue-size }} }
+  fire-at:
+    value: ${{ steps.run.outputs.fire-at }}
+  queue-size:
+    value: ${{ steps.run.outputs.queue-size }}
 
 runs:
   using: composite

@@ -47,7 +47,7 @@ runs:
   steps:
     - name: Sentry release
       if: inputs.enable-sentry == 'true'
-      uses: ./actions/integrations/sentry-release
+      uses: ./.openci/actions/integrations/sentry-release
       with:
         sentry-token:   ${{ inputs.sentry-token }}
         sentry-org:     ${{ inputs.sentry-org }}
@@ -59,7 +59,7 @@ runs:
 
     - name: Datadog event
       if: inputs.enable-datadog == 'true'
-      uses: ./actions/integrations/datadog-event
+      uses: ./.openci/actions/integrations/datadog-event
       with:
         api-key:     ${{ inputs.datadog-api-key }}
         site:        ${{ inputs.datadog-site }}
@@ -71,7 +71,7 @@ runs:
 
     - name: PostHog event
       if: inputs.enable-posthog == 'true'
-      uses: ./actions/integrations/posthog-event
+      uses: ./.openci/actions/integrations/posthog-event
       with:
         api-key:     ${{ inputs.posthog-api-key }}
         host:        ${{ inputs.posthog-host }}
@@ -83,7 +83,7 @@ runs:
 
     - name: LangSmith tag
       if: inputs.enable-langsmith == 'true'
-      uses: ./actions/integrations/langsmith-tag
+      uses: ./.openci/actions/integrations/langsmith-tag
       with:
         api-key:     ${{ inputs.langsmith-api-key }}
         endpoint:    ${{ inputs.langsmith-endpoint }}
@@ -95,7 +95,7 @@ runs:
 
     - name: Axiom event
       if: inputs.enable-axiom == 'true'
-      uses: ./actions/integrations/axiom-event
+      uses: ./.openci/actions/integrations/axiom-event
       with:
         token:       ${{ inputs.axiom-token }}
         dataset:     ${{ inputs.axiom-dataset }}

@@ -6,7 +6,11 @@
 # for installation, opt-out, and emergency-bypass instructions.
 #
 # Consumers: this is OPT-IN. Run `lefthook install` once to enable.
-# Skipping: `LEFTHOOK=0 git commit` bypasses everything (use sparingly).
+# Skipping:
+#   LEFTHOOK=0 git commit                       # bypass all hooks (use sparingly)
+#   git commit --no-verify                      # bypass current stage only
+#   lefthook run pre-commit --tags security     # run only `security`-tagged checks
+#   lefthook run pre-commit --exclude-tags lint # run pre-commit minus all `lint`
 #
 # All commands here must be available in the repo's expected dev environment;
 # missing tools degrade gracefully (skip with a notice) instead of failing.
@@ -16,10 +20,19 @@ min_version: 1.7.0
 
 assert_lefthook_installed: false
 
+# Suppress lefthook's own banner; per-command annotations are what matter.
+no_tty: false
+colors: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pre-commit — runs against STAGED files only. Must stay fast (<5s typical).
+# ─────────────────────────────────────────────────────────────────────────────
 pre-commit:
   parallel: true
   commands:
+    # ── guards ────────────────────────────────────────────────────────────
     guard-no-main-commit:
+      tags: guard
       run: |
         branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)"
         case "$branch" in
@@ -30,12 +43,13 @@ pre-commit:
         esac
 
     guard-dotenv:
+      tags: guard security
       glob: ".env*"
       run: |
         for f in {staged_files}; do
           case "$(basename "$f")" in
             .env|.env.*)
-              # .env.example / .env.sample are allowed — they don't carry secrets.
+              # .env.example / .env.sample / .env.template are allowed.
               case "$(basename "$f")" in
                 .env.example|.env.sample|.env.template) continue ;;
               esac
@@ -46,6 +60,7 @@ pre-commit:
         done
 
     guard-large-files:
+      tags: guard
       run: |
         threshold=524288  # 512KB
         for f in {staged_files}; do
@@ -57,7 +72,51 @@ pre-commit:
           fi
         done
 
+    guard-secrets:
+      tags: guard security
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks protect --staged --verbose --redact
+        else
+          echo "::notice::gitleaks not installed; skipping local secret scan (CI still runs full scan)"
+        fi
+
+    # ── unpinned-action quick check (cheap pre-cursor to verify-sha) ──────
+    forbid-unpinned-actions:
+      tags: lint security
+      glob: "{**/*.yml,**/*.yaml}"
+      exclude: "manifest.yml|manifest-pending.yml"
+      run: |
+        bad=0
+        marker="$(mktemp)"
+        for f in {staged_files}; do
+          [ -f "$f" ] || continue
+          # Look for `uses: <owner>/<repo>@<ref>` where ref is NOT a 40-char hex SHA.
+          # Local refs (./...) and docker:// refs are allowed.
+          # Pipe to while; mark errors via tmpfile (subshell can't mutate parent vars).
+          grep -nE '^[[:space:]]*uses:[[:space:]]*[^./[:space:]][^[:space:]]+@' "$f" 2>/dev/null \
+          | while IFS= read -r line; do
+              ref="${line##*@}"
+              ref="${ref%%[[:space:]]*}"
+              ref="${ref%\"}"
+              ref="${ref#\"}"
+              case "$ref" in
+                "")           continue ;;
+                ./*|docker:*) continue ;;
+              esac
+              if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
+                echo "::error file=$f::Unpinned action ref '@$ref' — pin to a 40-char SHA (see manifest.yml)."
+                echo 1 >> "$marker"
+              fi
+            done
+        done
+        [ -s "$marker" ] && bad=1
+        rm -f "$marker"
+        exit "$bad"
+
+    # ── format / lint ─────────────────────────────────────────────────────
     shell-lint:
+      tags: lint
       glob: "*.sh"
       run: |
         if command -v shellcheck >/dev/null 2>&1; then
@@ -66,41 +125,109 @@ pre-commit:
           echo "::notice::shellcheck not installed; skipping shell lint"
         fi
 
+    shell-format:
+      tags: format
+      glob: "*.sh"
+      stage_fixed: true
+      run: |
+        if command -v shfmt >/dev/null 2>&1; then
+          # -i 2 (2-space indent), -ci (switch case indent), -s (simplify), -w (write)
+          shfmt -i 2 -ci -s -w {staged_files}
+        else
+          echo "::notice::shfmt not installed; skipping shell format"
+        fi
+
     yaml-lint:
+      tags: lint
       glob: "*.{yml,yaml}"
       run: |
         if command -v yamllint >/dev/null 2>&1; then
-          yamllint -d "{extends: default, rules: {line-length: disable}}" {staged_files}
+          yamllint {staged_files}
         else
           echo "::notice::yamllint not installed; skipping yaml lint"
         fi
 
-    bats-format:
+    actionlint:
+      tags: lint
+      # actionlint validates workflows only; composite action.yml has a different schema.
+      glob: ".github/workflows/**/*.{yml,yaml}"
+      run: |
+        if command -v actionlint >/dev/null 2>&1; then
+          actionlint -color {staged_files}
+        else
+          echo "::notice::actionlint not installed; skipping (brew install actionlint)"
+        fi
+
+    json-validate:
+      tags: lint
+      glob: "*.json"
+      run: |
+        bad=0
+        for f in {staged_files}; do
+          [ -f "$f" ] || continue
+          if command -v jq >/dev/null 2>&1; then
+            if ! jq empty "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::Invalid JSON."
+              bad=1
+            fi
+          elif command -v python3 >/dev/null 2>&1; then
+            if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::Invalid JSON."
+              bad=1
+            fi
+          else
+            echo "::notice::neither jq nor python3 available; skipping JSON validation"
+            break
+          fi
+        done
+        exit "$bad"
+
+    bats-lint:
+      tags: lint
       glob: "*.bats"
       run: |
-        # bats has no official formatter; check syntax via `bats --no-tempdir-cleanup --filter <impossible>`
-        # by running the lint-style check `bats --no-tempdir-cleanup` would execute tests, so we
-        # just verify shellcheck on bats files (they are bash).
+        # bats has no formatter; lint as bash via shellcheck.
         if command -v shellcheck >/dev/null 2>&1; then
-          shellcheck -s bash {staged_files} || true
+          shellcheck -s bash {staged_files}
         fi
 
-    guard-secrets:
-      # Optional: opportunistic secret scan. Skip silently when gitleaks is absent.
+    eof-newline:
+      tags: format
+      # Most text files; skip binaries / known formatted-as-is fixtures.
+      glob: "*.{sh,bats,yml,yaml,json,md,toml,py,go,ts,tsx,js,jsx}"
       run: |
-        if command -v gitleaks >/dev/null 2>&1; then
-          gitleaks protect --staged --verbose --redact
+        bad=0
+        for f in {staged_files}; do
+          [ -f "$f" ] || continue
+          # File must end with a newline.
+          if [ -n "$(tail -c1 "$f")" ]; then
+            echo "::error file=$f::Missing trailing newline at EOF."
+            bad=1
+          fi
+        done
+        exit "$bad"
+
+    # ── manifest-aware verify-sha (cheap when triggered) ──────────────────
+    verify-sha-when-manifest-changed:
+      tags: security
+      # Only run the full verify-sha when manifest or any uses:-bearing file changes.
+      glob: "{manifest.yml,manifest-pending.yml,.github/workflows/**/*.{yml,yaml},actions/**/*.{yml,yaml}}"
+      run: |
+        if [ -x .github/scripts/verify-sha-consistency.sh ] && command -v yq >/dev/null 2>&1; then
+          bash .github/scripts/verify-sha-consistency.sh
         else
-          echo "::notice::gitleaks not installed; skipping local secret scan (CI still runs full scan)"
+          echo "::notice::yq not installed; skipping local verify-sha (CI still runs)"
         fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# commit-msg — runs once per commit. Cheap.
+# ─────────────────────────────────────────────────────────────────────────────
 commit-msg:
   commands:
     conventional-commit:
       run: |
-        msg_file="$1"
+        msg_file="{1}"
         first_line="$(head -n1 "$msg_file")"
-        # Allow auto-merge / auto-revert / squash chores generated by GitHub.
         case "$first_line" in
           "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
         esac
@@ -111,11 +238,39 @@ commit-msg:
           exit 1
         fi
 
+    subject-length:
+      run: |
+        msg_file="{1}"
+        first_line="$(head -n1 "$msg_file")"
+        case "$first_line" in
+          "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
+        esac
+        len=${#first_line}
+        if [ "$len" -gt 72 ]; then
+          echo "::error::Commit subject is ${len} chars (> 72). Tighten it or move detail to the body."
+          exit 1
+        fi
+
+    body-line-length:
+      run: |
+        msg_file="{1}"
+        # Warn-only: long body lines hurt git log readability but shouldn't block.
+        long=0
+        # Skip subject (line 1) and the blank separator (line 2).
+        awk 'NR>2 && length($0) > 100 {print NR": "length($0)" chars"}' "$msg_file" | while IFS= read -r line; do
+          [ -n "$line" ] && echo "::warning::Long body line — $line"
+          long=1
+        done
+        exit 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pre-push — broader checks. Allowed to be slower (target <30s).
+# ─────────────────────────────────────────────────────────────────────────────
 pre-push:
   parallel: true
   commands:
     bats:
-      # Run fast bats suite; full suite + e2e stays in CI.
+      tags: test
       run: |
         if command -v bats >/dev/null 2>&1 && [ -d tests ]; then
           bats tests/scripts tests/actions
@@ -124,10 +279,57 @@ pre-push:
         fi
 
     verify-sha:
-      # Cheap and catches the most-common SHA mistake before push.
+      tags: security
       run: |
         if [ -x .github/scripts/verify-sha-consistency.sh ] && command -v yq >/dev/null 2>&1; then
           bash .github/scripts/verify-sha-consistency.sh
         else
           echo "::notice::yq not installed; skipping local verify-sha (CI still runs)"
+        fi
+
+    actionlint-full:
+      tags: lint
+      run: |
+        if command -v actionlint >/dev/null 2>&1; then
+          actionlint -color
+        else
+          echo "::notice::actionlint not installed; skipping repo-wide actionlint"
+        fi
+
+    shellcheck-full:
+      tags: lint
+      # Repo-wide shellcheck across all tracked .sh files. Skipped if heavy users
+      # set LEFTHOOK_EXCLUDE=lint or remove the tag locally.
+      run: |
+        if ! command -v shellcheck >/dev/null 2>&1; then
+          echo "::notice::shellcheck not installed; skipping repo-wide shell lint"
+          exit 0
+        fi
+        # Use NUL-delimited paths to handle spaces; restrict to tracked files.
+        files="$(git ls-files -z '*.sh' | xargs -0 -I{} echo {})"
+        if [ -z "$files" ]; then
+          echo "::notice::no .sh files tracked; skipping"
+          exit 0
+        fi
+        # shellcheck disable=SC2086
+        shellcheck $files
+
+    yamllint-full:
+      tags: lint
+      run: |
+        if ! command -v yamllint >/dev/null 2>&1; then
+          echo "::notice::yamllint not installed; skipping repo-wide yaml lint"
+          exit 0
+        fi
+        yamllint .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# post-merge — friendly nudges, never blocking.
+# ─────────────────────────────────────────────────────────────────────────────
+post-merge:
+  commands:
+    notify-lefthook-changed:
+      run: |
+        if git diff --name-only HEAD@{1} HEAD 2>/dev/null | grep -qx 'lefthook.yml'; then
+          echo "::notice::lefthook.yml changed — run 'lefthook install' to refresh local hooks."
         fi

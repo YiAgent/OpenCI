@@ -18,8 +18,28 @@ on:
     # Workdays Beijing 09:00 = UTC 01:00.
     - cron: "0 1 * * 1-5"
   workflow_dispatch:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
   workflow_call:
+    inputs:
+      model:
+        description: Override the AI model name. Defaults to the Anthropic Claude model when empty.
+        required: false
+        type: string
+        default: ""
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
     secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
+        required: false
       anthropic-api-key:
         required: true
       sentry-token:
@@ -55,16 +75,40 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
       - name: Probe secrets
         env:
-          ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
-          SENTRY_TOKEN:       ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
-          DATADOG_API_KEY:    ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
-          DATADOG_APP_KEY:    ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
-          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
-          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
-          AXIOM_TOKEN:        ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
-          SLACK_WEBHOOK_URL:  ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+          ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key }}
+          SENTRY_TOKEN:       ${{ secrets.sentry-token }}
+          DATADOG_API_KEY:    ${{ secrets.datadog-api-key }}
+          DATADOG_APP_KEY:    ${{ secrets.datadog-app-key }}
+          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key }}
+          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key }}
+          AXIOM_TOKEN:        ${{ secrets.axiom-token }}
+          SLACK_WEBHOOK_URL:  ${{ secrets.slack-webhook-url }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
             --required "ANTHROPIC_API_KEY" \
@@ -92,48 +136,72 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
 
       - name: Query Sentry
         if: matrix.service == 'sentry'
         id: q-sentry
-        uses: ./actions/observability/query-sentry
+        uses: ./.openci/actions/observability/query-sentry
         with:
-          token:   ${{ secrets.sentry-token || secrets.SENTRY_TOKEN }}
+          token:   ${{ secrets.sentry-token }}
           org:     ${{ vars.SENTRY_ORG }}
           project: ${{ vars.SENTRY_PROJECT }}
 
       - name: Query Datadog
         if: matrix.service == 'datadog'
         id: q-datadog
-        uses: ./actions/observability/query-datadog
+        uses: ./.openci/actions/observability/query-datadog
         with:
-          api-key: ${{ secrets.datadog-api-key || secrets.DATADOG_API_KEY }}
-          app-key: ${{ secrets.datadog-app-key || secrets.DATADOG_APP_KEY }}
+          api-key: ${{ secrets.datadog-api-key }}
+          app-key: ${{ secrets.datadog-app-key }}
           site:    ${{ vars.DATADOG_SITE || 'datadoghq.com' }}
 
       - name: Query PostHog
         if: matrix.service == 'posthog'
         id: q-posthog
-        uses: ./actions/observability/query-posthog
+        uses: ./.openci/actions/observability/query-posthog
         with:
-          api-key:    ${{ secrets.posthog-api-key || secrets.POSTHOG_API_KEY }}
+          api-key:    ${{ secrets.posthog-api-key }}
           project-id: ${{ vars.POSTHOG_PROJECT_ID }}
           host:       ${{ vars.POSTHOG_HOST || 'app.posthog.com' }}
 
       - name: Query LangSmith
         if: matrix.service == 'langsmith'
         id: q-langsmith
-        uses: ./actions/observability/query-langsmith
+        uses: ./.openci/actions/observability/query-langsmith
         with:
-          api-key: ${{ secrets.langsmith-api-key || secrets.LANGSMITH_API_KEY }}
+          api-key: ${{ secrets.langsmith-api-key }}
           project: ${{ vars.LANGSMITH_PROJECT }}
 
       - name: Query Axiom
         if: matrix.service == 'axiom'
         id: q-axiom
-        uses: ./actions/observability/query-axiom
+        uses: ./.openci/actions/observability/query-axiom
         with:
-          token:   ${{ secrets.axiom-token || secrets.AXIOM_TOKEN }}
+          token:   ${{ secrets.axiom-token }}
           dataset: ${{ vars.AXIOM_DATASET }}
 
       - name: Stash result
@@ -207,9 +275,11 @@ jobs:
     with:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
+      model:   ${{ inputs.model }}
     secrets:
-      anthropic-api-key: ${{ secrets.anthropic-api-key || secrets.ANTHROPIC_API_KEY }}
-      slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+      api-key:       ${{ secrets.anthropic-api-key }}
+      api-base-url:  ${{ secrets.api-base-url }}
+      slack-webhook: ${{ secrets.slack-webhook-url }}
 
   publish:
     name: Publish
@@ -225,9 +295,33 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/observability/publish-report
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          body:              ${{ needs.synthesise.outputs.result }}
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/observability/publish-report
+        with:
+          body:              ${{ needs.synthesise.outputs.structured-output }}
           date:              ${{ github.event.repository.updated_at }}
           github-token:      ${{ github.token }}
-          slack-webhook-url: ${{ secrets.slack-webhook-url || secrets.SLACK_WEBHOOK_URL }}
+          slack-webhook-url: ${{ secrets.slack-webhook-url }}

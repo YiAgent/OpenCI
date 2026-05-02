@@ -1,9 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # security/generate-sbom — Trivy SBOM (SPDX-JSON) artifact.
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: skeleton (trivy-action SHA pending). Output is uploaded as a
-# workflow artifact so consumers can attach it to releases or feed it into
-# their SBOM-tracking tool of choice.
+# Produces an SPDX-JSON SBOM. When image-ref is provided, scans the image;
+# otherwise scans the checked-out filesystem.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Security · Generate SBOM
 description: Produce an SPDX SBOM and upload as artifact.
@@ -17,18 +16,24 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: TODO — invoke Trivy SBOM
-      shell: bash
-      env:
-        IMAGE_REF: ${{ inputs.image-ref }}
-      run: |
-        echo "::warning title=generate-sbom skeleton::Trivy SBOM step not yet wired up; SHA pending verification (manifest-pending.yml: aquasecurity/trivy-action)."
-        # When verified, two flavours:
-        #   image-ref non-empty:
-        #     trivy image --format spdx-json --output sbom.spdx.json "$IMAGE_REF"
-        #   else:
-        #     trivy fs --format spdx-json --output sbom.spdx.json .
-        echo '{"placeholder": true}' > sbom.spdx.json
+    - name: Generate SBOM (image)
+      if: inputs.image-ref != ''
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+      with:
+        image-ref:    ${{ inputs.image-ref }}
+        format:       spdx-json
+        output:       sbom.spdx.json
+        exit-code:    "0"
+
+    - name: Generate SBOM (filesystem)
+      if: inputs.image-ref == ''
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+      with:
+        scan-type: fs
+        scan-ref:  "."
+        format:    spdx-json
+        output:    sbom.spdx.json
+        exit-code: "0"
 
     - name: Upload SBOM artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

@@ -79,6 +79,9 @@ deps:
   # ── AWS (verified) ─────────────────────────────────────────────────────
   aws-actions/amazon-ecs-deploy-task-definition: "a310a830f5c14e583e35d84e4e1ec7dd177c3c9c"  # v2.6.2
 
+  # ── IaC (verified) ────────────────────────────────────────────────────
+  hashicorp/setup-terraform:              "5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85"  # v4.0.0
+
   # ── Deploy / SSH (verified) ────────────────────────────────────────────
   appleboy/ssh-action:                    "0ff4204d59e8e51228ff73bce53f80d53301dee2"  # v1.2.5
 
@@ -190,14 +193,15 @@ workflows:
 
   - id: issue
     path: .github/workflows/issue.yml
-    description: Issue lifecycle (auto-label / ai-triage / detect-duplicates).
+    description: >-
+      Unified issue domain — issue lifecycle (auto-label / ai-triage /
+      detect-duplicates / auto-assign), slash-command handling, Linear
+      branch bridge, and scheduled Sentry triage. Routed via event_name
+      and optional `inputs.mode`.
     secrets:
       anthropic-api-key: { required: false }
-
-  - id: issue-comment
-    path: .github/workflows/issue-comment.yml
-    description: Slash-command handler for issue comments.
-    secrets: {}
+      sentry-token:      { required: false }
+      linear-token:      { required: false }
 
   - id: community
     path: .github/workflows/community.yml
@@ -214,19 +218,15 @@ workflows:
       pr-close-days:    { type: number, default: 7 }
     secrets: {}
 
-  - id: docs-build
-    path: .github/workflows/docs-build.yml
-    description: Validate docs build (link check) on PR.
-    secrets: {}
-
-  - id: docs-deploy
-    path: .github/workflows/docs-deploy.yml
-    description: Publish docs to GitHub Pages on main push.
-    secrets: {}
-
-  - id: release-docker
-    path: .github/workflows/release-docker.yml
-    description: Tag-triggered Docker image release with cosign signature.
+  - id: docs
+    path: .github/workflows/docs.yml
+    description: >-
+      Unified docs domain — link-check + optional build on PR; build +
+      Pages publish on main push (and via dispatch / workflow_call).
+    inputs:
+      build-cmd: { type: string, required: false, default: "" }
+      docs-dir:  { type: string, required: false, default: "docs" }
+      site-dir:  { type: string, required: false, default: "site" }
     secrets: {}
 
   - id: health-report
@@ -247,67 +247,36 @@ workflows:
     description: Auto-merge Renovate patch-labelled dependency PRs.
     secrets: {}
 
-  - id: issue-branch-from-linear
-    path: .github/workflows/issue-branch-from-linear.yml
-    description: Create a branch from a Linear issue via repository_dispatch.
-    secrets:
-      linear-token: { required: false }
-
-  - id: agent-triage
-    path: .github/workflows/agent-triage.yml
-    description: AI-powered issue triage, routing, and deduplication.
-    secrets:
-      anthropic-api-key: { required: false }
-      sentry-token:      { required: false }
-
   - id: flag-audit
     path: .github/workflows/flag-audit.yml
     description: Weekly feature-flag audit — scans codebase and files tech-debt issues.
     secrets:
       anthropic-api-key: { required: false }
 
-  - id: pr-agent-docubot
-    path: .github/workflows/pr-agent-docubot.yml
-    description: AI-generated docs/changelog comment on every opened PR.
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-agent-feedback
-    path: .github/workflows/pr-agent-feedback.yml
-    description: Post sticky CI-failure feedback comment on agent-opened PRs.
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-agent-test-gen
-    path: .github/workflows/pr-agent-test-gen.yml
-    description: Generate missing tests for a PR via Claude and open a follow-up PR.
+  - id: pr-agent
+    path: .github/workflows/pr-agent.yml
+    description: >-
+      Unified PR-agent domain — sticky CI summary (workflow_run),
+      @-mention agent feedback on failure, @docubot Q&A reply, and
+      pull-request test scaffolding. Routed via event_name and
+      optional `inputs.mode`.
     inputs:
-      pr-number: { type: string, required: false, default: "" }
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-summary
-    path: .github/workflows/pr-summary.yml
-    description: Post a weekly workflow-run summary digest on the repo.
-    inputs:
+      mode:            { type: string, required: false, default: "" }
+      pr-number:       { type: string, required: false, default: "" }
       extra-workflows: { type: string, required: false, default: "" }
-    secrets: {}
-
-  - id: prd-canary-watch
-    path: .github/workflows/prd-canary-watch.yml
-    description: Post-deploy 3σ canary observer — runs every 15 min after a prd deploy.
     secrets:
-      sentry-token: { required: false }
+      anthropic-api-key: { required: false }
 
-  - id: prd-terraform-drift
-    path: .github/workflows/prd-terraform-drift.yml
-    description: Advisory daily Terraform drift check against committed state.
+  - id: prd-observe
+    path: .github/workflows/prd-observe.yml
+    description: >-
+      Unified post-deploy observability — 3σ canary watch (every 15 min),
+      daily Terraform drift check, and Sentry fix verification (workflow_run
+      after prd). Routed via cron / event_name and optional `inputs.mode`.
+      All three jobs are advisory and never block deploys.
     inputs:
-      infra-dir: { type: string, default: "infrastructure" }
-
-  - id: prd-verify-fix
-    path: .github/workflows/prd-verify-fix.yml
-    description: Confirm Sentry issues are resolved after a prd deploy.
+      mode:      { type: string, required: false, default: "" }
+      infra-dir: { type: string, required: false, default: "infrastructure" }
     secrets:
       sentry-token: { required: false }
 
@@ -322,5 +291,12 @@ workflows:
 
   - id: release
     path: .github/workflows/release.yml
-    description: Create GitHub Release and update floating v<major>/v<minor> tags on version tag push.
+    description: >-
+      Unified release — marketplace tagging (GitHub Release + floating
+      v<major>/v<minor>) and Docker image release with cosign keyless
+      signing. Routed via `inputs.mode` (marketplace|docker|both).
+    inputs:
+      mode:       { type: string, required: false, default: "both" }
+      image-name: { type: string, required: false, default: "" }
+      registry:   { type: string, required: false, default: "ghcr.io" }
     secrets: {}

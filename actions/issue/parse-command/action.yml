@@ -11,9 +11,12 @@ inputs:
     description: github.event.comment.author_association.
 
 outputs:
-  command:    { value: ${{ steps.parse.outputs.command }} }
-  args:       { value: ${{ steps.parse.outputs.args }} }
-  authorized: { value: ${{ steps.parse.outputs.authorized }} }
+  command:
+    value: ${{ steps.parse.outputs.command }}
+  args:
+    value: ${{ steps.parse.outputs.args }}
+  authorized:
+    value: ${{ steps.parse.outputs.authorized }}
 
 runs:
   using: composite

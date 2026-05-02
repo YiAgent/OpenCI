@@ -1,0 +1,5 @@
+---
+# Actions pending SHA verification before use in production.
+# Entries here MUST NOT be referenced by any workflow or action.
+# Move to manifest.yml after verifying the commit SHA against the release tag.
+deps: {}

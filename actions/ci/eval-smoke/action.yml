@@ -29,6 +29,15 @@ outputs:
     description: AI eval report (JSON-encoded text).
     value: ${{ steps.harness.outputs.result }}
 
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
+
 runs:
   using: composite
   steps:
@@ -51,8 +60,10 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:     ci/smoke-eval
         context:  ${{ steps.ctx.outputs.context }}
         api-key:  ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}

@@ -188,8 +188,8 @@ runs:
         API_BASE_URL:        ${{ inputs.api-base-url }}
         EXTRA_ENV_JSON:      ${{ inputs.extra-env }}
         # Mirror api-key into ANTHROPIC_AUTH_TOKEN so Anthropic-compatible
-        # gateways (Z.AI / GLM Coding Plan / OpenRouter, ...) that require
-        # Bearer auth work with no extra wiring at the caller side.
+        # gateways that require Bearer auth work with no extra wiring at
+        # the caller side.
         AUTH_TOKEN_PASSTHROUGH: ${{ inputs.api-key }}
       run: |
         bash "${{ github.action_path }}/compose-args.sh"

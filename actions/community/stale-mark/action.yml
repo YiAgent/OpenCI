@@ -17,7 +17,9 @@ inputs:
   stale-days:      { required: true, description: "Days of inactivity before marking" }
   exempt-labels:   { required: false, default: "pinned,security,help-wanted,priority:p0,priority:p1,wip", description: "Comma-separated labels that prevent staling" }
   stale-message:   { required: false, default: "This has been inactive for a while and is going stale. Comment to keep it open.", description: "Comment to post" }
-  github-token:    { required: true, description: GITHUB_TOKEN with issues:write }
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite

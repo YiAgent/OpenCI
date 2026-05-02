@@ -4,10 +4,6 @@
 # Skips silently when `infrastructure/` is absent. When present, runs
 # `terraform plan -refresh-only -detailed-exitcode`; exit 2 = drift, in
 # which case we open an advisory issue but never fail the deploy.
-#
-# STATUS: skeleton — hashicorp/setup-terraform SHA pending verification.
-# A consumer who already has terraform on the runner image can use this
-# atom directly today; otherwise wait on the SHA migration.
 # ─────────────────────────────────────────────────────────────────────────────
 name: PRD · Terraform Drift
 description: Advisory drift check; never blocks deploy.
@@ -20,6 +16,10 @@ inputs:
   github-token:
     description: GITHUB_TOKEN with issues:write.
     required: true
+  terraform-version:
+    description: Terraform version to install.
+    required: false
+    default: "1.12.0"
 
 runs:
   using: composite
@@ -37,26 +37,58 @@ runs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: TODO — terraform plan -refresh-only
+    - name: Setup Terraform
       if: steps.gate.outputs.skip != 'true'
+      uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85  # v4.0.0
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+
+    - name: Detect drift
+      if: steps.gate.outputs.skip != 'true'
+      id: plan
       shell: bash
       env:
-        DIR: ${{ inputs.infra-dir }}
+        DIR:      ${{ inputs.infra-dir }}
         GH_TOKEN: ${{ inputs.github-token }}
         REPO:     ${{ github.repository }}
       run: |
-        echo "::warning title=terraform-drift skeleton::hashicorp/setup-terraform SHA pending verification (manifest-pending.yml). Would run plan in $DIR."
-        # When verified:
-        # - uses: hashicorp/setup-terraform@<SHA>
-        # - run: |
-        #     cd "$DIR"
-        #     terraform init -backend=false
-        #     set +e
-        #     terraform plan -refresh-only -detailed-exitcode
-        #     code=$?
-        #     set -e
-        #     if [ "$code" = "2" ]; then
-        #       gh issue create --repo "$REPO" \
-        #         --title "infra-drift detected at $(date -u +%Y-%m-%d)" \
-        #         --label "infra-drift,priority:p2,ops-generated"
-        #     fi
+        set -euo pipefail
+        # Reject path traversal: DIR must resolve to within GITHUB_WORKSPACE.
+        workspace="${GITHUB_WORKSPACE:-$(pwd)}"
+        resolved="$(realpath "$DIR" 2>/dev/null || echo "")"
+        case "$resolved" in
+          "$workspace"/*|"$workspace") ;;
+          *) echo "::error::infra-dir '$DIR' is outside workspace — aborting"; exit 1 ;;
+        esac
+        cd "$resolved"
+
+        terraform init -backend=false -no-color 2>&1 | tee /tmp/tf-init-"$$".txt
+        rm -f /tmp/tf-init-"$$".txt
+
+        plan_file="$(mktemp /tmp/tf-plan-XXXXXX.txt)"
+        set +e
+        terraform plan -refresh-only -detailed-exitcode -no-color 2>&1 | tee "$plan_file"
+        code=$?
+        set -e
+
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+        if [ "$code" = "2" ]; then
+          echo "drift=true" >> "$GITHUB_OUTPUT"
+          echo "::warning title=Terraform Drift::drift detected in $DIR — see advisory issue"
+          body="$(printf '## Terraform Drift Detected\n\nDirectory: \`%s\`\nDetected at: %s\nRun: %s\n\n<details><summary>Plan output</summary>\n\n\`\`\`\n%s\n\`\`\`\n\n</details>' \
+            "$DIR" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID" "$(head -100 "$plan_file")")"
+          rm -f "$plan_file"
+          gh issue create --repo "$REPO" \
+            --title "infra-drift detected $(date -u +%Y-%m-%d)" \
+            --body  "$body" \
+            --label "infra-drift,priority:p2,ops-generated" || true
+        elif [ "$code" = "0" ]; then
+          echo "drift=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Terraform Drift::no drift in $DIR"
+          rm -f "$plan_file"
+        else
+          echo "drift=unknown" >> "$GITHUB_OUTPUT"
+          echo "::warning title=Terraform Drift::plan failed (exit $code) — check Terraform config"
+          rm -f "$plan_file"
+        fi

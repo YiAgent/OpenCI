@@ -9,11 +9,29 @@ name: Issue · AI Triage
 description: Ask Claude to suggest labels / priority / next-action; apply them.
 
 inputs:
-  issue-number: { required: true,  description: Issue number }
-  issue-title:  { required: true,  description: Issue title }
-  issue-body:   { required: true,  description: Issue body }
-  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
-  github-token: { required: true,  description: GITHUB_TOKEN with issues:write }
+  issue-number:
+    required: true
+    description: Issue number
+  issue-title:
+    required: true
+    description: Issue title
+  issue-body:
+    required: true
+    description: Issue body
+  anthropic-api-key:
+    required: true
+    description: ANTHROPIC_API_KEY (or any Anthropic-compatible key when api-base-url is set)
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite
@@ -27,13 +45,7 @@ runs:
         ISSUE_TITLE: ${{ inputs.issue-title }}
         ISSUE_BODY:  ${{ inputs.issue-body }}
       run: |
-        # jq -n --arg keeps consumer-supplied fields out of shell injection paths.
-        ctx="$(jq -nc \
-          --arg repo  "$REPO" \
-          --arg num   "$ISSUE_NUM" \
-          --arg title "$ISSUE_TITLE" \
-          --arg body  "$ISSUE_BODY" \
-          '{repo: $repo, issue: ($num | tonumber), title: $title, body: $body}')"
+        ctx="$(bash "${{ github.action_path }}/build-context.sh")"
         {
           echo "context<<__OPENCI_EOF__"
           echo "$ctx"
@@ -42,11 +54,13 @@ runs:
 
     - name: Invoke claude-harness
       id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          issue/triage
         context:       ${{ steps.ctx.outputs.context }}
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
     - name: Apply triage decision

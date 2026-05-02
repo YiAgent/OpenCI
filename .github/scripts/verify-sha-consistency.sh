@@ -149,7 +149,7 @@ main() {
   done <<<"$pending_map"
 
   # Scan all uses: references.
-  local line where content action ref name
+  local where content action ref name
   while IFS=$'\t' read -r where content; do
     [ -z "$content" ] && continue
     checked=$((checked + 1))

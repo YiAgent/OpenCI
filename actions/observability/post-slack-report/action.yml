@@ -38,7 +38,7 @@ runs:
           echo "__OPENCI_EOF__"
         } >> "$GITHUB_OUTPUT"
 
-    - uses: ./actions/integrations/slack-notify
+    - uses: ./.openci/actions/integrations/slack-notify
       with:
         webhook-url: ${{ inputs.webhook-url }}
         status:      info

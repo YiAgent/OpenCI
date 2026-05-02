@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ""
   github-token:
-    description: GITHUB_TOKEN with `contents: write`.
+    description: "GITHUB_TOKEN with `contents: write`."
     required: true
   use-ai-changelog:
     description: When "true" + ANTHROPIC_API_KEY is set, replace --generate-notes with an AI-written Keep a Changelog body.
@@ -23,6 +23,15 @@ inputs:
     description: ANTHROPIC_API_KEY (only required when use-ai-changelog=true).
     required: false
     default: ""
+
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
 
 runs:
   using: composite
@@ -84,12 +93,14 @@ runs:
 
     - id: ai
       if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          agents/ai-changelog
         context:       ${{ steps.log.outputs.context }}
         max-turns:     "5"
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
     - name: Create release

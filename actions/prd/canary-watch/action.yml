@@ -26,10 +26,14 @@ inputs:
     default: "false"
 
 outputs:
-  regression: { value: ${{ steps.run.outputs.regression }} }
-  threshold:  { value: ${{ steps.run.outputs.threshold }} }
-  mean:       { value: ${{ steps.run.outputs.mean }} }
-  stddev:     { value: ${{ steps.run.outputs.stddev }} }
+  regression:
+    value: ${{ steps.run.outputs.regression }}
+  threshold:
+    value: ${{ steps.run.outputs.threshold }}
+  mean:
+    value: ${{ steps.run.outputs.mean }}
+  stddev:
+    value: ${{ steps.run.outputs.stddev }}
 
 runs:
   using: composite

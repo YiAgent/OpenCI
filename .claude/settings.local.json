@@ -41,7 +41,13 @@
       "Bash(git push *)",
       "Bash(git stash *)",
       "mcp__plugin_everything-claude-code_exa__web_search_exa",
-      "WebFetch(domain:docs.github.com)"
+      "WebFetch(domain:docs.github.com)",
+      "Bash(git branch *)",
+      "Skill(review)",
+      "Bash(grep -E '^\\(1\\\\.\\\\.|not ok|ok [0-9]+$\\)')",
+      "Bash(grep -E '\\\\.\\(yml|yaml\\)$')",
+      "Bash(yamllint *)",
+      "Bash(gh pr *)"
     ]
   }
 }

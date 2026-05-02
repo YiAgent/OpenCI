@@ -18,13 +18,7 @@ runs:
       shell: bash
       env:
         SONAR_TOKEN: ${{ inputs.sonar-token }}
-      run: |
-        if [ -z "$SONAR_TOKEN" ]; then
-          echo "skip=true" >> "$GITHUB_OUTPUT"
-          echo "::notice title=SonarCloud Skipped::SONAR_TOKEN not configured, graceful skip"
-        else
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-        fi
+      run: bash "${{ github.action_path }}/check-token.sh"
 
     - uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8
       if: steps.check.outputs.skip != 'true'

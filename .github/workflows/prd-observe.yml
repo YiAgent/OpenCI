@@ -1,0 +1,365 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prd-observe.yml — unified post-deploy observability workflow.
+# ─────────────────────────────────────────────────────────────────────────────
+# Combines three prior workflows into one mode-routed entry point.
+# All three jobs are advisory — they file issues but never block deploys.
+#
+#   ┌─ trigger ────────────────────────────┬─ active job ─────────────────────┐
+#   │ schedule "*/15 * * * *"              │ canary-watch (3σ deviation)      │
+#   │ schedule "0 4 * * *"                 │ terraform-drift                  │
+#   │ workflow_run [prd] success           │ verify-fix (Sentry confirm)      │
+#   │ workflow_dispatch / workflow_call    │ inputs.mode router               │
+#   └──────────────────────────────────────┴──────────────────────────────────┘
+#
+# Reusable invocation:
+#   uses: YiWang24/OpenCI/.github/workflows/prd-observe.yml@v2
+#   with:
+#     mode:      canary-watch       # canary-watch | terraform-drift | verify-fix
+#     infra-dir: infrastructure     # only used by terraform-drift
+#   secrets:
+#     sentry-token: ${{ secrets.SENTRY_TOKEN }}   # optional
+#
+# Schedules are cheap to keep colocated — both crons run separately by GH and
+# only the matching `if:` job will actually fire on each tick.
+# Security: all untrusted run-output values are passed through env: vars
+# inside run: blocks (head_sha is repo-controlled but treated identically).
+# ─────────────────────────────────────────────────────────────────────────────
+name: prd-observe
+
+on:
+  schedule:
+    # Canary observer — every 15 minutes after a recent prd deploy.
+    - cron: "*/15 * * * *"
+    # Terraform drift — daily at 04:00 UTC.
+    - cron: "0 4 * * *"
+  workflow_run:
+    workflows: [prd]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
+      mode:
+        description: Which observer to run
+        required: true
+        type: choice
+        options: [canary-watch, terraform-drift, verify-fix]
+      infra-dir:
+        description: (terraform-drift only) Path to the Terraform infrastructure directory
+        required: false
+        type: string
+        default: infrastructure
+  workflow_call:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
+      mode:
+        description: Force a specific observer (canary-watch|terraform-drift|verify-fix)
+        required: false
+        type: string
+        default: ""
+      infra-dir:
+        description: Path to the Terraform infrastructure directory
+        required: false
+        type: string
+        default: infrastructure
+    secrets:
+      sentry-token:
+        required: false
+
+permissions: {}
+
+# Per-mode concurrency keys keep the three observers independent.
+concurrency:
+  group: >-
+    prd-observe-${{
+      github.event.schedule
+      || github.event.workflow_run.id
+      || inputs.mode
+      || github.event.inputs.mode
+      || github.run_id
+    }}
+  cancel-in-progress: false
+
+jobs:
+  # ── canary-watch (every 15 min after a recent prd deploy) ───────────────
+  canary-watch:
+    name: 3σ Canary Watch
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'canary-watch')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'canary-watch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+
+      - name: Has recent deploy?
+        id: recent
+        env:
+          LAST: ${{ vars.PRD_LAST_DEPLOY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LAST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Canary Skipped::no recent prd deploy marker"
+            exit 0
+          fi
+          if last_epoch="$(date -u -d "$LAST" +%s 2>/dev/null)"; then :;
+          elif last_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$LAST" +%s 2>/dev/null)"; then :;
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Canary Skipped::cannot parse $LAST"
+            exit 0
+          fi
+          age_min=$(( ( $(date -u +%s) - last_epoch ) / 60 ))
+          if [ "$age_min" -gt 30 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Canary Skipped::deploy too old (age=${age_min}min)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch current + history rates from Sentry Stats v2
+        if: steps.recent.outputs.skip != 'true'
+        id: rates
+        env:
+          TOKEN:   ${{ secrets.sentry-token }}
+          ORG:     ${{ vars.SENTRY_ORG }}
+          PROJECT: ${{ vars.SENTRY_PROJECT }}
+          ENV_VAR: ${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ] || [ -z "$ORG" ] || [ -z "$PROJECT" ]; then
+            echo "::warning title=Canary::Sentry credentials missing — skipping canary check"
+            echo "current=0" >> "$GITHUB_OUTPUT"
+            echo "history="  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          endpoint="https://sentry.io/api/0/organizations/${ORG}/stats_v2/"
+
+          # Helper: query error rate for a given [start, end] window.
+          # Prints a single float (error_count / total_count), or "0" on no data.
+          rate_for_window() {
+            local start="$1" end="$2"
+            local common="field=sum(quantity)&groupBy=outcome&project=${PROJECT}&environment=${ENV_VAR}&start=${start}&end=${end}&interval=1m"
+            local total_json errors_json total errors
+            total_json="$(curl -sS --max-time 20 \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "${endpoint}?${common}" 2>/dev/null || echo '{}')"
+            errors_json="$(curl -sS --max-time 20 \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "${endpoint}?${common}&category=error" 2>/dev/null || echo '{}')"
+            total="$(printf '%s' "$total_json" \
+              | jq -r '[.groups[]?.totals?."sum(quantity)" // 0] | add // 0' 2>/dev/null || echo 0)"
+            errors="$(printf '%s' "$errors_json" \
+              | jq -r '[.groups[]?.totals?."sum(quantity)" // 0] | add // 0' 2>/dev/null || echo 0)"
+            if [ "${total:-0}" -eq 0 ] 2>/dev/null; then
+              echo "0"
+            else
+              awk -v e="$errors" -v t="$total" 'BEGIN { printf "%.6f", e / t }'
+            fi
+          }
+
+          now_s="$(date -u +%s)"
+
+          # Current: last 15 minutes.
+          if end_ts="$(date -u -d "@${now_s}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then
+            start_ts="$(date -u -d "@$(( now_s - 900 ))" +%Y-%m-%dT%H:%M:%SZ)"
+          else
+            end_ts="$(date -u -r "${now_s}" +%Y-%m-%dT%H:%M:%SZ)"
+            start_ts="$(date -u -r "$(( now_s - 900 ))" +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+          current="$(rate_for_window "$start_ts" "$end_ts")"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+          # History: same 15-minute window for each of the past 7 days.
+          history=""
+          for day in 1 2 3 4 5 6 7; do
+            offset=$(( day * 86400 ))
+            if h_end="$(date -u -d "@$(( now_s - offset ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then
+              h_start="$(date -u -d "@$(( now_s - offset - 900 ))" +%Y-%m-%dT%H:%M:%SZ)"
+            else
+              h_end="$(date -u -r "$(( now_s - offset ))" +%Y-%m-%dT%H:%M:%SZ)"
+              h_start="$(date -u -r "$(( now_s - offset - 900 ))" +%Y-%m-%dT%H:%M:%SZ)"
+            fi
+            r="$(rate_for_window "$h_start" "$h_end")"
+            history="${history}${r}"$'\n'
+          done
+          {
+            echo "history<<__OPENCI_EOF__"
+            printf '%s' "$history"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run canary-watch atom
+        if: steps.recent.outputs.skip != 'true'
+        uses: ./.openci/actions/prd/canary-watch
+        with:
+          current-rate:     ${{ steps.rates.outputs.current }}
+          history-rates:    ${{ steps.rates.outputs.history }}
+          regression-fails: "false"
+
+  # ── terraform-drift (daily at 04:00 UTC) ─────────────────────────────────
+  terraform-drift:
+    name: Terraform Drift
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'terraform-drift')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'terraform-drift')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/prd/terraform-drift
+        with:
+          infra-dir:    ${{ inputs.infra-dir || vars.TERRAFORM_DIR || 'infrastructure' }}
+          github-token: ${{ github.token }}
+
+  # ── verify-fix (after prd workflow succeeds) ────────────────────────────
+  verify-fix:
+    name: Verify Fix
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'verify-fix')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+
+      - name: Find associated PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          SHA:      ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SHA" ]; then
+            echo "::notice title=Verify Fix::no head_sha (manual run) — skipping"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr_num="$(gh api -X GET "repos/${REPO}/commits/${SHA}/pulls" --jq '.[0].number // empty')"
+          if [ -z "$pr_num" ]; then
+            echo "::notice title=Verify Fix::no PR associated with $SHA — skipping"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true"     >> "$GITHUB_OUTPUT"
+            echo "number=$pr_num"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait 15 minutes for fix to settle
+        if: steps.pr.outputs.found == 'true'
+        run: sleep 900
+
+      - name: Verify fix per ref
+        if: steps.pr.outputs.found == 'true'
+        uses: ./.openci/actions/prd/verify-fix
+        with:
+          pr-number:      ${{ steps.pr.outputs.number }}
+          github-token:   ${{ github.token }}
+          sentry-token:   ${{ secrets.sentry-token }}
+          sentry-org:     ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}

@@ -10,7 +10,9 @@ description: One-sentence AI summary of a failed workflow run.
 
 inputs:
   run-id:        { required: true, description: github.event.workflow_run.id }
-  github-token:  { required: true, description: GITHUB_TOKEN with actions:read }
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with actions:read"
   anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
 
 outputs:
@@ -20,6 +22,15 @@ outputs:
   failed-jobs:
     description: Comma-separated names of failed jobs.
     value: ${{ steps.fetch.outputs.failed-jobs }}
+
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
 
 runs:
   using: composite
@@ -59,10 +70,12 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          ops/summarize-failure
         context:       ${{ steps.fetch.outputs.context }}
         max-turns:     "3"
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}

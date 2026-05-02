@@ -19,8 +19,16 @@ inputs:
     required: false
     default: "promptfooconfig.yaml"
   anthropic-api-key:
-    description: ANTHROPIC_API_KEY for the eval models.
+    description: ANTHROPIC_API_KEY (or any Anthropic-compatible key when api-base-url is set) for the eval models.
     required: true
+  api-base-url:
+    description: Custom Anthropic-compatible base URL — exported as ANTHROPIC_BASE_URL for promptfoo.
+    required: false
+    default: ""
+  model:
+    description: Model id passed to promptfoo via PROMPTFOO_MODEL env (informational; promptfoo config wins).
+    required: false
+    default: ""
   should-run:
     description: "true|false — caller decides whether prompt files changed."
     required: false
@@ -38,7 +46,9 @@ runs:
       if: inputs.should-run == 'true'
       uses: promptfoo/promptfoo-action@8e12b04e93d24ea43d7694d8f27dd86e7abd5a72  # v1.0.0
       env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        ANTHROPIC_API_KEY:  ${{ inputs.anthropic-api-key }}
+        ANTHROPIC_BASE_URL: ${{ inputs.api-base-url }}
+        PROMPTFOO_MODEL:    ${{ inputs.model }}
       with:
         config:           ${{ inputs.config-path }}
         no-share:         "true"

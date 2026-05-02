@@ -21,17 +21,7 @@ runs:
       shell: bash
       env:
         LANGUAGE: ${{ inputs.language }}
-      run: |
-        # SPEC §11: language → flavor.
-        case "$LANGUAGE" in
-          node|javascript|typescript) flavor="javascript" ;;
-          python)                     flavor="python"     ;;
-          go)                         flavor="go"         ;;
-          java|kotlin)                flavor="java"       ;;
-          *)                          flavor="ci_light"   ;;
-        esac
-        echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
-        echo "::notice title=MegaLinter Flavor::language=$LANGUAGE flavor=$flavor"
+      run: bash "${{ github.action_path }}/pick-flavor.sh"
 
     - uses: oxsecurity/megalinter/flavors/${{ steps.flavor.outputs.flavor }}@8fbdead70d1409964ab3d5afa885e18ee85388bb
       env:

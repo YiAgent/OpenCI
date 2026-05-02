@@ -1,8 +1,10 @@
 # Setup: Linear webhook → GitHub branch automation
 
-This wires Linear's "issue → In Progress" event to OpenCI's
-`issue-branch-from-linear.yml` workflow, which creates a feature branch
-named after the Linear issue and posts the branch URL back to Linear.
+This wires Linear's "issue → In Progress" event to the `linear-branch`
+job inside OpenCI's unified `issue.yml` workflow, which creates a feature
+branch named after the Linear issue and posts the branch URL back to
+Linear. (Routed by `repository_dispatch.action == 'linear-issue-started'`
+or by calling `issue.yml` with `mode: linear-branch`.)
 
 > Linear's webhook can't talk to GitHub Actions directly. You need a
 > small bridge function (Cloudflare Worker / AWS Lambda / similar). A
@@ -55,8 +57,8 @@ If nothing happens:
 
 1. Check the worker logs (`wrangler tail`) — signature mismatch is the
    most common failure (different secret in worker env vs Linear).
-2. Check GitHub repo Actions tab → look for an
-   `issue-branch-from-linear` run.
+2. Check GitHub repo Actions tab → look for an `issue` workflow run
+   triggered by `repository_dispatch / linear-issue-started`.
 3. Verify the GitHub PAT has the **Contents: write** scope.
 
 ## Branch naming

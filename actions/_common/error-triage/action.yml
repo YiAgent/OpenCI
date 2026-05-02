@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # _common/error-triage — pull Sentry → AI decisions → create / dedupe issues.
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: scaffold — Sentry fetch + per-decision dispatch hooks left as
-# TODO. The atom shape lets consumers fill in their fetch and trust
-# claude-harness for the routing logic.
+# Fetches new Sentry issues from the past hour, compares against existing
+# GitHub issues (label: from-sentry), and asks Claude to route each error
+# to create / duplicate / ignore. Graceful-skip when sentry-token is unset.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Ops · Error Triage
 description: Triage new Sentry errors into GitHub issues (creates / dedupes / ignores).
@@ -12,8 +12,24 @@ inputs:
   sentry-token:   { required: false, default: "", description: Sentry token (skip when empty) }
   sentry-org:     { required: false, default: "", description: "" }
   sentry-project: { required: false, default: "", description: "" }
-  github-token:   { required: true, description: GITHUB_TOKEN }
-  anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
+  window-minutes:
+    description: How far back to look for new Sentry issues.
+    required: false
+    default: "60"
+  github-token:
+    required: true
+    description: GITHUB_TOKEN
+  anthropic-api-key:
+    required: true
+    description: ANTHROPIC_API_KEY (or any Anthropic-compatible key when api-base-url is set)
+  api-base-url:
+    required: false
+    default: ""
+    description: Custom Anthropic-compatible base URL
+  model:
+    required: false
+    default: ""
+    description: Override the Claude model (defaults to claude-harness composite default)
 
 runs:
   using: composite
@@ -31,7 +47,7 @@ runs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Fetch new + existing (stub)
+    - name: Fetch new Sentry issues + existing GitHub issues
       if: steps.gate.outputs.skip != 'true'
       id: fetch
       shell: bash
@@ -39,17 +55,45 @@ runs:
         TOKEN:    ${{ inputs.sentry-token }}
         ORG:      ${{ inputs.sentry-org }}
         PROJECT:  ${{ inputs.sentry-project }}
+        WINDOW:   ${{ inputs.window-minutes }}
         GH_TOKEN: ${{ inputs.github-token }}
         REPO:     ${{ github.repository }}
       run: |
         set -euo pipefail
-        # TODO: real Sentry fetch. We model the contract so the AI step still works.
-        new_errors='[]'
-        existing="$(gh api -X GET "repos/${REPO}/issues?labels=from-sentry&state=open" \
+
+        # Validate slugs — prevent SSRF via crafted org/project inputs.
+        [[ "$ORG"     =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::sentry-org contains invalid characters"; exit 1; }
+        [[ "$PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::sentry-project contains invalid characters"; exit 1; }
+
+        # Compute start timestamp (GNU + BSD date fallback).
+        if start_ts="$(date -u -d "-${WINDOW} minutes" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then :;
+        else start_ts="$(date -u -v "-${WINDOW}M" +%Y-%m-%dT%H:%M:%SZ)"; fi
+
+        # Fetch new Sentry issues (unresolved, first seen in window).
+        sentry_resp="$(curl -sS --max-time 30 \
+          -H "Authorization: Bearer ${TOKEN}" \
+          "https://sentry.io/api/0/projects/${ORG}/${PROJECT}/issues/?query=is%3Aunresolved+firstSeen%3A%3E${start_ts}&limit=25&sort=date" \
+          2>/dev/null || echo '[]')"
+
+        # Extract fields we care about for triage context.
+        new_errors="$(printf '%s' "$sentry_resp" | jq '[.[] | {
+          id:         (.id | tostring),
+          title:      .title,
+          culprit:    (.culprit // ""),
+          level:      .level,
+          count:      ((.count // "0") | tonumber),
+          user_count: ((.userCount // 0) | tonumber),
+          first_seen: .firstSeen,
+          fingerprint: (.fingerprints[0] // "")
+        }]' 2>/dev/null || echo '[]')"
+
+        # Fetch existing GitHub issues labelled from-sentry for dedup.
+        existing="$(gh api -X GET "repos/${REPO}/issues?labels=from-sentry&state=open&per_page=50" \
           --jq '[.[] | {number, title, labels: [.labels[].name]}]' 2>/dev/null || echo '[]')"
+
         ctx="$(jq -nc \
-          --argjson new "$new_errors" \
-          --argjson exist "$existing" \
+          --argjson new    "$new_errors" \
+          --argjson exist  "$existing" \
           '{new_errors: $new, existing_issues: $exist}')"
         {
           echo "context<<__OPENCI_EOF__"
@@ -59,12 +103,14 @@ runs:
 
     - id: harness
       if: steps.gate.outputs.skip != 'true'
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          ops/error-triage
         context:       ${{ steps.fetch.outputs.context }}
         max-turns:     "5"
         api-key:       ${{ inputs.anthropic-api-key }}
+        api-base-url:  ${{ inputs.api-base-url }}
+        model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
     - name: Apply decisions
@@ -96,9 +142,11 @@ runs:
 
           case "$decision" in
             create)
+              first_seen="$(jq -r '.first_seen // ""' <<<"$row")"
+              issue_id="$(jq  -r '.id // ""'          <<<"$row")"
               gh issue create --repo "$REPO" \
                 --title "[Sentry] $summary (fp:$fp)" \
-                --body  "Fingerprint: \`$fp\`\nFirst seen: ${row}\n\n_Triaged automatically; see SECURITY.md for sensitive errors._" \
+                --body  "Fingerprint: \`$fp\`\nFirst seen: ${first_seen}\nSentry ID: ${issue_id}\n\n_Triaged automatically; see SECURITY.md for sensitive errors._" \
                 --label "from-sentry,ops-generated,priority:$prio"
               ;;
             duplicate)
