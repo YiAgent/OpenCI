@@ -23,12 +23,14 @@ setup() {
   export SLACK_WEBHOOK=""
   export API_BASE_URL=""
   export EXTRA_ENV_JSON="{}"
+  export AUTH_TOKEN_PASSTHROUGH=""
 }
 
 teardown() {
   rm -rf "${WORK_DIR}"
   unset TASK MODEL MAX_TURNS SYSTEM_PROMPT EXTRA_ALLOWED_TOOLS EXTRA_DISALLOWED \
-        MCP_CONFIG_INPUT SLACK_WEBHOOK API_BASE_URL EXTRA_ENV_JSON
+        MCP_CONFIG_INPUT SLACK_WEBHOOK API_BASE_URL EXTRA_ENV_JSON \
+        AUTH_TOKEN_PASSTHROUGH
 }
 
 out_kv() {
@@ -165,6 +167,33 @@ out_multiline() {
   settings="$(out_kv "$out" settings)"
   [[ "$settings" == *"ANTHROPIC_BASE_URL"* ]]
   [[ "$settings" == *"proxy.example.com"* ]]
+  rm -f "$out"
+}
+
+@test "settings.env mirrors api-key into ANTHROPIC_AUTH_TOKEN" {
+  AUTH_TOKEN_PASSTHROUGH="zhipu-xxx-yyy"
+  out="$(mktemp)"
+  GITHUB_OUTPUT="$out" bash "$SCRIPT" >/dev/null
+  settings="$(out_kv "$out" settings)"
+  echo "$settings" | jq -e '.env.ANTHROPIC_AUTH_TOKEN == "zhipu-xxx-yyy"' >/dev/null
+  rm -f "$out"
+}
+
+@test "settings.env auto-includes API_TIMEOUT_MS and CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" {
+  out="$(mktemp)"
+  GITHUB_OUTPUT="$out" bash "$SCRIPT" >/dev/null
+  settings="$(out_kv "$out" settings)"
+  echo "$settings" | jq -e '.env.API_TIMEOUT_MS == "3000000"' >/dev/null
+  echo "$settings" | jq -e '.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC == "1"' >/dev/null
+  rm -f "$out"
+}
+
+@test "EXTRA_ENV_JSON can override auto-injected timeouts" {
+  EXTRA_ENV_JSON='{"API_TIMEOUT_MS":"60000"}'
+  out="$(mktemp)"
+  GITHUB_OUTPUT="$out" bash "$SCRIPT" >/dev/null
+  settings="$(out_kv "$out" settings)"
+  echo "$settings" | jq -e '.env.API_TIMEOUT_MS == "60000"' >/dev/null
   rm -f "$out"
 }
 

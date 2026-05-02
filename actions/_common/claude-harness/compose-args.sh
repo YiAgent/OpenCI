@@ -150,19 +150,33 @@ fi
 [ -n "$mcp_flag" ] && claude_args_lines+=("$mcp_flag")
 
 # ── Build settings JSON (env only — permissions live in claude_args) ────────
-# settings.env is the channel that survives into Claude's bash tool context,
-# so SLACK_WEBHOOK_URL and ANTHROPIC_BASE_URL go here even though they're also
-# exposed at the workflow `env:` level (defence in depth — composite actions
-# can shadow job-level env).
+# settings.env is the channel that survives into Claude Code's session, so
+# SLACK_WEBHOOK_URL, ANTHROPIC_BASE_URL, and ANTHROPIC_AUTH_TOKEN go here. The
+# auth-token pass-through is what makes Anthropic-compatible gateways
+# (Z.AI / Zhipu BigModel / OpenRouter / etc.) work with no extra config: they
+# require Bearer auth, while direct Anthropic uses x-api-key. Setting both is
+# safe — the SDK picks whichever it prefers.
 if command -v jq >/dev/null 2>&1; then
   settings_json="$(jq -nc \
-    --arg slack    "${SLACK_WEBHOOK:-}" \
-    --arg base_url "${API_BASE_URL:-}" \
-    --argjson extra "${EXTRA_ENV_JSON:-{\}}" \
-    '{ env: ($extra + ({ SLACK_WEBHOOK_URL: $slack, ANTHROPIC_BASE_URL: $base_url } | with_entries(select(.value != "")))) }')"
+    --arg slack      "${SLACK_WEBHOOK:-}" \
+    --arg base_url   "${API_BASE_URL:-}" \
+    --arg auth_token "${AUTH_TOKEN_PASSTHROUGH:-}" \
+    --argjson extra  "${EXTRA_ENV_JSON:-{\}}" \
+    '{
+      env: (
+        ({
+          SLACK_WEBHOOK_URL:    $slack,
+          ANTHROPIC_BASE_URL:   $base_url,
+          ANTHROPIC_AUTH_TOKEN: $auth_token,
+          API_TIMEOUT_MS:       "3000000",
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        } | with_entries(select(.value != "")))
+        + $extra
+      )
+    }')"
 else
   settings_json='{}'
-  echo "::warning title=jq missing::settings.env not built (extra-env, slack-webhook, api-base-url ignored)" >&2
+  echo "::warning title=jq missing::settings.env not built (extra-env, slack-webhook, api-base-url, auth-token ignored)" >&2
 fi
 
 # ── Emit GITHUB_OUTPUT (multi-line for claude-args) ─────────────────────────
