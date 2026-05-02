@@ -218,19 +218,15 @@ workflows:
       pr-close-days:    { type: number, default: 7 }
     secrets: {}
 
-  - id: docs-build
-    path: .github/workflows/docs-build.yml
-    description: Validate docs build (link check) on PR.
-    secrets: {}
-
-  - id: docs-deploy
-    path: .github/workflows/docs-deploy.yml
-    description: Publish docs to GitHub Pages on main push.
-    secrets: {}
-
-  - id: release-docker
-    path: .github/workflows/release-docker.yml
-    description: Tag-triggered Docker image release with cosign signature.
+  - id: docs
+    path: .github/workflows/docs.yml
+    description: >-
+      Unified docs domain — link-check + optional build on PR; build +
+      Pages publish on main push (and via dispatch / workflow_call).
+    inputs:
+      build-cmd: { type: string, required: false, default: "" }
+      docs-dir:  { type: string, required: false, default: "docs" }
+      site-dir:  { type: string, required: false, default: "site" }
     secrets: {}
 
   - id: health-report
@@ -295,5 +291,12 @@ workflows:
 
   - id: release
     path: .github/workflows/release.yml
-    description: Create GitHub Release and update floating v<major>/v<minor> tags on version tag push.
+    description: >-
+      Unified release — marketplace tagging (GitHub Release + floating
+      v<major>/v<minor>) and Docker image release with cosign keyless
+      signing. Routed via `inputs.mode` (marketplace|docker|both).
+    inputs:
+      mode:       { type: string, required: false, default: "both" }
+      image-name: { type: string, required: false, default: "" }
+      registry:   { type: string, required: false, default: "ghcr.io" }
     secrets: {}

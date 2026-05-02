@@ -1,16 +1,31 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# release.yml — automated versioning and tag management.
+# release.yml — unified release workflow.
 # ─────────────────────────────────────────────────────────────────────────────
-# Triggered on version tag push. Creates GitHub Release and updates
-# major/minor tags for stable consumer references.
+# Combines marketplace tagging and Docker image release into one mode-routed
+# workflow. By default, a `git push origin v*` runs BOTH:
 #
-# Usage:
-#   git tag v2.1.0 && git push origin v2.1.0
+#   ┌─ trigger ────────────────────────────┬─ active job ─────────────────────┐
+#   │ push tags v*                         │ marketplace + docker (parallel)  │
+#   │ workflow_dispatch / workflow_call    │ inputs.mode router               │
+#   └──────────────────────────────────────┴──────────────────────────────────┘
 #
-# Creates:
-#   - GitHub Release v2.1.0  (with auto-generated changelog)
-#   - Floating tag v2.1      → same commit
-#   - Floating tag v2        → same commit
+# When called as a reusable workflow you can scope to one side:
+#   uses: YiWang24/OpenCI/.github/workflows/release.yml@v2
+#   with:
+#     mode:       docker        # marketplace | docker | both (default both)
+#     image-name: my-app        # required for docker mode
+#     registry:   ghcr.io       # optional
+#
+# Marketplace job creates:
+#   - GitHub Release v1.2.3   (auto-generated changelog)
+#   - Floating tag v1.2       → same commit
+#   - Floating tag v1         → same commit
+#
+# Docker job pushes:
+#   - <registry>/<owner>/<image>:<semver>
+#   - <registry>/<owner>/<image>:<major>.<minor>
+#   - <registry>/<owner>/<image>:sha-<short-sha>
+# Cosign keyless OIDC signs the resulting digest.
 # ─────────────────────────────────────────────────────────────────────────────
 name: release
 
@@ -18,6 +33,39 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Release facets to run
+        required: true
+        type: choice
+        options: [both, marketplace, docker]
+        default: both
+      image-name:
+        description: (docker mode) image name; defaults to repository name
+        required: false
+        type: string
+        default: ""
+      registry:
+        description: (docker mode) container registry
+        required: false
+        type: string
+        default: ghcr.io
+  workflow_call:
+    inputs:
+      mode:
+        description: Release facets to run (marketplace|docker|both)
+        required: false
+        type: string
+        default: both
+      image-name:
+        type: string
+        required: false
+        default: ""
+      registry:
+        type: string
+        required: false
+        default: ghcr.io
 
 permissions: {}
 
@@ -26,8 +74,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release
+  # ── marketplace tagging + GitHub Release ────────────────────────────────
+  marketplace:
+    name: Marketplace Release
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
+      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -47,9 +100,11 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/v}"
           MAJOR="${TAG%%.*}"
           MINOR="${TAG%.*}"
-          echo "tag=v${TAG}"      >> "$GITHUB_OUTPUT"
-          echo "major=v${MAJOR}"  >> "$GITHUB_OUTPUT"
-          echo "minor=v${MINOR}"  >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=v${TAG}"
+            echo "major=v${MAJOR}"
+            echo "minor=v${MINOR}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
         id: changelog
@@ -85,3 +140,55 @@ jobs:
           git tag -f "$MAJOR" HEAD
           git tag -f "$MINOR" HEAD
           git push -f origin "$MAJOR" "$MINOR"
+
+  # ── tag-driven Docker image release with cosign keyless ─────────────────
+  docker:
+    name: Release Docker
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'docker'))
+      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'docker'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ${{ inputs.registry || 'ghcr.io' }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ${{ inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/${{ inputs.image-name || github.event.repository.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+
+      - id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198e19c3bc6bb6  # v6.18.0
+        with:
+          push:       "true"
+          tags:       ${{ steps.meta.outputs.tags }}
+          labels:     ${{ steps.meta.outputs.labels }}
+          provenance: "true"
+          sbom:       "true"
+          cache-from: "type=gha"
+          cache-to:   "type=gha,mode=max"
+
+      - name: Sign image (Cosign keyless)
+        uses: ./actions/ci/sign-image
+        with:
+          image-ref: ${{ inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/${{ inputs.image-name || github.event.repository.name }}@${{ steps.push.outputs.digest }}

@@ -211,10 +211,8 @@ steps:
 | [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle (auto-label / AI triage / dedupe / assign), slash commands, Linear branch bridge, scheduled Sentry triage |
 | [`community.yml`](.github/workflows/community.yml) | First-contributor welcome |
 | [`stale.yml`](.github/workflows/stale.yml) | Stale-mark / close / lock |
-| [`docs-build.yml`](.github/workflows/docs-build.yml) | Doc PR validation |
-| [`docs-deploy.yml`](.github/workflows/docs-deploy.yml) | Pages publish on main |
-| [`release-docker.yml`](.github/workflows/release-docker.yml) | Tag-driven Docker release with cosign |
-| [`release.yml`](.github/workflows/release.yml) | Marketplace version tagging + floating major/minor tags |
+| [`docs.yml`](.github/workflows/docs.yml) | Unified docs — link-check + optional build on PR; build + Pages publish on main |
+| [`release.yml`](.github/workflows/release.yml) | Unified release — marketplace tagging + Docker image release with cosign (mode-routed) |
 | [`dep-auto-merge.yml`](.github/workflows/dep-auto-merge.yml) | Renovate patch PRs auto-merge |
 | [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml) | Manifest enforcement |
 | `pr-agent.yml` | Opt-in AI agent enhancements (summarise / feedback / docubot / test-gen, mode-routed) |

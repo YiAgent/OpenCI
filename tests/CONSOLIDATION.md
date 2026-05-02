@@ -11,7 +11,7 @@ Each phase consolidates a domain, then verifies via actionlint, yamllint, and ba
 | 1 | Issue lifecycle | 4 → 1 (`issue.yml`) | ✅ done |
 | 2 | PR agent workflows | 4 → 1 (`pr-agent.yml`) | ✅ done |
 | 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ✅ done |
-| 4 | Release & docs | 4 → 2 | ⏳ pending |
+| 4 | Release & docs | 4 → 2 | ✅ done |
 | 5 | Community action audit | — | ⏳ pending |
 | 6 | L1 marketplace `action.yml` polish | — | ⏳ pending |
 
@@ -125,3 +125,28 @@ bats tests/scripts/verify-sha-consistency.bats
 - `actionlint .github/workflows/prd-observe.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 22 → 20; total non-secret actionlint baseline 9 → 5
+
+### Phase 4 — release & docs (done)
+
+**Removed (3):** `release-docker.yml`, `docs-build.yml`, `docs-deploy.yml`.
+
+**Kept & rewritten (1):** `release.yml`
+- `push tags v*` → both `marketplace` (Release + floating tags) and `docker` jobs
+- `workflow_dispatch` / `workflow_call` with `inputs.mode` → `marketplace` | `docker` | `both`
+- `inputs.image-name` and `inputs.registry` for docker
+- Side fix: extract-version step uses `{ ... } >> $GITHUB_OUTPUT` (SC2129 cleared)
+
+**Created (1):** `docs.yml`
+- `pull_request` paths `docs/** + *.md` → `build` only (link check + opt build)
+- `push main` paths `docs/** + *.md` → `build` → `deploy` (Pages)
+- `workflow_dispatch` / `workflow_call` → `build` → `deploy` (always)
+- `deploy` gated by `if: github.event_name != 'pull_request'`
+
+**Doc updates:**
+- `manifest.yml`: `docs-build`, `docs-deploy`, `release-docker` collapsed; `release` expanded with `mode/image-name/registry` inputs
+- `README.md`: full inventory table updated
+
+**Verification:**
+- `actionlint .github/workflows/release.yml docs.yml` → clean
+- `bats tests/actions/` → 275/275 passing
+- Workflow count 20 → 18; total non-secret actionlint baseline 5 → 4
