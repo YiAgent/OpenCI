@@ -1,0 +1,199 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy.yml — unified deployment domain (reusable workflow).
+# ─────────────────────────────────────────────────────────────────────────────
+# Public entry point for the deploy domain. Routes by `mode` to the
+# appropriate underscore-prefixed implementation workflow:
+#
+#   mode=deploy    + environment=staging    -> _stg.yml
+#   mode=deploy    + environment=production -> _prd.yml
+#   mode=observe   + observe-mode=*         -> _prd-observe.yml
+#   mode=stg-test                           -> _stg-agent-test.yml
+#   mode=poll                               -> _poll-prd-dispatch.yml
+#
+# External consumers ONLY call this file. The _*.yml implementations are
+# private; underscore prefix marks them as not part of the public API.
+#
+# Reusable invocation:
+#   uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
+#   with:
+#     mode: deploy
+#     environment: staging
+#     image-digest: sha256:abc...
+#     image-name: my-app
+#     health-url: https://stg.example.com/healthz
+#   secrets:
+#     anthropic-api-key:    secrets.ANTHROPIC_API_KEY
+#     anthropic-base-url:   secrets.ANTHROPIC_BASE_URL
+#     kubeconfig-stg:       secrets.KUBECONFIG_STG
+#     kubeconfig-prd:       secrets.KUBECONFIG_PRD
+#     slack-webhook-url:    secrets.SLACK_WEBHOOK_URL
+#
+# Security: all consumer-supplied values flow as inputs/secrets into the
+# implementation workflows; no shell interpolation in this facade.
+# ─────────────────────────────────────────────────────────────────────────────
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: deploy | observe | stg-test | poll
+        required: false
+        type: string
+        default: deploy
+      environment:
+        description: staging | production (used when mode=deploy)
+        required: false
+        type: string
+        default: staging
+      observe-mode:
+        description: canary-watch | terraform-drift | verify-fix (used when mode=observe)
+        required: false
+        type: string
+        default: canary-watch
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; pin a tag in production).
+        required: false
+        type: string
+        default: main
+      model:
+        description: Override the AI model name. Defaults to the Anthropic Claude model when empty.
+        required: false
+        type: string
+        default: ''
+      image-digest:
+        required: false
+        type: string
+        default: ''
+      stg-image-digest:
+        required: false
+        type: string
+        default: ''
+      stg-deploy-time:
+        required: false
+        type: string
+        default: ''
+      image-name:
+        required: false
+        type: string
+        default: ''
+      registry:
+        required: false
+        type: string
+        default: ghcr.io
+      app-name:
+        required: false
+        type: string
+        default: ''
+      health-url:
+        required: false
+        type: string
+        default: ''
+      observation-minutes:
+        required: false
+        type: number
+        default: 30
+      k8s-namespace:
+        required: false
+        type: string
+        default: default
+      run-migration:
+        required: false
+        type: boolean
+        default: false
+      infra-dir:
+        description: Terraform infrastructure directory (used when observe-mode=terraform-drift)
+        required: false
+        type: string
+        default: infrastructure
+    secrets:
+      anthropic-api-key:    { required: false }
+      api-base-url:         { required: false }
+      kubeconfig-stg:       { required: false }
+      kubeconfig-prd:       { required: false }
+      slack-webhook-url:    { required: false }
+      sentry-token:         { required: false }
+      datadog-api-key:      { required: false }
+      datadog-app-key:      { required: false }
+      posthog-api-key:      { required: false }
+      langsmith-api-key:    { required: false }
+      axiom-token:          { required: false }
+
+permissions: {}
+
+jobs:
+  stg:
+    if: ${{ inputs.mode == 'deploy' && inputs.environment == 'staging' }}
+    uses: ./.github/workflows/reusable/_stg.yml
+    with:
+      openci-ref:     ${{ inputs.openci-ref }}
+      image-digest:   ${{ inputs.image-digest }}
+      image-name:     ${{ inputs.image-name }}
+      registry:       ${{ inputs.registry }}
+      app-name:       ${{ inputs.app-name }}
+      health-url:     ${{ inputs.health-url }}
+      k8s-namespace:  ${{ inputs.k8s-namespace }}
+      run-migration:  ${{ inputs.run-migration }}
+    secrets:
+      kubeconfig-stg:    ${{ secrets.kubeconfig-stg }}
+      slack-webhook-url: ${{ secrets.slack-webhook-url }}
+      sentry-token:      ${{ secrets.sentry-token }}
+      datadog-api-key:   ${{ secrets.datadog-api-key }}
+      posthog-api-key:   ${{ secrets.posthog-api-key }}
+      langsmith-api-key: ${{ secrets.langsmith-api-key }}
+      axiom-token:       ${{ secrets.axiom-token }}
+
+  prd:
+    if: ${{ inputs.mode == 'deploy' && inputs.environment == 'production' }}
+    uses: ./.github/workflows/reusable/_prd.yml
+    with:
+      openci-ref:           ${{ inputs.openci-ref }}
+      model:                ${{ inputs.model }}
+      image-digest:         ${{ inputs.image-digest }}
+      stg-image-digest:     ${{ inputs.stg-image-digest }}
+      stg-deploy-time:      ${{ inputs.stg-deploy-time }}
+      image-name:           ${{ inputs.image-name }}
+      registry:             ${{ inputs.registry }}
+      app-name:             ${{ inputs.app-name }}
+      health-url:           ${{ inputs.health-url }}
+      observation-minutes:  ${{ inputs.observation-minutes }}
+      k8s-namespace:        ${{ inputs.k8s-namespace }}
+      run-migration:        ${{ inputs.run-migration }}
+    secrets:
+      anthropic-api-key: ${{ secrets.anthropic-api-key }}
+      api-base-url:      ${{ secrets.api-base-url }}
+      kubeconfig-prd:    ${{ secrets.kubeconfig-prd }}
+      slack-webhook-url: ${{ secrets.slack-webhook-url }}
+      sentry-token:      ${{ secrets.sentry-token }}
+      datadog-api-key:   ${{ secrets.datadog-api-key }}
+      posthog-api-key:   ${{ secrets.posthog-api-key }}
+      langsmith-api-key: ${{ secrets.langsmith-api-key }}
+      axiom-token:       ${{ secrets.axiom-token }}
+
+  observe:
+    if: ${{ inputs.mode == 'observe' }}
+    uses: ./.github/workflows/reusable/_prd-observe.yml
+    with:
+      openci-ref: ${{ inputs.openci-ref }}
+      mode:       ${{ inputs.observe-mode }}
+      infra-dir:  ${{ inputs.infra-dir }}
+    secrets:
+      sentry-token: ${{ secrets.sentry-token }}
+
+  stg-test:
+    if: ${{ inputs.mode == 'stg-test' }}
+    uses: ./.github/workflows/reusable/_stg-agent-test.yml
+    with:
+      openci-ref:   ${{ inputs.openci-ref }}
+      model:        ${{ inputs.model }}
+      health-url:   ${{ inputs.health-url }}
+      image-digest: ${{ inputs.image-digest }}
+    secrets:
+      api-base-url:      ${{ secrets.api-base-url }}
+      anthropic-api-key: ${{ secrets.anthropic-api-key }}
+
+  poll:
+    if: ${{ inputs.mode == 'poll' }}
+    uses: ./.github/workflows/reusable/_poll-prd-dispatch.yml
+    with:
+      openci-ref: ${{ inputs.openci-ref }}

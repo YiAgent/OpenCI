@@ -30,32 +30,6 @@
 name: release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-      mode:
-        description: Release facets to run
-        required: true
-        type: choice
-        options: [both, marketplace, docker]
-        default: both
-      image-name:
-        description: (docker mode) image name; defaults to repository name
-        required: false
-        type: string
-        default: ""
-      registry:
-        description: (docker mode) container registry
-        required: false
-        type: string
-        default: ghcr.io
   workflow_call:
     inputs:
       openci-ref:

@@ -1,0 +1,17 @@
+# on-deps.yml — event entry that flips Renovate patch PRs to auto-merge.
+name: on-deps
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize, reopened]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: on-deps-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  deps:
+    uses: ./.github/workflows/reusable/deps.yml

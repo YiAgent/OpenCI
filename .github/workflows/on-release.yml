@@ -1,0 +1,27 @@
+# on-release.yml — event entry for tagged releases.
+# `git push origin v*` runs marketplace + docker release jobs by default.
+name: on-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: false
+        type: string
+        default: both
+
+permissions: {}
+
+concurrency:
+  group: on-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: ./.github/workflows/reusable/release.yml
+    with:
+      mode:       ${{ inputs.mode || 'both' }}
+      image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      registry:   ghcr.io

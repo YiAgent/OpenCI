@@ -4,7 +4,7 @@
 > and AI-augmented development. Pin once, share everywhere.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-OpenCI-blue.svg)](https://github.com/marketplace/actions/openci)
-[![verify-sha-consistency](https://github.com/YiWang24/OpenCI/actions/workflows/verify-sha-consistency.yml/badge.svg)](https://github.com/YiWang24/OpenCI/actions/workflows/verify-sha-consistency.yml)
+[![on-security](https://github.com/YiAgent/OpenCI/actions/workflows/on-security.yml/badge.svg)](https://github.com/YiAgent/OpenCI/actions/workflows/on-security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/conventional%20commits-1.0.0-fe5196.svg)](https://www.conventionalcommits.org)
 
@@ -24,8 +24,14 @@ serious software project:
 - Release engineering (cosign keyless, AI changelog, Pages docs deploy)
 - AI agent feedback, autonomous staging tests, docubot, Copilot review
 
-Consumers reference it via `uses: YiWang24/OpenCI/.github/workflows/<id>.yml@v2`.
+Consumers reference it via `uses: YiAgent/OpenCI/.github/workflows/reusable/<id>.yml@v3`.
 No fork required.
+
+External users only call the **9 unprefixed reusable workflows** under
+`.github/workflows/reusable/` — `ci.yml`, `pr.yml`, `issue.yml`,
+`release.yml`, `deploy.yml`, `security.yml`, `docs.yml`, `deps.yml`,
+`agent.yml`. The `_*.yml` siblings are private implementation files that
+the public reusables route to internally; do not depend on their names.
 
 OpenCI is **the generic CI/CD base layer**. It is consumed by domain-specific
 extensions — for example `EvolveCI` adds AI-Agent-specific workflow patterns
@@ -44,22 +50,22 @@ on top of OpenCI without modifying it.
 5. **Secure by default.** Every job runs `step-security/harden-runner`,
    every workflow declares `permissions: {}` then opts in per-job, every
    third-party action is pinned to a verified 40-char commit SHA enforced
-   by [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml).
+   by [`verify-sha-consistency.yml`](.github/workflows/reusable/security.yml).
 
 Full reasoning: [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Quick start
 
 Most consumers start with these four references in their own
-`.github/workflows/`:
+`.github/workflows/` (the file names below are conventions — pick anything):
 
 ```yaml
-# .github/workflows/pr.yml — runs on every PR
-name: PR
+# .github/workflows/on-pr.yml — runs on every PR
+name: on-pr
 on: { pull_request: }
 jobs:
   quality:
-    uses: YiWang24/OpenCI/.github/workflows/pr.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/pr.yml@v3
     with:
       enable-ai-review: true
     secrets:
@@ -68,12 +74,12 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/ci.yml — runs on push to main
-name: CI
+# .github/workflows/on-ci.yml — runs on push to main
+name: on-ci
 on: { push: { branches: [main] } }
 jobs:
   build:
-    uses: YiWang24/OpenCI/.github/workflows/ci.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/ci.yml@v3
     with:
       image-name: my-app
     secrets:
@@ -81,8 +87,8 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/stg.yml — runs after CI succeeds
-name: STG
+# .github/workflows/on-deploy.yml — runs after CI succeeds (staging)
+name: on-deploy-stg
 on:
   workflow_run:
     workflows: [CI]
@@ -90,7 +96,7 @@ on:
 jobs:
   deploy:
     if: github.event.workflow_run.conclusion == 'success'
-    uses: YiWang24/OpenCI/.github/workflows/stg.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
     with:
       image-digest: ${{ github.event.workflow_run.outputs.image-digest }}
       image-name:   my-app
@@ -101,14 +107,14 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/prd.yml — fires from a tag or repository_dispatch
-name: PRD
+# .github/workflows/on-deploy-prd.yml — fires from a tag or repository_dispatch
+name: on-deploy-prd
 on:
   push: { tags: ['v*'] }
   repository_dispatch: { types: [observe-window-complete] }
 jobs:
   deploy:
-    uses: YiWang24/OpenCI/.github/workflows/prd.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
     with:
       image-digest:     ${{ github.event.client_payload.image-digest || vars.LAST_CI_DIGEST }}
       stg-image-digest: ${{ github.event.client_payload.stg-image-digest || vars.LAST_STG_DIGEST }}
@@ -120,7 +126,7 @@ jobs:
       kubeconfig-prd: ${{ secrets.KUBECONFIG_PRD }}
 ```
 
-> Replace `@v2` with whichever stable major suits you. Pre-release work
+> Replace `@v3` with whichever stable major suits you. Pre-release work
 > can pin a SHA from `main`; breaking changes are flagged in
 > [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -133,13 +139,13 @@ workflows. All call `claude-harness` under the hood with task-specific prompts.
 
 | Workflow | Description |
 | --- | --- |
-| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
-| [`pr-agent.yml`](.github/workflows/pr-agent.yml) | Unified PR-agent — sticky CI summary, agent feedback on failure, @docubot Q&A, test scaffolding (mode-routed) |
-| [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle, slash commands, Linear bridge, scheduled Sentry triage (mode-routed) |
-| [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
-| [`stg-agent-test.yml`](.github/workflows/stg-agent-test.yml) | L1–L4 autonomous staging tests |
-| [`flag-audit.yml`](.github/workflows/flag-audit.yml) | Weekly feature-flag audit and tech-debt filing |
-| [`health-report.yml`](.github/workflows/health-report.yml) | Daily AI-synthesised observability digest → Issue + Slack |
+| [`pr.yml`](.github/workflows/reusable/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
+| [`pr-agent.yml`](.github/workflows/reusable/pr.yml) | Unified PR-agent — sticky CI summary, agent feedback on failure, @docubot Q&A, test scaffolding (mode-routed) |
+| [`issue.yml`](.github/workflows/reusable/issue.yml) | Unified issue domain — lifecycle, slash commands, Linear bridge, scheduled Sentry triage (mode-routed) |
+| [`ci.yml`](.github/workflows/reusable/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
+| [`stg-agent-test.yml`](.github/workflows/reusable/deploy.yml) | L1–L4 autonomous staging tests |
+| [`flag-audit.yml`](.github/workflows/reusable/security.yml) | Weekly feature-flag audit and tech-debt filing |
+| [`health-report.yml`](.github/workflows/reusable/agent.yml) | Daily AI-synthesised observability digest → Issue + Slack |
 
 ### Usage examples
 
@@ -147,7 +153,7 @@ workflows. All call `claude-harness` under the hood with task-specific prompts.
 # PR Review (AI-powered)
 jobs:
   quality:
-    uses: YiWang24/OpenCI/.github/workflows/pr.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/pr.yml@v3
     with:
       enable-ai-review: true
     secrets:
@@ -158,7 +164,7 @@ jobs:
 # Issue Triage + Deduplication
 jobs:
   triage:
-    uses: YiWang24/OpenCI/.github/workflows/issue.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@v3
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -167,7 +173,7 @@ jobs:
 # Staging Agent Tests (after deploy)
 jobs:
   agent-test:
-    uses: YiWang24/OpenCI/.github/workflows/stg-agent-test.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
     with:
       health-url: ${{ vars.STG_HEALTH_URL }}
     secrets:
@@ -181,7 +187,7 @@ For a unified single-step entrypoint, use the Marketplace action directly:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: YiWang24/OpenCI@v2
+  - uses: YiAgent/OpenCI@v3
     with:
       task: pr/review
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -192,33 +198,34 @@ steps:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: YiWang24/OpenCI/actions/pr/review-ai@v2
+  - uses: YiAgent/OpenCI/actions/pr/review-ai@v3
     with:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ## Workflow catalogue
 
-| Workflow | Purpose |
+OpenCI exposes **9 public reusable workflows** under
+`.github/workflows/reusable/`. External users only call these; the
+`_*.yml` siblings in the same directory are private implementation
+files.
+
+| Public reusable | Purpose |
 | --- | --- |
-| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate (12 jobs) |
-| [`ci.yml`](.github/workflows/ci.yml) | Merge-to-main build + scan + sign + AI smoke |
-| [`stg.yml`](.github/workflows/stg.yml) | Staging deploy, smoke, notify, observability fan-out |
-| [`prd.yml`](.github/workflows/prd.yml) | Production deploy with environment gate + auto-rollback |
-| [`claude-harness.yml`](.github/workflows/claude-harness.yml) | Sole AI entry point (workflow form) |
-| [`security-schedule.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard |
-| [`health-report.yml`](.github/workflows/health-report.yml) | Daily AI-synthesised observability digest |
-| [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle (auto-label / AI triage / dedupe / assign), slash commands, Linear branch bridge, scheduled Sentry triage |
-| [`community.yml`](.github/workflows/community.yml) | First-contributor welcome |
-| [`stale.yml`](.github/workflows/stale.yml) | Stale-mark / close / lock |
-| [`docs.yml`](.github/workflows/docs.yml) | Unified docs — link-check + optional build on PR; build + Pages publish on main |
-| [`release.yml`](.github/workflows/release.yml) | Unified release — marketplace tagging + Docker image release with cosign (mode-routed) |
-| [`dep-auto-merge.yml`](.github/workflows/dep-auto-merge.yml) | Renovate patch PRs auto-merge |
-| [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml) | Manifest enforcement |
-| `pr-agent.yml` | Opt-in AI agent enhancements (summarise / feedback / docubot / test-gen, mode-routed) |
-| `prd-observe.yml` | Post-deploy advisory monitors (canary-watch / terraform-drift / verify-fix, mode-routed) |
-| `flag-audit.yml` | Weekly cron flag-debt audit |
-| `stg-agent-test.yml` | L1–L4 autonomous staging tests |
+| [`reusable/ci.yml`](.github/workflows/reusable/ci.yml) | Merge-to-main build + scan + sign + AI smoke + SHA drift verification |
+| [`reusable/pr.yml`](.github/workflows/reusable/pr.yml) | PR quality gate (lint / test / scan / build / coverage) + opt-in AI review + opt-in pr-agent (summarise / feedback / docubot / test-gen) |
+| [`reusable/issue.yml`](.github/workflows/reusable/issue.yml) | Issue lifecycle (auto-label / AI triage / dedupe / assign / slash commands / Linear bridge / Sentry triage) + first-contributor welcome + stale sweep |
+| [`reusable/release.yml`](.github/workflows/reusable/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
+| [`reusable/deploy.yml`](.github/workflows/reusable/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1–L4) / poll-prd-dispatch (mode-routed by `mode` and `environment`) |
+| [`reusable/security.yml`](.github/workflows/reusable/security.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check (mode-routed) |
+| [`reusable/docs.yml`](.github/workflows/reusable/docs.yml) | Link-check on PR + optional build + Pages publish on main |
+| [`reusable/deps.yml`](.github/workflows/reusable/deps.yml) | Renovate patch PR auto-merge |
+| [`reusable/agent.yml`](.github/workflows/reusable/agent.yml) | Single Claude harness — generic ai-task + scheduled health-digest (multi-source observability synthesis) |
+
+OpenCI also dogfoods these reusables via 9 thin `on-*.yml` event entries
+at the top level of `.github/workflows/`. External consumers write their
+own `on-*.yml` (any name) that `uses:` the reusables — see Quick start
+above.
 
 Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
 
@@ -237,7 +244,8 @@ Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
 ## Repository layout
 
 ```
-.github/workflows/      # 26 reusable workflows
+.github/workflows/      # 9 on-*.yml event entries (dogfooding) + reusable/ subdir
+.github/workflows/reusable/   # 9 public reusable workflows + 12 _*.yml private impls
 .github/scripts/        # cross-workflow shell helpers
 .github/ISSUE_TEMPLATE/ # bug / feature / question / security templates
 actions/                # 83 composite + atomic actions

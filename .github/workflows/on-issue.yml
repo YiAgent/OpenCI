@@ -1,0 +1,52 @@
+# on-issue.yml — event entry for the issue/community domain.
+# Routes every issue-related GitHub event into reusable/issue.yml with the
+# appropriate `mode`. External users mirror this pattern in their own repo.
+name: on-issue
+
+on:
+  issues:
+    types: [opened, reopened, edited, closed]
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened]
+  schedule:
+    - cron: "0 2 * * *"          # daily 02:00 UTC stale sweep
+  repository_dispatch:
+    types: [linear-issue-started]
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: on-issue-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'repository_dispatch'
+    uses: ./.github/workflows/reusable/issue.yml
+    with:
+      mode: ${{ inputs.mode || '' }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      linear-token:      ${{ secrets.LINEAR_TOKEN }}
+
+  welcome:
+    if: github.event_name == 'pull_request_target' || github.event_name == 'issues'
+    uses: ./.github/workflows/reusable/issue.yml
+    with:
+      mode: welcome
+
+  stale-sweep:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stale')
+    uses: ./.github/workflows/reusable/issue.yml
+    with:
+      mode: stale

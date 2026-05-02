@@ -1,7 +1,9 @@
 # Workflow Consolidation Log
 
-Tracks the migration from 28 fragmented workflows to ~18 mode-based workflows.
-Each phase consolidates a domain, then verifies via actionlint, yamllint, and bats.
+Tracks the migration from 28 fragmented workflows to ~18 mode-based workflows,
+then to v3's dual-identity layout (9 on-*.yml event entries + 9 public
+reusables + private impl files). Each phase verifies via actionlint, yamllint,
+bats, and dogfooding via on-*.yml.
 
 ## Status overview
 
@@ -13,6 +15,41 @@ Each phase consolidates a domain, then verifies via actionlint, yamllint, and ba
 | 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ✅ done |
 | 4 | Release & docs | 4 → 2 | ✅ done |
 | 5 | Community action audit | — | ✅ done (already adopted) |
+| 9 | v3 dual-identity refactor — see below | 17 mixed → 9 on-*.yml + 9 public reusables + 12 private impls | ✅ done |
+
+## Phase 9 — v3 dual-identity refactor (2026-05-02)
+
+**Context:** v2 workflows mixed event triggers and `workflow_call` in the
+same file. External users couldn't tell which paths were the public API.
+v3 separates the two identities at the file-system level.
+
+**Changes:**
+
+- New top-level event entries: `on-ci.yml`, `on-pr.yml`, `on-issue.yml`,
+  `on-release.yml`, `on-deploy.yml`, `on-security.yml`, `on-docs.yml`,
+  `on-deps.yml`, `on-agent.yml`. Each is a thin shim (≤120 lines) that
+  routes events to the appropriate `reusable/<domain>.yml`.
+- All 17 v2 reusable workflows moved to `.github/workflows/reusable/`,
+  stripped of non-`workflow_call` triggers.
+- Public reusables (9 unprefixed): `ci`, `pr`, `issue`, `release`,
+  `deploy`, `security`, `docs`, `deps`, `agent`.
+- Private reusables (12 underscore-prefixed): `_stg`, `_prd`,
+  `_prd-observe`, `_stg-agent-test`, `_pr-agent`, `_security-schedule`,
+  `_flag-audit`, `_health-report`, `_stale`, `_community`,
+  `_poll-prd-dispatch`, `_verify-sha-consistency`. Public reusables
+  route to these by `mode` / `task` / `pr-agent-mode` inputs.
+- Domain absorptions: `pr+pr-agent` → `pr.yml`; `stg+prd+prd-observe+stg-agent-test+poll-prd-dispatch` → `deploy.yml`; `issue+stale+community` → `issue.yml`; `security-schedule+flag-audit+verify-sha-consistency` → `security.yml`; `claude-harness+health-report` → `agent.yml`.
+- `verify-sha-consistency` is dual-homed: lives in
+  `reusable/security.yml` (mode=verify-sha) and is also called as a job
+  inside `reusable/ci.yml` so PR/CI runs exercise it.
+- `_health-report.yml` updated to `uses: ./.github/workflows/reusable/agent.yml`.
+- `_pr-agent.yml` core workflow list updated to scan `on-*.yml` filenames.
+
+**External breaking changes:** all `uses:` paths must be updated to
+`reusable/<id>.yml@v3`. See CHANGELOG for the full mapping table.
+
+**Dogfooding verification:** OpenCI's own `on-*.yml` shims will exercise
+each reusable on every push / PR / cron tick.
 | 6 | L1 marketplace `action.yml` polish | — | ✅ done |
 
 ## Verification commands
@@ -118,7 +155,7 @@ workflow_call surface and forwards to every atom call): `issue.yml`,
 ```yaml
 jobs:
   call:
-    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@v3
     with:
       openci-ref: v2
     secrets:
@@ -130,7 +167,7 @@ jobs:
 ```yaml
 jobs:
   call:
-    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@v3
     with:
       openci-ref: v2
       model:      <model-id-the-endpoint-serves>
@@ -186,7 +223,7 @@ to match whatever ref you used in `uses:`:
 ```yaml
 jobs:
   call:
-    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@v3
     with:
       openci-ref: v2     # match the ref pinned in `uses:`
       mode: ai-triage
@@ -269,7 +306,7 @@ In addition to the Phase-1-4 fixes:
 - `docs/setup-linear-webhook.md`: redirected to new `issue` workflow with `repository_dispatch` event
 
 **Verification:**
-- `actionlint .github/workflows/issue.yml` → clean
+- `actionlint .github/workflows/reusable/issue.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - `bats tests/scripts/verify-sha-consistency.bats` → 11/11 passing
 - Workflow count 28 → 25
@@ -294,7 +331,7 @@ In addition to the Phase-1-4 fixes:
 - `README.md`: AI workflow table + complete inventory updated
 
 **Verification:**
-- `actionlint .github/workflows/pr-agent.yml` → clean
+- `actionlint .github/workflows/reusable/pr.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 25 → 22; total non-secret actionlint baseline 14 → 9
 
@@ -320,7 +357,7 @@ In addition to the Phase-1-4 fixes:
 - `README.md`: full inventory table updated
 
 **Verification:**
-- `actionlint .github/workflows/prd-observe.yml` → clean
+- `actionlint .github/workflows/reusable/deploy.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 22 → 20; total non-secret actionlint baseline 9 → 5
 
@@ -345,7 +382,7 @@ In addition to the Phase-1-4 fixes:
 - `README.md`: full inventory table updated
 
 **Verification:**
-- `actionlint .github/workflows/release.yml docs.yml` → clean
+- `actionlint .github/workflows/reusable/release.yml docs.yml` → clean
 - `bats tests/actions/` → 275/275 passing
 - Workflow count 20 → 18; total non-secret actionlint baseline 5 → 4
 

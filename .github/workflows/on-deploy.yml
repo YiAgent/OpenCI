@@ -1,0 +1,116 @@
+# on-deploy.yml — event entry for the deployment domain.
+# Routes (mode/environment selected by event type):
+#   workflow_run:[on-ci] success            -> deploy.yml mode=deploy environment=staging
+#   push tags v*                             -> deploy.yml mode=deploy environment=production
+#   repository_dispatch[observe-window-done] -> deploy.yml mode=deploy environment=production
+#   schedule */15 * * * *                    -> deploy.yml mode=observe observe-mode=canary-watch
+#   schedule 0 4 * * *                       -> deploy.yml mode=observe observe-mode=terraform-drift
+#   workflow_dispatch                        -> any caller-supplied mode
+name: on-deploy
+
+on:
+  workflow_run:
+    workflows: [on-ci]
+    types: [completed]
+  push:
+    tags: ["v*"]
+  repository_dispatch:
+    types: [observe-window-complete]
+  schedule:
+    - cron: "*/15 * * * *"
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: false
+        type: string
+        default: deploy
+      environment:
+        required: false
+        type: string
+        default: staging
+      observe-mode:
+        required: false
+        type: string
+        default: canary-watch
+
+permissions: {}
+
+concurrency:
+  group: on-deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stg-deploy:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode:        deploy
+      environment: staging
+      app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
+      image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      health-url:  ${{ vars.STG_HEALTH_URL }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      kubeconfig-stg:    ${{ secrets.KUBECONFIG_STG }}
+      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
+      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
+      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
+      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
+
+  stg-agent-test:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    needs: stg-deploy
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode:       stg-test
+      health-url: ${{ vars.STG_HEALTH_URL }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+
+  prd-deploy:
+    if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') }}
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode:        deploy
+      environment: production
+      app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
+      image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      health-url:  ${{ vars.PRD_HEALTH_URL }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      kubeconfig-prd:    ${{ secrets.KUBECONFIG_PRD }}
+      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
+      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
+      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
+      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
+
+  observe-canary:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode:         observe
+      observe-mode: canary-watch
+    secrets:
+      sentry-token: ${{ secrets.SENTRY_TOKEN }}
+
+  observe-drift:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode:         observe
+      observe-mode: terraform-drift
+      infra-dir:    ${{ vars.INFRA_DIR || 'infrastructure' }}
+
+  observe-poll:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'poll' }}
+    uses: ./.github/workflows/reusable/deploy.yml
+    with:
+      mode: poll

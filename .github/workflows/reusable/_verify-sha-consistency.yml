@@ -13,19 +13,7 @@
 name: verify-sha-consistency
 
 on:
-  pull_request:
-    paths:
-      - "manifest.yml"
-      - "manifest-pending.yml"
-      - ".github/workflows/**/*.yml"
-      - ".github/workflows/**/*.yaml"
-      - ".github/scripts/verify-sha-consistency.sh"
-      - "actions/**/*.yml"
-      - "actions/**/*.yaml"
-  push:
-    branches: [main]
-  workflow_dispatch:
-
+  workflow_call: {}
 permissions: {}
 
 concurrency:

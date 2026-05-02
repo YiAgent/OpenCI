@@ -1,0 +1,66 @@
+# on-agent.yml — event entry for the AI agent harness.
+# Two scheduled triggers:
+#   - workdays 01:00 UTC (= 09:00 BJT) → task=health-digest (multi-source observability synthesis)
+# Plus workflow_dispatch for any manual ad-hoc Claude task.
+# The harness itself (default ai-task) is also indirectly invoked by other
+# domain workflows (pr.yml, issue.yml, deploy.yml) as a reusable.
+name: on-agent
+
+on:
+  schedule:
+    - cron: "0 1 * * 1-5"        # workdays 09:00 BJT
+  workflow_dispatch:
+    inputs:
+      task:
+        required: true
+        type: string
+        default: health-digest
+      prompt:
+        required: false
+        type: string
+        default: ""
+      prompt-path:
+        required: false
+        type: string
+        default: ""
+      model:
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: on-agent-${{ inputs.task || 'health-digest' }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  health-digest:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.task == 'health-digest') }}
+    uses: ./.github/workflows/reusable/agent.yml
+    with:
+      task:  health-digest
+      model: ${{ inputs.model || '' }}
+    secrets:
+      api-key:           ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DATADOG_API_KEY }}
+      datadog-app-key:   ${{ secrets.DATADOG_APP_KEY }}
+      posthog-api-key:   ${{ secrets.POSTHOG_API_KEY }}
+      langsmith-api-key: ${{ secrets.LANGSMITH_API_KEY }}
+      axiom-token:       ${{ secrets.AXIOM_TOKEN }}
+      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  manual:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'health-digest' }}
+    uses: ./.github/workflows/reusable/agent.yml
+    with:
+      task:        ${{ inputs.task }}
+      prompt:      ${{ inputs.prompt }}
+      prompt-path: ${{ inputs.prompt-path }}
+      model:       ${{ inputs.model || '' }}
+    secrets:
+      api-key:       ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:  ${{ secrets.ANTHROPIC_BASE_URL }}
+      slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}

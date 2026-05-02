@@ -26,29 +26,6 @@
 name: pr-agent
 
 on:
-  workflow_run:
-    workflows: [pr, ci]
-    types: [completed]
-  issue_comment:
-    types: [created]
-  pull_request:
-    types: [opened, synchronize]
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-      mode:
-        description: Which agent job to run
-        required: true
-        type: choice
-        options: [summarise, feedback, docubot, test-gen]
-      pr-number:
-        description: Target PR number
-        required: true
-        type: string
   workflow_call:
     inputs:
       model:
@@ -169,7 +146,8 @@ jobs:
         run: |
           set -euo pipefail
           # Core workflows always summarised; consumers append via extra-workflows.
-          workflows=(pr ci pr-agent verify-sha-consistency dep-auto-merge stg-agent-test prd-observe)
+          # Names map to the on-*.yml event entry filenames.
+          workflows=(on-pr on-ci on-deploy on-security on-docs on-deps on-agent)
           if [ -n "$EXTRA_WORKFLOWS" ]; then
             read -ra extra <<< "$EXTRA_WORKFLOWS"
             workflows+=("${extra[@]}")

@@ -14,16 +14,12 @@
 name: poll-prd-dispatch
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+  workflow_call:
     inputs:
       openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
         type: string
         default: main
-
 permissions: {}
 
 concurrency:

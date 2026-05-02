@@ -20,8 +20,6 @@
 name: dep-auto-merge
 
 on:
-  pull_request_target:
-    types: [opened, labeled, synchronize, reopened]
   workflow_call: {}
 
 permissions: {}

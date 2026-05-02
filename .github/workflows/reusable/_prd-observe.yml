@@ -27,31 +27,6 @@
 name: prd-observe
 
 on:
-  schedule:
-    # Canary observer — every 15 minutes after a recent prd deploy.
-    - cron: "*/15 * * * *"
-    # Terraform drift — daily at 04:00 UTC.
-    - cron: "0 4 * * *"
-  workflow_run:
-    workflows: [prd]
-    types: [completed]
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-      mode:
-        description: Which observer to run
-        required: true
-        type: choice
-        options: [canary-watch, terraform-drift, verify-fix]
-      infra-dir:
-        description: (terraform-drift only) Path to the Terraform infrastructure directory
-        required: false
-        type: string
-        default: infrastructure
   workflow_call:
     inputs:
       openci-ref:

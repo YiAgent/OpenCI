@@ -90,18 +90,6 @@ on:
         required: false
       axiom-token:
         required: false
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-  push:
-    tags: ["v*"]
-  repository_dispatch:
-    types: [observe-window-complete]
-
 permissions: {}
 
 concurrency:

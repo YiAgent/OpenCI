@@ -45,13 +45,13 @@
 # .github/workflows/<consumer-stg>.yml
 jobs:
   validate-env:
-    uses: YiWang24/OpenCI/.github/workflows/stg.yml@v2
+    uses: YiAgent/OpenCI/.github/workflows/reusable/deploy.yml@v3
     # ... or invoke the validate-env atom directly:
   custom:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<sha>
-      - uses: YiWang24/OpenCI/actions/_common/validate-env@<sha>
+      - uses: YiAgent/OpenCI/actions/_common/validate-env@<sha>
         with:
           target-env: stg
         env:

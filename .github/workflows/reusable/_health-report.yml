@@ -14,16 +14,6 @@
 name: health-report
 
 on:
-  schedule:
-    # Workdays Beijing 09:00 = UTC 01:00.
-    - cron: "0 1 * * 1-5"
-  workflow_dispatch:
-    inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
   workflow_call:
     inputs:
       model:
@@ -271,7 +261,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    uses: ./.github/workflows/claude-harness.yml
+    uses: ./.github/workflows/reusable/agent.yml
     with:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}

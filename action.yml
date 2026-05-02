@@ -5,18 +5,18 @@
 # single entrypoint for AI-powered tasks. For full pipelines and non-AI work,
 # call the top-level reusable workflows directly:
 #
-#   .github/workflows/pr.yml          — PR quality gate
-#   .github/workflows/ci.yml          — build + sign (push to main)
-#   .github/workflows/stg.yml         — staging deploy
-#   .github/workflows/prd.yml         — production deploy
-#   .github/workflows/issue.yml       — issue domain (mode-routed)
-#   .github/workflows/pr-agent.yml    — PR-agent domain (mode-routed)
-#   .github/workflows/prd-observe.yml — post-deploy observability (mode-routed)
-#   .github/workflows/release.yml     — release domain (mode-routed)
-#   .github/workflows/docs.yml        — docs build + Pages deploy
-#   .github/workflows/health-report.yml, flag-audit.yml, security-schedule.yml
-#   .github/workflows/community.yml, stale.yml, dep-auto-merge.yml
-#   .github/workflows/claude-harness.yml — sole AI entrypoint (workflow form)
+#   .github/workflows/reusable/pr.yml          — PR quality gate
+#   .github/workflows/reusable/ci.yml          — build + sign (push to main)
+#   .github/workflows/reusable/deploy.yml         — staging deploy
+#   .github/workflows/reusable/deploy.yml         — production deploy
+#   .github/workflows/reusable/issue.yml       — issue domain (mode-routed)
+#   .github/workflows/reusable/pr.yml    — PR-agent domain (mode-routed)
+#   .github/workflows/reusable/deploy.yml — post-deploy observability (mode-routed)
+#   .github/workflows/reusable/release.yml     — release domain (mode-routed)
+#   .github/workflows/reusable/docs.yml        — docs build + Pages deploy
+#   .github/workflows/reusable/agent.yml, flag-audit.yml, security-schedule.yml
+#   .github/workflows/reusable/issue.yml, stale.yml, dep-auto-merge.yml
+#   .github/workflows/reusable/agent.yml — sole AI entrypoint (workflow form)
 # ─────────────────────────────────────────────────────────────────────────────
 name: 'OpenCI'
 description: 'AI-powered CI/CD toolkit — PR review, issue triage, smoke eval, observability, and more.'
