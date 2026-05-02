@@ -9,7 +9,7 @@ Each phase consolidates a domain, then verifies via actionlint, yamllint, and ba
 |---|---|---|---|
 | 0 | Infra setup (lefthook fixes, hardening) | — | ✅ done |
 | 1 | Issue lifecycle | 4 → 1 (`issue.yml`) | ✅ done |
-| 2 | PR agent workflows | 4 → 1 (`pr-agent.yml`) | ⏳ pending |
+| 2 | PR agent workflows | 4 → 1 (`pr-agent.yml`) | ✅ done |
 | 3 | Production observability | 3 → 1 (`prd-observe.yml`) | ⏳ pending |
 | 4 | Release & docs | 4 → 2 | ⏳ pending |
 | 5 | Community action audit | — | ⏳ pending |
@@ -75,3 +75,27 @@ bats tests/scripts/verify-sha-consistency.bats
 - `bats tests/actions/` → 275/275 passing
 - `bats tests/scripts/verify-sha-consistency.bats` → 11/11 passing
 - Workflow count 28 → 25
+
+### Phase 2 — PR agent workflows (done)
+
+**Removed (4):** `pr-summary.yml`, `pr-agent-feedback.yml`, `pr-agent-docubot.yml`, `pr-agent-test-gen.yml`.
+
+**Kept & created (1):** `pr-agent.yml` — multi-trigger, mode-routed:
+- `workflow_run [pr, ci]` (any conclusion) → `summarise` (sticky CI table)
+- `workflow_run [pr, ci]` (failure only) → `feedback` (@-mention agent w/ summary)
+- `issue_comment` containing `@docubot` → `docubot` (Q&A reply)
+- `pull_request [opened, synchronize]` → `test-gen` (scaffold tests)
+- `workflow_dispatch` / `workflow_call` with `inputs.mode` → explicit selection
+
+**Side fixes:**
+- `pr-summary.yml` had a missing closing `"` on the `_Updated automatically …` body line that left a heredoc unterminated (5 SC1xxx shellcheck errors). Rewritten correctly in `pr-agent.yml`.
+- Existing sticky-comment markers (`<!-- pr-summary-bot -->`, `<!-- agent-feedback:SHA -->`) preserved so prior comments continue to upsert.
+
+**Doc updates:**
+- `manifest.yml`: 4 entries collapsed into one `pr-agent` entry
+- `README.md`: AI workflow table + complete inventory updated
+
+**Verification:**
+- `actionlint .github/workflows/pr-agent.yml` → clean
+- `bats tests/actions/` → 275/275 passing
+- Workflow count 25 → 22; total non-secret actionlint baseline 14 → 9

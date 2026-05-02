@@ -1,0 +1,388 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr-agent.yml — unified PR-agent workflow.
+# ─────────────────────────────────────────────────────────────────────────────
+# Combines four prior workflows into one mode-routed entry point:
+#
+#   ┌─ trigger ────────────────────────────┬─ active job ─────────────────────┐
+#   │ workflow_run [pr, ci] (success/fail) │ summarise   (sticky CI table)    │
+#   │ workflow_run [pr, ci] (failure)      │ feedback    (@-mention agent)    │
+#   │ issue_comment + "@docubot"           │ docubot     (Q&A reply)          │
+#   │ pull_request [opened, synchronize]   │ test-gen    (scaffold tests)     │
+#   │ workflow_dispatch / workflow_call    │ inputs.mode router               │
+#   └──────────────────────────────────────┴──────────────────────────────────┘
+#
+# Reusable invocation:
+#   uses: YiWang24/OpenCI/.github/workflows/pr-agent.yml@v2
+#   with:
+#     mode:      docubot       # summarise | feedback | docubot | test-gen
+#     pr-number: "${{ github.event.pull_request.number }}"  # required for some modes
+#   secrets:
+#     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional
+#
+# Security: untrusted PR/issue fields are forwarded to atoms via `with:` only,
+# or bound to env: vars for use inside run: blocks — never interpolated into
+# shell directly.
+# ─────────────────────────────────────────────────────────────────────────────
+name: pr-agent
+
+on:
+  workflow_run:
+    workflows: [pr, ci]
+    types: [completed]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Which agent job to run
+        required: true
+        type: choice
+        options: [summarise, feedback, docubot, test-gen]
+      pr-number:
+        description: Target PR number
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      mode:
+        description: Force a specific job (summarise|feedback|docubot|test-gen)
+        required: false
+        type: string
+        default: ""
+      pr-number:
+        type: string
+        required: false
+        default: ""
+        description: PR number (falls back to event payload)
+      extra-workflows:
+        type: string
+        required: false
+        default: ""
+        description: Space-separated extra workflows to include in the summary table
+    secrets:
+      anthropic-api-key:
+        required: false
+
+permissions: {}
+
+# Per-PR-or-sha concurrency, falling back to run_id.
+concurrency:
+  group: >-
+    pr-agent-${{
+      github.event.workflow_run.head_sha
+      || github.event.pull_request.number
+      || github.event.issue.number
+      || inputs.pr-number
+      || github.event.inputs.pr-number
+      || github.run_id
+    }}
+  cancel-in-progress: false
+
+jobs:
+  # ── workflow_run [pr,ci] → summarise checks into sticky comment ─────────
+  summarise:
+    name: Summarise PR Checks
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.pull_requests[0] != null)
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'summarise')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'summarise')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Resolve PR number
+        id: pr
+        env:
+          DISPATCH_PR: ${{ github.event.inputs.pr-number }}
+          CALL_PR:     ${{ inputs.pr-number }}
+          RUN_PR:      ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          pr="${RUN_PR:-${DISPATCH_PR:-${CALL_PR:-}}}"
+          if [ -z "$pr" ]; then
+            echo "::error title=PR Summary::Could not resolve PR number"
+            exit 1
+          fi
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Build summary markdown
+        id: build
+        env:
+          GH_TOKEN:        ${{ github.token }}
+          REPO:            ${{ github.repository }}
+          PR:              ${{ steps.pr.outputs.number }}
+          EXTRA_WORKFLOWS: ${{ inputs.extra-workflows }}
+        run: |
+          set -euo pipefail
+          # Core workflows always summarised; consumers append via extra-workflows.
+          workflows=(pr ci pr-agent verify-sha-consistency dep-auto-merge stg-agent-test prd-verify-fix prd-canary-watch)
+          if [ -n "$EXTRA_WORKFLOWS" ]; then
+            read -ra extra <<< "$EXTRA_WORKFLOWS"
+            workflows+=("${extra[@]}")
+          fi
+
+          head_sha="$(gh api -X GET "repos/${REPO}/pulls/${PR}" --jq '.head.sha')"
+
+          rows=""
+          worst="success"
+          for wf in "${workflows[@]}"; do
+            row="$(gh api -X GET "repos/${REPO}/actions/workflows/${wf}.yml/runs" \
+              -f head_sha="$head_sha" -f per_page=1 \
+              --jq '.workflow_runs[0] | {status, conclusion, html_url, id}' 2>/dev/null || true)"
+
+            if [ -z "$row" ] || [ "$row" = "null" ]; then
+              rows="${rows}| \`${wf}\` | _no run_ | — |"$'\n'
+              continue
+            fi
+
+            status="$(jq -r '.status'     <<<"$row")"
+            concl="$(jq  -r '.conclusion // empty' <<<"$row")"
+            url="$(jq    -r '.html_url'   <<<"$row")"
+
+            case "$concl" in
+              success)   icon="✅" ;;
+              failure|timed_out|cancelled) icon="❌"; worst="failure" ;;
+              "")        icon="⏳"; [ "$worst" = success ] && worst="pending" ;;
+              *)         icon="❓"; [ "$worst" = success ] && worst="pending" ;;
+            esac
+            rows="${rows}| \`${wf}\` | ${icon} ${concl:-${status}} | [run](${url}) |"$'\n'
+          done
+
+          summary_emoji="✅"
+          [ "$worst" = "failure" ] && summary_emoji="❌"
+          [ "$worst" = "pending" ] && summary_emoji="⏳"
+
+          NL=$'\n'
+          body="<!-- pr-summary-bot -->${NL}"
+          body+="## ${summary_emoji} CI Summary${NL}${NL}"
+          body+="| Workflow | Status | Run |${NL}"
+          body+="| --- | --- | --- |${NL}"
+          body+="${rows}${NL}"
+          body+="_Updated automatically by OpenCI \`pr-agent\` for commit \`${head_sha:0:7}\`._"
+          {
+            echo "body<<__OPENCI_EOF__"
+            echo "$body"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: ./actions/_common/upsert-pr-comment
+        with:
+          pr-number:    ${{ steps.pr.outputs.number }}
+          marker:       "<!-- pr-summary-bot -->"
+          body:         ${{ steps.build.outputs.body }}
+          github-token: ${{ github.token }}
+
+  # ── workflow_run [pr,ci] failure → @-mention agent with summary ─────────
+  feedback:
+    name: PR Agent Feedback
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'failure'
+        && github.event.workflow_run.pull_requests[0] != null)
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'feedback')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'feedback')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO:     ${{ github.repository }}
+          PR_NUM:   ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr-number || github.event.inputs.pr-number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PR_NUM" ]; then
+            echo "::error title=Feedback::Could not resolve PR number"
+            exit 1
+          fi
+          json="$(gh api "repos/${REPO}/pulls/${PR_NUM}")"
+          login="$(jq -r '.user.login' <<<"$json")"
+          head="$(jq  -r '.head.ref'   <<<"$json")"
+          {
+            echo "number=$PR_NUM"
+            echo "login=$login"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: id
+        uses: ./actions/_common/identify-pr-agent
+        with:
+          pr-user-login: ${{ steps.pr.outputs.login }}
+          pr-head-ref:   ${{ steps.pr.outputs.head }}
+
+      - name: Stop when no agent
+        if: steps.id.outputs.agent-type == 'none'
+        run: echo "::notice title=PR Agent Feedback::regular human PR — no auto-feedback"
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        if: steps.id.outputs.agent-type != 'none'
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=PR Agent Feedback::ANTHROPIC_API_KEY missing — skipping summary"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: summary
+        if: steps.id.outputs.agent-type != 'none' && steps.gate.outputs.skip != 'true'
+        uses: ./actions/_common/summarize-failure
+        with:
+          run-id:            ${{ github.event.workflow_run.id }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+
+      - name: Build comment body
+        if: steps.id.outputs.agent-type != 'none'
+        id: body
+        env:
+          AGENT:   ${{ steps.id.outputs.agent-type }}
+          SUMMARY: ${{ steps.summary.outputs.summary || 'CI failed — full logs in the run.' }}
+          JOBS:    ${{ steps.summary.outputs.failed-jobs || 'unknown' }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA:     ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) mention="@copilot-swe-agent" ;;
+            codex)   mention="@codex"             ;;
+            openci)  mention="@openci-bot"        ;;
+            *)       mention="@agent"             ;;
+          esac
+          body="$(cat <<EOF
+          <!-- agent-feedback:${SHA} -->
+          ${mention} CI failed on this PR.
+
+          **Failure summary:** ${SUMMARY}
+          **Failed jobs:** ${JOBS}
+          **Run:** ${RUN_URL}
+          EOF
+          )"
+          {
+            echo "body<<__OPENCI_EOF__"
+            echo "$body"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post / update sticky comment
+        if: steps.id.outputs.agent-type != 'none'
+        uses: ./actions/_common/upsert-pr-comment
+        with:
+          pr-number:    ${{ steps.pr.outputs.number }}
+          marker:       "<!-- agent-feedback:${{ github.event.workflow_run.head_sha }} -->"
+          body:         ${{ steps.body.outputs.body }}
+          github-token: ${{ github.token }}
+
+  # ── issue_comment + "@docubot" → answer Q&A ────────────────────────────
+  docubot:
+    name: Docubot Reply
+    if: >-
+      (github.event_name == 'issue_comment'
+        && contains(github.event.comment.body, '@docubot'))
+      || (github.event_name == 'workflow_call' && inputs.mode == 'docubot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Docubot Skipped::ANTHROPIC_API_KEY missing"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Strip mention
+        if: steps.gate.outputs.skip != 'true'
+        id: q
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          q="$(printf '%s' "$BODY" | sed -E 's/@docubot//gi' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+          {
+            echo "question<<__OPENCI_EOF__"
+            echo "$q"
+            echo "__OPENCI_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: steps.gate.outputs.skip != 'true'
+        uses: ./actions/_common/docubot
+        with:
+          question:          ${{ steps.q.outputs.question }}
+          number:            ${{ github.event.issue.number }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+
+  # ── pull_request → scaffold tests as artifact ──────────────────────────
+  test-gen:
+    name: Generate Tests
+    if: >-
+      github.event_name == 'pull_request'
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'test-gen')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'test-gen')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Test Gen Skipped::ANTHROPIC_API_KEY missing"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.skip != 'true'
+        uses: ./actions/pr/agent-test-gen
+        with:
+          pr-number:         ${{ github.event.pull_request.number || github.event.inputs.pr-number || inputs.pr-number }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}

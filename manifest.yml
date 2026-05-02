@@ -257,32 +257,19 @@ workflows:
     secrets:
       anthropic-api-key: { required: false }
 
-  - id: pr-agent-docubot
-    path: .github/workflows/pr-agent-docubot.yml
-    description: AI-generated docs/changelog comment on every opened PR.
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-agent-feedback
-    path: .github/workflows/pr-agent-feedback.yml
-    description: Post sticky CI-failure feedback comment on agent-opened PRs.
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-agent-test-gen
-    path: .github/workflows/pr-agent-test-gen.yml
-    description: Generate missing tests for a PR via Claude and open a follow-up PR.
+  - id: pr-agent
+    path: .github/workflows/pr-agent.yml
+    description: >-
+      Unified PR-agent domain — sticky CI summary (workflow_run),
+      @-mention agent feedback on failure, @docubot Q&A reply, and
+      pull-request test scaffolding. Routed via event_name and
+      optional `inputs.mode`.
     inputs:
-      pr-number: { type: string, required: false, default: "" }
-    secrets:
-      anthropic-api-key: { required: false }
-
-  - id: pr-summary
-    path: .github/workflows/pr-summary.yml
-    description: Post a weekly workflow-run summary digest on the repo.
-    inputs:
+      mode:            { type: string, required: false, default: "" }
+      pr-number:       { type: string, required: false, default: "" }
       extra-workflows: { type: string, required: false, default: "" }
-    secrets: {}
+    secrets:
+      anthropic-api-key: { required: false }
 
   - id: prd-canary-watch
     path: .github/workflows/prd-canary-watch.yml

@@ -134,14 +134,12 @@ workflows. All call `claude-harness` under the hood with task-specific prompts.
 | Workflow | Description |
 | --- | --- |
 | [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
-| [`pr-agent-test-gen.yml`](.github/workflows/pr-agent-test-gen.yml) | Generate test scaffolds for new code |
+| [`pr-agent.yml`](.github/workflows/pr-agent.yml) | Unified PR-agent — sticky CI summary, agent feedback on failure, @docubot Q&A, test scaffolding (mode-routed) |
 | [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle, slash commands, Linear bridge, scheduled Sentry triage (mode-routed) |
 | [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
 | [`stg-agent-test.yml`](.github/workflows/stg-agent-test.yml) | L1–L4 autonomous staging tests |
-| [`pr-agent-feedback.yml`](.github/workflows/pr-agent-feedback.yml) | CI-failure summary comment on agent-opened PRs |
 | [`flag-audit.yml`](.github/workflows/flag-audit.yml) | Weekly feature-flag audit and tech-debt filing |
 | [`health-report.yml`](.github/workflows/health-report.yml) | Daily AI-synthesised observability digest → Issue + Slack |
-| [`pr-agent-docubot.yml`](.github/workflows/pr-agent-docubot.yml) | Auto-generate docs/changelog comment on PRs |
 
 ### Usage examples
 
@@ -208,7 +206,6 @@ steps:
 | [`stg.yml`](.github/workflows/stg.yml) | Staging deploy, smoke, notify, observability fan-out |
 | [`prd.yml`](.github/workflows/prd.yml) | Production deploy with environment gate + auto-rollback |
 | [`claude-harness.yml`](.github/workflows/claude-harness.yml) | Sole AI entry point (workflow form) |
-| [`pr-summary.yml`](.github/workflows/pr-summary.yml) | Sticky PR comment aggregating run results |
 | [`security-schedule.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard |
 | [`health-report.yml`](.github/workflows/health-report.yml) | Daily AI-synthesised observability digest |
 | [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle (auto-label / AI triage / dedupe / assign), slash commands, Linear branch bridge, scheduled Sentry triage |
@@ -220,7 +217,7 @@ steps:
 | [`release.yml`](.github/workflows/release.yml) | Marketplace version tagging + floating major/minor tags |
 | [`dep-auto-merge.yml`](.github/workflows/dep-auto-merge.yml) | Renovate patch PRs auto-merge |
 | [`verify-sha-consistency.yml`](.github/workflows/verify-sha-consistency.yml) | Manifest enforcement |
-| `pr-agent-{feedback,test-gen,docubot,review}.yml` | Opt-in AI agent enhancements |
+| `pr-agent.yml` | Opt-in AI agent enhancements (summarise / feedback / docubot / test-gen, mode-routed) |
 | `prd-{canary-watch,verify-fix,terraform-drift}.yml` | Post-deploy advisory monitors |
 | `flag-audit.yml` | Weekly cron flag-debt audit |
 | `stg-agent-test.yml` | L1–L4 autonomous staging tests |
