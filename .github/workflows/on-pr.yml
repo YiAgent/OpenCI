@@ -28,7 +28,8 @@ concurrency:
 
 jobs:
   checks:
-    uses: ./.github/workflows/pr.yml
+    uses: ./.github/workflows/reusable/pr.yml
     with:
       enable-ai-review: true
+      enable-eval:      true
     secrets: inherit

@@ -40,7 +40,7 @@ concurrency:
 jobs:
   full:
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 2 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full') }}
-    uses: ./.github/workflows/security-schedule.yml
+    uses: ./.github/workflows/reusable/security-schedule.yml
     with:
       image-ref: ${{ vars.IMAGE_REF }}
     secrets: inherit
@@ -48,7 +48,7 @@ jobs:
   flag-audit:
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 15 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'flag-audit') }}
     name: Flag Audit
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read
@@ -68,7 +68,7 @@ jobs:
   verify-sha:
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-sha') }}
     name: Verify SHA Consistency
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read

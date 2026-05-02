@@ -59,7 +59,7 @@ concurrency:
 jobs:
   build:
     name: Build Docs
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: read
@@ -135,7 +135,7 @@ jobs:
     needs: build
     # Only deploy on main push, manual dispatch, or when called via workflow_call.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 10
     environment:
       name: github-pages

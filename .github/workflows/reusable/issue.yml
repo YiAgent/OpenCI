@@ -103,7 +103,7 @@ jobs:
       github.event_name == 'issues'
       || (github.event_name == 'workflow_call' && inputs.mode == 'auto-label')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'auto-label')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 3
     permissions:
       contents: read
@@ -150,7 +150,7 @@ jobs:
       github.event_name == 'issues'
       || (github.event_name == 'workflow_call' && inputs.mode == 'dedupe')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dedupe')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read
@@ -196,7 +196,7 @@ jobs:
       github.event_name == 'issues'
       || (github.event_name == 'workflow_call' && inputs.mode == 'ai-triage')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'ai-triage')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: read
@@ -260,7 +260,7 @@ jobs:
       github.event_name == 'issues'
       || (github.event_name == 'workflow_call' && inputs.mode == 'auto-assign')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'auto-assign')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 3
     permissions:
       contents: read
@@ -305,7 +305,7 @@ jobs:
     if: >-
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/'))
       || (github.event_name == 'workflow_call' && inputs.mode == 'command')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read
@@ -362,7 +362,7 @@ jobs:
     if: >-
       (github.event_name == 'repository_dispatch' && github.event.action == 'linear-issue-started')
       || (github.event_name == 'workflow_call' && inputs.mode == 'linear-branch')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: write
@@ -431,7 +431,7 @@ jobs:
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'sentry-triage')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'sentry-triage')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read
@@ -483,7 +483,7 @@ jobs:
   stale:
     if: ${{ inputs.mode == 'stale' }}
     name: Stale Sweep
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
@@ -532,7 +532,7 @@ jobs:
   welcome-issue:
     name: Welcome (Issue)
     if: ${{ inputs.mode == 'welcome' && github.event_name == 'issues' && github.event.issue.author_association == 'FIRST_TIME_CONTRIBUTOR' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 3
     permissions:
       contents: read
@@ -557,7 +557,7 @@ jobs:
   welcome-pr:
     name: Welcome (PR)
     if: ${{ inputs.mode == 'welcome' && github.event_name == 'pull_request_target' && github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 3
     permissions:
       contents: read

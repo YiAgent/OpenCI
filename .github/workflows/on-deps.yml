@@ -15,4 +15,4 @@ concurrency:
 
 jobs:
   deps:
-    uses: ./.github/workflows/deps.yml
+    uses: ./.github/workflows/reusable/deps.yml

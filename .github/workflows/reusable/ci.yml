@@ -1,41 +1,80 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# security-schedule.yml — weekly full security sweep (SPEC §5.6).
+# ci.yml — Merge-to-main build pipeline (reusable workflow, SPEC §5.3).
 # ─────────────────────────────────────────────────────────────────────────────
-# 4 parallel jobs, each independent and tolerant of the others' failures.
-# Concurrency is global (no per-ref grouping) so weekly + manual + ad-hoc
-# trigger combinations don't double-up.
+# Sequence:
+#   preflight → detect-language → build-docker
+#                                   ├─ scan-image  (parallel)
+#                                   ├─ sign-image  (parallel)
+#                                   ├─ check-migration  (if run-migration)
+#                                   └─ eval-smoke  (if enable-ai-smoke)
 #
-# Security: workflow consumes only repo-controlled inputs (image-ref) and
-# secrets; no PR-form fields used.
+# Outputs `image-digest` + `deploy-time` for downstream stg.yml / prd.yml.
+# Concurrency does NOT cancel-in-progress: every main commit deserves a
+# fully completed build (they end up tagged as :sha-<7> regardless).
+#
+# Security: caller-supplied `image-name` flows into docker tags via the
+# composite atom; no shell interpolation in this file.
 # ─────────────────────────────────────────────────────────────────────────────
-name: security-schedule
+name: ci
 
 on:
   workflow_call:
     inputs:
+      model:
+        description: Override the AI model name. Defaults to the Anthropic Claude model when empty.
+        required: false
+        type: string
+        default: ""
       openci-ref:
         description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
         required: false
         type: string
         default: main
-      image-ref:
+      language:
         type: string
         required: false
         default: ""
-    secrets:
-      snyk-token:
+      registry:
+        type: string
         required: false
+        default: ghcr.io
+      image-name:
+        type: string
+        required: true
+      enable-ai-smoke:
+        type: boolean
+        required: false
+        default: false
+      run-migration:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      api-base-url:
+        description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
+        required: false
+      registry-token:
+        required: true
+      anthropic-api-key:
+        required: false
+    outputs:
+      image-digest:
+        description: sha256:... digest of the pushed image.
+        value: ${{ jobs.build-docker.outputs.image-digest }}
+      deploy-time:
+        description: ISO 8601 build completion timestamp.
+        value: ${{ jobs.build-docker.outputs.completed-at }}
 
 permissions: {}
 
 concurrency:
-  group: security-schedule
+  group: ci-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
@@ -68,23 +107,25 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - name: Probe optional secrets
+      - name: Probe secrets
         env:
-          SNYK_TOKEN: ${{ secrets.snyk-token }}
+          REGISTRY_TOKEN:    ${{ secrets.registry-token }}
+          ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
-            --required "" \
-            --optional "SNYK_TOKEN"
+            --required "REGISTRY_TOKEN" \
+            --optional "ANTHROPIC_API_KEY"
 
   detect-language:
     name: Detect Language
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
     outputs:
-      language: ${{ steps.detect.outputs.language }}
+      language:        ${{ steps.detect.outputs.language }}
+      package-manager: ${{ steps.detect.outputs.package-manager }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -116,64 +157,72 @@ jobs:
           persist-credentials: false
       - id: detect
         shell: bash
-        run: bash actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
-
-  scan-codeql:
-    name: CodeQL SAST
-    needs: detect-language
-    if: needs.detect-language.outputs.language != 'unknown'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["${{ needs.detect-language.outputs.language }}"]
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+          OVERRIDE: ${{ inputs.language }}
         run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
+          if [ -n "$OVERRIDE" ]; then
+            echo "language=$OVERRIDE"      >> "$GITHUB_OUTPUT"
+            echo "package-manager=unknown" >> "$GITHUB_OUTPUT"
           else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
+            bash actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
           fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - uses: ./.openci/actions/security/scan-codeql
-        with:
-          # CodeQL expects "javascript" rather than "node"; remap when needed.
-          language: ${{ matrix.language == 'node' && 'javascript' || matrix.language }}
 
-  scan-image-full:
-    name: Trivy Full Scan
-    needs: preflight
-    if: inputs.image-ref != ''
-    runs-on: ubuntu-latest
+  build-docker:
+    name: Build Docker
+    needs: detect-language
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image-digest:  ${{ steps.build.outputs.image-digest }}
+      image-tag-sha: ${{ steps.build.outputs.image-tag-sha }}
+      completed-at:  ${{ steps.build.outputs.completed-at }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - id: build
+        uses: ./.openci/actions/ci/build-docker
+        with:
+          image-name:     ${{ inputs.image-name }}
+          registry:       ${{ inputs.registry }}
+          registry-token: ${{ secrets.registry-token }}
+
+  scan-image:
+    name: Scan Image
+    needs: build-docker
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
       security-events: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
@@ -204,75 +253,18 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/security/scan-image-full
+      - uses: ./.openci/actions/ci/scan-image
         with:
-          image-ref: ${{ inputs.image-ref }}
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
 
-  generate-sbom:
-    name: Generate SBOM
-    needs: preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  sign-image:
+    name: Sign Image
+    needs: build-docker
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 10
     permissions:
       contents: read
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - uses: ./.openci/actions/security/generate-sbom
-        with:
-          image-ref: ${{ inputs.image-ref }}
-
-  scan-snyk:
-    name: Snyk
-    needs: preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - uses: ./.openci/actions/security/scan-snyk
-        with:
-          snyk-token: ${{ secrets.snyk-token }}
-
-  scorecard:
-    name: OpenSSF Scorecard
-    needs: preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      security-events: write
+      packages: write
       id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
@@ -303,4 +295,129 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/security/scorecard
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry-token }}
+      - uses: ./.openci/actions/ci/sign-image
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
+
+  check-migration:
+    name: Check Migration
+    needs: build-docker
+    if: inputs.run-migration == true
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/ci/check-migration
+        with:
+          # Consumer should override via repo-vars; default is a no-op so the
+          # job doesn't accidentally pass for the wrong reason.
+          migration-cmd: ${{ vars.MIGRATION_DRY_RUN_CMD || 'false' }}
+
+  eval-smoke:
+    name: AI Smoke Eval
+    needs: build-docker
+    if: inputs.enable-ai-smoke == true
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/ci/eval-smoke
+        with:
+          image-digest:      ${{ needs.build-docker.outputs.image-digest }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url:      ${{ secrets.api-base-url }}
+          model:             ${{ inputs.model }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # verify-sha — manifest SHA drift check (script in .github/scripts).
+  # Same script is also a job in on-security.yml.
+  # ──────────────────────────────────────────────────────────────────────
+  verify-sha:
+    name: Verify SHA Consistency
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+          yq --version
+      - name: Run verify-sha-consistency.sh
+        shell: bash
+        run: bash .github/scripts/verify-sha-consistency.sh

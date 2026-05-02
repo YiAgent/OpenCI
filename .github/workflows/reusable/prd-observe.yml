@@ -70,7 +70,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'canary-watch')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'canary-watch')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read
@@ -219,7 +219,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'terraform-drift')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'terraform-drift')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
@@ -267,7 +267,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'verify-fix')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read

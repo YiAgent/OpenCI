@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   agent:
-    uses: ./.github/workflows/agent.yml
+    uses: ./.github/workflows/reusable/agent.yml
     with:
       task:        ${{ inputs.task }}
       prompt:      ${{ inputs.prompt }}

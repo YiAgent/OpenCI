@@ -31,7 +31,7 @@ concurrency:
 jobs:
   enable-auto-merge:
     name: Enable Auto-Merge
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 3
     if: |
       github.event.pull_request.user.login == 'renovate[bot]' &&

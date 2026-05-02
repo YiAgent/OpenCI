@@ -1,26 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd.yml — Production deploy with environment gate (SPEC §5.5).
+# pr.yml — PR quality gate (reusable workflow, SPEC §5.2).
 # ─────────────────────────────────────────────────────────────────────────────
-# Triggers:
-#   • workflow_call          — explicit caller orchestration
-#   • workflow_dispatch      — manual emergency
-#   • push tags v*           — semantic version tag releases
-#   • repository_dispatch    — observe-window-complete (P1-12 chain)
+# Each job is one composite or one atom (SPEC GC2: job ≙ composite). Jobs
+# fan out from `preflight + detect-language` and converge at the merge
+# button via the union of required checks (consumer enables in branch
+# protection).
 #
-# Critical sequence:
-#   preflight → pre-check (composite: verify-version-align + observe-window)
-#             → deploy-k8s [environment: production] → run-migration?
-#             → smoke-test → create-release + notify-deployed
-#             ↳ on smoke failure → auto-rollback (P1-14)
+# Required (block merge): lint, test, scan-deps, validate-pr-title,
+#                          validate-pr-desc, build-check.
+# Advisory (don't block):  coverage, scan-secrets, scan-sonarcloud,
+#                          ai-review, eval-prompt, copilot-review.
 #
-# `environment: production` is the human gate. Reviewers are configured in
-# repo Settings → Environments — this workflow does not bake in a specific
-# reviewer set.
-#
-# Security: no PR-form fields are read here; all consumer inputs are via
-# the workflow_call contract or repo-controlled tags / vars.
+# Security: every consumer-supplied PR field is forwarded via env: to its
+# composite, never interpolated into shell. The scripts in actions/pr/*
+# read those env vars and treat them as untrusted input.
 # ─────────────────────────────────────────────────────────────────────────────
-name: prd
+name: pr
 
 on:
   workflow_call:
@@ -35,71 +30,215 @@ on:
         required: false
         type: string
         default: main
-      image-digest:
+      language:
         type: string
         required: false
-      stg-image-digest:
-        type: string
+        default: ""
+      enable-ai-review:
+        type: boolean
         required: false
-      stg-deploy-time:
-        type: string
+        default: true
+      enable-eval:
+        type: boolean
         required: false
-      image-name:
-        type: string
-        required: false
-      registry:
-        type: string
-        required: false
-        default: ghcr.io
-      app-name:
-        type: string
-        required: false
-      health-url:
-        type: string
-        required: false
-      observation-minutes:
+        default: false
+      coverage-threshold:
         type: number
         required: false
-        default: 30
-      k8s-namespace:
+        default: 80
+      pr-review-prompt-path:
         type: string
         required: false
-        default: production
-      run-migration:
+        default: ""
+      enable-copilot-review:
+        description: "Request a Copilot review on every opened / ready-for-review PR."
         type: boolean
         required: false
         default: false
     secrets:
-      anthropic-api-key:
-        description: Anthropic-compatible API key — used by AI changelog in create-release.
-        required: false
       api-base-url:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
         required: false
-      kubeconfig-prd:
+      anthropic-api-key:
         required: false
-      slack-webhook-url:
+      codecov-token:
         required: false
-      sentry-token:
+      sonar-token:
         required: false
-      datadog-api-key:
+      snyk-token:
         required: false
-      posthog-api-key:
+      release-pat:
+        description: "PAT used to request Copilot review (required when enable-copilot-review: true)."
         required: false
-      langsmith-api-key:
-        required: false
-      axiom-token:
-        required: false
+
 permissions: {}
 
 concurrency:
-  group: deploy-prd-${{ github.ref }}
-  cancel-in-progress: false
+  group: pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Probe secrets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
+          CODECOV_TOKEN:     ${{ secrets.codecov-token }}
+          SONAR_TOKEN:       ${{ secrets.sonar-token }}
+          SNYK_TOKEN:        ${{ secrets.snyk-token }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "" \
+            --optional "ANTHROPIC_API_KEY,CODECOV_TOKEN,SONAR_TOKEN,SNYK_TOKEN"
+
+  detect-language:
+    name: Detect Language
+    needs: preflight
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      language:        ${{ steps.detect.outputs.language }}
+      package-manager: ${{ steps.detect.outputs.package-manager }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Detect (or honour caller override)
+        id: detect
+        shell: bash
+        env:
+          OVERRIDE: ${{ inputs.language }}
+        run: |
+          if [ -n "$OVERRIDE" ]; then
+            echo "language=$OVERRIDE"        >> "$GITHUB_OUTPUT"
+            echo "package-manager=unknown"   >> "$GITHUB_OUTPUT"
+            echo "::notice title=Language Override::language=$OVERRIDE"
+          else
+            bash actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
+          fi
+
+  auto-label:
+    name: Auto Label
+    needs: preflight
+    if: github.event.pull_request != null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/pr/auto-label
+
+  auto-assign-fallback:
+    name: Auto Assign (fallback)
+    needs: preflight
+    # Only when CODEOWNERS hasn't already populated reviewers. GitHub
+    # expression syntax has no `length()`, so check first element instead.
+    if: github.event.pull_request != null && github.event.pull_request.requested_reviewers[0] == null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/pr/auto-assign-fallback
+
+  validate-pr-title:
+    name: Validate PR Title
+    needs: preflight
+    if: github.event.pull_request != null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./.openci/actions/pr/validate-pr-title
+
+  validate-pr-desc:
+    name: Validate PR Description
+    needs: preflight
+    if: github.event.pull_request != null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 2
     permissions:
       contents: read
@@ -132,20 +271,83 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - name: Probe secrets
-        env:
-          KUBECONFIG_PRD:    ${{ secrets.kubeconfig-prd }}
-          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
-        run: |
-          bash .github/scripts/preflight-secrets.sh \
-            --required "KUBECONFIG_PRD" \
-            --optional "SLACK_WEBHOOK_URL"
+      - uses: ./.openci/actions/pr/validate-pr-description
 
-  pre-check:
-    name: Pre-Check
+  scan-deps:
+    name: Scan Dependencies
     needs: preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    if: github.event.pull_request != null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./.openci/actions/pr/scan-deps
+
+  scan-secrets:
+    name: Scan Secrets
+    needs: preflight
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/pr/scan-secrets
+
+  scan-sonarcloud:
+    name: Scan SonarCloud
+    needs: preflight
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: ./.openci/actions/pr/scan-sonarcloud
+        with:
+          sonar-token: ${{ secrets.sonar-token }}
+
+  lint:
+    name: Lint
+    needs: detect-language
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -177,29 +379,20 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/pre-check
+      - uses: ./.openci/actions/pr/lint-code
         with:
-          image-digest:        ${{ inputs.image-digest }}
-          stg-image-digest:    ${{ inputs.stg-image-digest }}
-          stg-deploy-time:     ${{ inputs.stg-deploy-time }}
-          observation-minutes: ${{ inputs.observation-minutes }}
-          # Sentry error-rate gate (optional, graceful-skip when token unset).
-          sentry-token:        ${{ secrets.sentry-token }}
-          sentry-org:          ${{ vars.SENTRY_ORG }}
-          sentry-project:      ${{ vars.SENTRY_PROJECT }}
+          language:        ${{ needs.detect-language.outputs.language }}
+          package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
-  deploy-k8s:
-    name: Deploy K8s (production)
-    needs: pre-check
-    runs-on: ubuntu-latest
+  test:
+    name: Test
+    needs: detect-language
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
-    environment:
-      name: production
     permissions:
       contents: read
     outputs:
-      deploy-time:       ${{ steps.deploy.outputs.deploy-time }}
-      previous-revision: ${{ steps.deploy.outputs.previous-revision }}
+      coverage-file: ${{ steps.run.outputs.coverage-file }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -229,162 +422,19 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - id: deploy
-        uses: ./.openci/actions/prd/deploy-k8s
+      - id: run
+        uses: ./.openci/actions/pr/test-unit
         with:
-          app-name:      ${{ inputs.app-name }}
-          image-ref:     ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
-          k8s-namespace: ${{ inputs.k8s-namespace }}
-          kubeconfig:    ${{ secrets.kubeconfig-prd }}
+          language:        ${{ needs.detect-language.outputs.language }}
+          package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
-  run-migration:
-    name: Run Migration (production)
-    needs: deploy-k8s
-    if: inputs.run-migration == true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment:
-      name: production
-    permissions:
-      contents: read
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - uses: ./.openci/actions/prd/run-migration
-        with:
-          migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
-
-  smoke-test:
-    name: Smoke Test (production)
-    needs: [deploy-k8s, run-migration]
-    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - uses: ./.openci/actions/prd/smoke-test
-        with:
-          health-url: ${{ inputs.health-url }}
-
-  auto-rollback:
-    name: Auto Rollback
-    needs: [deploy-k8s, smoke-test]
-    if: always() && needs.smoke-test.result == 'failure' && needs.deploy-k8s.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-      - name: Configure kubectl
-        env:
-          KCONF: ${{ secrets.kubeconfig-prd }}
-        run: |
-          set -euo pipefail
-          path="${RUNNER_TEMP:-/tmp}/kubeconfig"
-          echo "$KCONF" | base64 -d > "$path"
-          chmod 600 "$path"
-          echo "::add-mask::$(cat "$path" | tr -d '\n')"
-          echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
-      - uses: ./.openci/actions/prd/auto-rollback
-        with:
-          app-name:          ${{ inputs.app-name }}
-          k8s-namespace:     ${{ inputs.k8s-namespace }}
-          previous-revision: ${{ needs.deploy-k8s.outputs.previous-revision }}
-          failed-image:      ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
-          github-token:      ${{ github.token }}
-
-  create-release:
-    name: Create Release
-    needs: smoke-test
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+  coverage:
+    name: Coverage
+    needs: test
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -414,27 +464,124 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/create-release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          github-token:      ${{ github.token }}
+          name: coverage-report
+          path: .
+      - uses: ./.openci/actions/pr/check-coverage
+        with:
+          coverage-file:      ${{ needs.test.outputs.coverage-file || 'coverage/lcov.info' }}
+          coverage-threshold: ${{ inputs.coverage-threshold }}
+          mode:               pr
+          codecov-token:      ${{ secrets.codecov-token }}
+
+  build-check:
+    name: Build Check
+    needs: detect-language
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      # `hashFiles` is not allowed in job-level `if:`; gate at step level.
+      - id: probe
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Build Check Skipped::no Dockerfile in repo root"
+          fi
+      - if: steps.probe.outputs.exists == 'true'
+        uses: ./.openci/actions/pr/build-check
+
+  ai-review:
+    name: AI Review
+    needs: [lint, test]
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    if: inputs.enable-ai-review == true
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/pr/review-ai
+        with:
+          prompt-path:       ${{ inputs.pr-review-prompt-path }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
           api-base-url:      ${{ secrets.api-base-url }}
           model:             ${{ inputs.model }}
 
-  notify-observability:
-    name: Notify Observability
-    needs: [deploy-k8s, smoke-test]
-    if: always() && needs.deploy-k8s.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  eval-prompt:
+    name: Eval Prompts
+    needs: ai-review
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 10
+    if: always() && inputs.enable-eval == true
     permissions:
       contents: read
-    continue-on-error: true
+      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
+        with: { fetch-depth: 0, persist-credentials: false }
       - name: Resolve OpenCI workflow ref
         id: openci-ref
         env:
@@ -459,37 +606,26 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/integrations/notify-deploy
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea1e  # v3.0.2
+        id: paths
         with:
-          environment: prd
-          version:     ${{ inputs.image-digest }}
-          git-sha:     ${{ github.sha }}
-          app-name:    ${{ inputs.app-name }}
-          enable-sentry:     ${{ vars.ENABLE_SENTRY    || 'false' }}
-          enable-datadog:    ${{ vars.ENABLE_DATADOG   || 'false' }}
-          enable-posthog:    ${{ vars.ENABLE_POSTHOG   || 'false' }}
-          enable-langsmith:  ${{ vars.ENABLE_LANGSMITH || 'false' }}
-          enable-axiom:      ${{ vars.ENABLE_AXIOM     || 'false' }}
-          sentry-token:      ${{ secrets.sentry-token }}
-          sentry-org:        ${{ vars.SENTRY_ORG }}
-          sentry-project:    ${{ vars.SENTRY_PROJECT }}
-          datadog-api-key:   ${{ secrets.datadog-api-key }}
-          datadog-site:      ${{ vars.DATADOG_SITE     || 'datadoghq.com' }}
-          posthog-api-key:   ${{ secrets.posthog-api-key }}
-          posthog-host:      ${{ vars.POSTHOG_HOST     || 'app.posthog.com' }}
-          langsmith-api-key: ${{ secrets.langsmith-api-key }}
-          langsmith-project: ${{ vars.LANGSMITH_PROJECT }}
-          axiom-token:       ${{ secrets.axiom-token }}
-          axiom-dataset:     ${{ vars.AXIOM_DATASET }}
+          filters: |
+            skills:
+              - 'skills/**'
+      - uses: ./.openci/actions/pr/eval-prompt
+        with:
+          should-run:        ${{ steps.paths.outputs.skills }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
 
-  notify-deployed:
-    name: Notify Deployed
-    needs: [deploy-k8s, smoke-test]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  copilot-review:
+    name: Copilot Review
+    needs: preflight
+    if: inputs.enable-copilot-review == true && github.event.pull_request != null
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 3
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -519,10 +655,7 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/notify-deployed
+      - uses: ./.openci/actions/pr/agent-review
         with:
-          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
-          app-name:    ${{ inputs.app-name }}
-          image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
-          webhook-url: ${{ secrets.slack-webhook-url }}
-          run-url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          pr-number:   ${{ github.event.pull_request.number }}
+          release-pat: ${{ secrets.release-pat }}
