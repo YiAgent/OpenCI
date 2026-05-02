@@ -5,7 +5,9 @@ inputs:
   issue-body:    { required: true, description: Raw issue body }
   issue-title:   { required: true, description: Issue title }
   issue-number:  { required: true, description: Issue number }
-  github-token:  { required: true, description: "GITHUB_TOKEN with issues:write" }
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite

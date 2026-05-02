@@ -2,9 +2,16 @@ name: Issue · Auto Assign
 description: Assign the issue based on CODEOWNERS + area label (best-effort).
 
 inputs:
-  issue-number: { required: true, description: Issue number }
-  area-label:   { required: false, default: "", description:" "area:* label (e.g. area:frontend)"" }
-  github-token: { required: true, description: "GITHUB_TOKEN with issues:write" }
+  issue-number:
+    required: true
+    description: Issue number
+  area-label:
+    required: false
+    default: ""
+    description: "area:* label (e.g. area:frontend)"
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite

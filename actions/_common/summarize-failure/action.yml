@@ -10,7 +10,9 @@ description: One-sentence AI summary of a failed workflow run.
 
 inputs:
   run-id:        { required: true, description: github.event.workflow_run.id }
-  github-token:  { required: true, description: "GITHUB_TOKEN with actions:read" }
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with actions:read"
   anthropic-api-key: { required: true, description: ANTHROPIC_API_KEY }
 
 outputs:

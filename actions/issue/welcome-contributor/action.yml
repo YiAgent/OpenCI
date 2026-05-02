@@ -4,7 +4,9 @@ description: Friendly comment on first contribution (issue or PR).
 inputs:
   number:        { required: true, description: Issue or PR number }
   is-pull-request: { required: false, default: "false", description: "true → PR, false → issue" }
-  github-token:  { required: true, description: "GITHUB_TOKEN with issues:write" }
+  github-token:
+    required: true
+    description: "GITHUB_TOKEN with issues:write"
 
 runs:
   using: composite
