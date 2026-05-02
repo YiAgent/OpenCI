@@ -45,7 +45,7 @@ permissions: {}
 jobs:
   full:
     if: ${{ inputs.mode == 'full' }}
-    uses: ./.github/workflows/reusable/_security-schedule.yml
+    uses: ./.github/workflows/_security-schedule.yml
     with:
       openci-ref: ${{ inputs.openci-ref }}
       image-ref:  ${{ inputs.image-ref }}
@@ -54,7 +54,7 @@ jobs:
 
   flag-audit:
     if: ${{ inputs.mode == 'flag-audit' || inputs.mode == 'full' }}
-    uses: ./.github/workflows/reusable/_flag-audit.yml
+    uses: ./.github/workflows/_flag-audit.yml
     with:
       model:      ${{ inputs.model }}
       openci-ref: ${{ inputs.openci-ref }}
@@ -64,4 +64,4 @@ jobs:
 
   verify-sha:
     if: ${{ inputs.mode == 'verify-sha' }}
-    uses: ./.github/workflows/reusable/_verify-sha-consistency.yml
+    uses: ./.github/workflows/_verify-sha-consistency.yml

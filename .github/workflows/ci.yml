@@ -398,4 +398,4 @@ jobs:
   # Same script is also exposed via reusable/security.yml mode=verify-sha.
   # ──────────────────────────────────────────────────────────────────────
   verify-sha:
-    uses: ./.github/workflows/reusable/_verify-sha-consistency.yml
+    uses: ./.github/workflows/_verify-sha-consistency.yml

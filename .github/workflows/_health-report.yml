@@ -261,7 +261,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    uses: ./.github/workflows/reusable/agent.yml
+    uses: ./.github/workflows/agent.yml
     with:
       task:    observability/daily-health-report
       context: ${{ needs.merge.outputs.context }}
