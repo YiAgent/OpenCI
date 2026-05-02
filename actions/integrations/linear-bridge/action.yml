@@ -4,14 +4,17 @@ description: Create a git branch named after a Linear issue.
 inputs:
   linear-id:    { required: true, description: Linear issue id (e.g. AIC-123) }
   linear-title: { required: true, description: Issue title }
-  linear-labels:{ required: false, default: "", description: Comma-separated labels }
+  linear-labels: { required: false, default: "", description: Comma-separated labels }
   base-branch:  { required: false, default: main, description: Base ref for the new branch }
   github-token: { required: true, description: GITHUB_TOKEN with contents:write }
 
 outputs:
-  branch:        { value: ${{ steps.derive.outputs.branch }} }
-  branch-url:    { value: ${{ steps.create.outputs.url }} }
-  already-existed: { value: ${{ steps.create.outputs.already-existed }} }
+  branch:
+    value: ${{ steps.derive.outputs.branch }}
+  branch-url:
+    value: ${{ steps.create.outputs.url }}
+  already-existed:
+    value: ${{ steps.create.outputs.already-existed }}
 
 runs:
   using: composite

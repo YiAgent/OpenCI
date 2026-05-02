@@ -193,14 +193,15 @@ workflows:
 
   - id: issue
     path: .github/workflows/issue.yml
-    description: Issue lifecycle (auto-label / ai-triage / detect-duplicates).
+    description: >-
+      Unified issue domain — issue lifecycle (auto-label / ai-triage /
+      detect-duplicates / auto-assign), slash-command handling, Linear
+      branch bridge, and scheduled Sentry triage. Routed via event_name
+      and optional `inputs.mode`.
     secrets:
       anthropic-api-key: { required: false }
-
-  - id: issue-comment
-    path: .github/workflows/issue-comment.yml
-    description: Slash-command handler for issue comments.
-    secrets: {}
+      sentry-token:      { required: false }
+      linear-token:      { required: false }
 
   - id: community
     path: .github/workflows/community.yml
@@ -249,19 +250,6 @@ workflows:
     path: .github/workflows/dep-auto-merge.yml
     description: Auto-merge Renovate patch-labelled dependency PRs.
     secrets: {}
-
-  - id: issue-branch-from-linear
-    path: .github/workflows/issue-branch-from-linear.yml
-    description: Create a branch from a Linear issue via repository_dispatch.
-    secrets:
-      linear-token: { required: false }
-
-  - id: agent-triage
-    path: .github/workflows/agent-triage.yml
-    description: AI-powered issue triage, routing, and deduplication.
-    secrets:
-      anthropic-api-key: { required: false }
-      sentry-token:      { required: false }
 
   - id: flag-audit
     path: .github/workflows/flag-audit.yml

@@ -1,32 +1,91 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# issue.yml — issue lifecycle on opened (label / triage / dedupe / assign).
+# issue.yml — unified issue domain workflow.
 # ─────────────────────────────────────────────────────────────────────────────
-# Each downstream atom is independent; failures don't cascade. AI triage
-# only runs when ANTHROPIC_API_KEY is configured (graceful skip).
+# Single entry point for everything that touches GitHub issues:
 #
-# Security: untrusted PR fields (issue title/body) are forwarded as
-# composite inputs only; the atoms internally hand them to env: vars and
-# never interpolate into shell.
+#   ┌─ trigger ─────────────────────┬─ active jobs ─────────────────────────┐
+#   │ issues:[opened/reopened/edit] │ auto-label · detect-duplicates ·       │
+#   │                               │ ai-triage · auto-assign                │
+#   │ issue_comment:[created]       │ slash-command                          │
+#   │ repository_dispatch           │ linear-branch (linear-issue-started)   │
+#   │ schedule (cron)               │ sentry-triage (hourly)                 │
+#   │ workflow_dispatch             │ sentry-triage (manual)                 │
+#   │ workflow_call                 │ any of the above (input.mode router)   │
+#   └───────────────────────────────┴────────────────────────────────────────┘
+#
+# Each job is gated by `if: github.event_name == ...` (or `inputs.mode`)
+# so the run UI shows only the relevant fan-out for any given event.
+#
+# Reusable invocation:
+#   uses: YiWang24/OpenCI/.github/workflows/issue.yml@v2
+#   with:
+#     mode: ai-triage   # auto-label | dedupe | ai-triage | auto-assign |
+#                       # command | linear-branch | sentry-triage
+#   secrets:
+#     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}  # optional
+#     sentry-token:      ${{ secrets.SENTRY_TOKEN }}       # optional
+#     linear-token:      ${{ secrets.LINEAR_TOKEN }}       # optional
+#
+# Security: untrusted issue/comment fields are forwarded to composite atoms
+# via `with:` inputs only. Atoms internally re-bind them through env: vars
+# and never interpolate into shell — preventing workflow injection.
 # ─────────────────────────────────────────────────────────────────────────────
 name: issue
 
 on:
   issues:
     types: [opened, reopened, edited]
+  issue_comment:
+    types: [created]
+  repository_dispatch:
+    types: [linear-issue-started]
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Which job to run (sentry-triage by default for manual runs)
+        required: false
+        default: sentry-triage
+        type: choice
+        options: [sentry-triage, auto-label, dedupe, ai-triage, auto-assign]
   workflow_call:
+    inputs:
+      mode:
+        description: Force a specific job set when invoked from another workflow
+        required: false
+        type: string
+        default: ""
     secrets:
       anthropic-api-key:
+        required: false
+      sentry-token:
+        required: false
+      linear-token:
         required: false
 
 permissions: {}
 
+# Per-issue concurrency for issue/comment events; per-cron for schedule;
+# per-linear-id for repository_dispatch. Falls back to run_id.
 concurrency:
-  group: issue-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  group: >-
+    issue-${{
+      github.event.issue.number
+      || github.event.client_payload.id
+      || github.event.schedule
+      || github.run_id
+    }}
+  cancel-in-progress: ${{ github.event_name == 'issues' }}
 
 jobs:
+  # ── issues:[opened|reopened|edited] ─────────────────────────────────────
   auto-label:
     name: Auto Label
+    if: >-
+      github.event_name == 'issues'
+      || (github.event_name == 'workflow_call' && inputs.mode == 'auto-label')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'auto-label')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -46,6 +105,10 @@ jobs:
 
   detect-duplicates:
     name: Detect Duplicates
+    if: >-
+      github.event_name == 'issues'
+      || (github.event_name == 'workflow_call' && inputs.mode == 'dedupe')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dedupe')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -64,6 +127,10 @@ jobs:
 
   ai-triage:
     name: AI Triage
+    if: >-
+      github.event_name == 'issues'
+      || (github.event_name == 'workflow_call' && inputs.mode == 'ai-triage')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'ai-triage')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -98,6 +165,10 @@ jobs:
   auto-assign:
     name: Auto Assign
     needs: auto-label
+    if: >-
+      github.event_name == 'issues'
+      || (github.event_name == 'workflow_call' && inputs.mode == 'auto-assign')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'auto-assign')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -112,3 +183,106 @@ jobs:
         with:
           issue-number: ${{ github.event.issue.number }}
           github-token: ${{ github.token }}
+
+  # ── issue_comment:[created] ──────────────────────────────────────────────
+  slash-command:
+    name: Slash Command
+    if: >-
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/'))
+      || (github.event_name == 'workflow_call' && inputs.mode == 'command')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - id: parse
+        uses: ./actions/issue/parse-command
+        with:
+          comment-body:        ${{ github.event.comment.body }}
+          author-association:  ${{ github.event.comment.author_association }}
+
+      - if: steps.parse.outputs.command != 'none'
+        uses: ./actions/issue/execute-command
+        with:
+          command:      ${{ steps.parse.outputs.command }}
+          args:         ${{ steps.parse.outputs.args }}
+          authorized:   ${{ steps.parse.outputs.authorized }}
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ github.token }}
+
+  # ── repository_dispatch:[linear-issue-started] ───────────────────────────
+  linear-branch:
+    name: Linear → Branch
+    if: >-
+      (github.event_name == 'repository_dispatch' && github.event.action == 'linear-issue-started')
+      || (github.event_name == 'workflow_call' && inputs.mode == 'linear-branch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - id: br
+        uses: ./actions/integrations/linear-bridge
+        with:
+          linear-id:     ${{ github.event.client_payload.id }}
+          linear-title:  ${{ github.event.client_payload.title }}
+          linear-labels: ${{ github.event.client_payload.labels }}
+          base-branch:   ${{ github.event.client_payload.base_branch || 'main' }}
+          github-token:  ${{ github.token }}
+
+      - name: Gate Linear comment-back on token presence
+        id: linear-gate
+        env:
+          T: ${{ secrets.linear-token }}
+        run: |
+          if [ -z "$T" ] || [ -z "${{ github.event.client_payload.uuid }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Linear Comment Skipped::no token or uuid"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Comment back to Linear
+        if: steps.linear-gate.outputs.skip != 'true'
+        uses: ./actions/integrations/linear-comment
+        with:
+          linear-token: ${{ secrets.linear-token }}
+          issue-id:     ${{ github.event.client_payload.uuid }}
+          body: "${{ steps.br.outputs.already-existed == 'true' && format('Branch already exists: {0}', steps.br.outputs.branch-url) || format('Branch created: {0}', steps.br.outputs.branch-url) }}"
+
+  # ── schedule (hourly) / workflow_dispatch ────────────────────────────────
+  sentry-triage:
+    name: Sentry Error Triage
+    if: >-
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'sentry-triage')
+      || (github.event_name == 'workflow_call'     && inputs.mode == 'sentry-triage')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./actions/_common/error-triage
+        with:
+          sentry-token:      ${{ secrets.sentry-token }}
+          sentry-org:        ${{ vars.SENTRY_ORG }}
+          sentry-project:    ${{ vars.SENTRY_PROJECT }}
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
