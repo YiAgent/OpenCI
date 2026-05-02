@@ -14,6 +14,11 @@ name: claude-harness
 on:
   workflow_call:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; pin a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       task:
         type: string
         required: true
@@ -192,21 +197,24 @@ jobs:
         shell: bash
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # github.workflow_ref returns the *root* caller's ref in nested
-          # reusable-workflow chains (not the ref of the workflow file
-          # currently executing). Only use it when the repo prefix matches
-          # YiAgent/OpenCI — i.e. OpenCI calling its own reusable workflow.
-          # For all other callers (EvolveCI etc.) fall back to `main`, which
-          # is the convention every consumer references the harness at.
-          REPO_PREFIX="${WORKFLOW_REF%%/.github*}"
-          if [ "$REPO_PREFIX" = "YiAgent/OpenCI" ]; then
-            REF="${WORKFLOW_REF##*@}"
+          # Prefer caller's explicit `openci-ref` input. Otherwise inspect
+          # github.workflow_ref ('OWNER/REPO/.github/workflows/<f>.yml@<ref>'):
+          # if the called workflow is in YiAgent/OpenCI we can reuse its ref;
+          # for any other caller fall back to the input default ('main').
+          if [ -n "${OPENCI_REF_INPUT:-}" ] && [ "$OPENCI_REF_INPUT" != "main" ]; then
+            REF="$OPENCI_REF_INPUT"
           else
-            REF="refs/heads/main"
+            REPO_PREFIX="${WORKFLOW_REF%%/.github*}"
+            if [ "$REPO_PREFIX" = "YiAgent/OpenCI" ]; then
+              REF="${WORKFLOW_REF##*@}"
+            else
+              REF="${OPENCI_REF_INPUT:-main}"
+            fi
           fi
           printf 'ref=%s\n' "$REF" >> "$GITHUB_OUTPUT"
-          echo "::notice title=OpenCI ref::$REF (caller=$REPO_PREFIX)"
+          echo "::notice title=OpenCI ref::$REF"
 
       - name: Vendor OpenCI source for the harness composite
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2

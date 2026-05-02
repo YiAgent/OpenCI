@@ -37,6 +37,11 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       mode:
         description: Which observer to run
         required: true
@@ -49,6 +54,11 @@ on:
         default: infrastructure
   workflow_call:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       mode:
         description: Force a specific observer (canary-watch|terraform-drift|verify-fix)
         required: false
@@ -99,6 +109,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -244,6 +255,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -285,6 +297,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.

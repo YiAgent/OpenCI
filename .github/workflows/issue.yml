@@ -43,6 +43,11 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       mode:
         description: Which job to run (sentry-triage by default for manual runs)
         required: false
@@ -51,6 +56,11 @@ on:
         options: [sentry-triage, auto-label, dedupe, ai-triage, auto-assign]
   workflow_call:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       mode:
         description: Force a specific job set when invoked from another workflow
         required: false
@@ -100,6 +110,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -141,6 +152,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -182,6 +194,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -237,6 +250,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -277,6 +291,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -326,6 +341,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.
@@ -391,6 +407,7 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
           # github.workflow_ref looks like 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
           # — strip the owner/repo prefix and the refs/heads|tags/ prefix.

@@ -20,6 +20,11 @@ name: pr
 on:
   workflow_call:
     inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
       language:
         type: string
         required: false
@@ -142,11 +147,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -177,11 +189,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -224,11 +243,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -271,11 +297,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -318,11 +351,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -354,11 +394,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -389,11 +436,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -429,11 +483,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -472,11 +533,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -508,11 +576,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -550,11 +625,18 @@ jobs:
         id: openci-ref
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
         run: |
-          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
-          REF="${WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
