@@ -28,13 +28,13 @@ runs:
   using: composite
   steps:
     - id: issue
-      uses: ./actions/observability/post-issue-report
+      uses: ./.openci/actions/observability/post-issue-report
       with:
         body:         ${{ inputs.body }}
         date:         ${{ inputs.date }}
         github-token: ${{ inputs.github-token }}
 
-    - uses: ./actions/observability/post-slack-report
+    - uses: ./.openci/actions/observability/post-slack-report
       with:
         webhook-url: ${{ inputs.slack-webhook-url }}
         body:        ${{ inputs.body }}

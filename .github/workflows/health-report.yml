@@ -55,6 +55,23 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
       - name: Probe secrets
         env:
           ANTHROPIC_API_KEY:  ${{ secrets.anthropic-api-key }}
@@ -92,11 +109,28 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
 
       - name: Query Sentry
         if: matrix.service == 'sentry'
         id: q-sentry
-        uses: ./actions/observability/query-sentry
+        uses: ./.openci/actions/observability/query-sentry
         with:
           token:   ${{ secrets.sentry-token }}
           org:     ${{ vars.SENTRY_ORG }}
@@ -105,7 +139,7 @@ jobs:
       - name: Query Datadog
         if: matrix.service == 'datadog'
         id: q-datadog
-        uses: ./actions/observability/query-datadog
+        uses: ./.openci/actions/observability/query-datadog
         with:
           api-key: ${{ secrets.datadog-api-key }}
           app-key: ${{ secrets.datadog-app-key }}
@@ -114,7 +148,7 @@ jobs:
       - name: Query PostHog
         if: matrix.service == 'posthog'
         id: q-posthog
-        uses: ./actions/observability/query-posthog
+        uses: ./.openci/actions/observability/query-posthog
         with:
           api-key:    ${{ secrets.posthog-api-key }}
           project-id: ${{ vars.POSTHOG_PROJECT_ID }}
@@ -123,7 +157,7 @@ jobs:
       - name: Query LangSmith
         if: matrix.service == 'langsmith'
         id: q-langsmith
-        uses: ./actions/observability/query-langsmith
+        uses: ./.openci/actions/observability/query-langsmith
         with:
           api-key: ${{ secrets.langsmith-api-key }}
           project: ${{ vars.LANGSMITH_PROJECT }}
@@ -131,7 +165,7 @@ jobs:
       - name: Query Axiom
         if: matrix.service == 'axiom'
         id: q-axiom
-        uses: ./actions/observability/query-axiom
+        uses: ./.openci/actions/observability/query-axiom
         with:
           token:   ${{ secrets.axiom-token }}
           dataset: ${{ vars.AXIOM_DATASET }}
@@ -225,7 +259,24 @@ jobs:
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
-      - uses: ./actions/observability/publish-report
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # 'owner/repo/.github/workflows/file.yml@refs/heads/<branch>'
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/observability/publish-report
         with:
           body:              ${{ needs.synthesise.outputs.structured-output }}
           date:              ${{ github.event.repository.updated_at }}

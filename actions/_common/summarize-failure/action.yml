@@ -59,7 +59,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          ops/summarize-failure
         context:       ${{ steps.fetch.outputs.context }}

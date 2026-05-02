@@ -46,7 +46,7 @@ runs:
 
     - name: Invoke claude-harness
       id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          issue/triage
         context:       ${{ steps.ctx.outputs.context }}

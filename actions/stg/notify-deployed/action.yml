@@ -29,7 +29,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: ./actions/integrations/slack-notify
+    - uses: ./.openci/actions/integrations/slack-notify
       with:
         webhook-url: ${{ inputs.webhook-url }}
         status:      ${{ inputs.status }}

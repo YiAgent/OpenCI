@@ -52,7 +52,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Invoke claude-harness composite
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:         pr/review
         prompt-path:  ${{ inputs.prompt-path }}

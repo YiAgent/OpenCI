@@ -38,7 +38,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:      stg/agent-test
         context:   ${{ steps.ctx.outputs.context }}
@@ -55,6 +55,6 @@ runs:
         printf '%s\n' "$OUTPUT" > "triage/agent-test/L${L}.json"
         echo "::notice title=Agent Test Staged::level=$L"
 
-    - uses: ./actions/_common/gitleaks-artifact
+    - uses: ./.openci/actions/_common/gitleaks-artifact
       with:
         scan-path: triage/agent-test

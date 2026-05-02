@@ -41,7 +41,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          agents/docubot
         context:       ${{ steps.ctx.outputs.context }}

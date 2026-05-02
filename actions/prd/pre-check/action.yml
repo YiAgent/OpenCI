@@ -59,13 +59,13 @@ runs:
   using: composite
   steps:
     - name: Verify version alignment
-      uses: ./actions/prd/verify-version-align
+      uses: ./.openci/actions/prd/verify-version-align
       with:
         image-digest:     ${{ inputs.image-digest }}
         stg-image-digest: ${{ inputs.stg-image-digest }}
 
     - name: Observe window
-      uses: ./actions/prd/observe-window
+      uses: ./.openci/actions/prd/observe-window
       with:
         stg-deploy-time:     ${{ inputs.stg-deploy-time }}
         observation-minutes: ${{ inputs.observation-minutes }}
@@ -86,7 +86,7 @@ runs:
     - name: Check error rate
       id: error-rate
       if: steps.error-rate-skip.outputs.skip != 'true'
-      uses: ./actions/prd/check-error-rate
+      uses: ./.openci/actions/prd/check-error-rate
       with:
         sentry-token:         ${{ inputs.sentry-token }}
         sentry-org:           ${{ inputs.sentry-org }}

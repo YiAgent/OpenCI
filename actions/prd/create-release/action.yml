@@ -84,7 +84,7 @@ runs:
 
     - id: ai
       if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          agents/ai-changelog
         context:       ${{ steps.log.outputs.context }}

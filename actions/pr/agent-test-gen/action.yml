@@ -54,7 +54,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:          pr/test-gen
         context:       ${{ steps.ctx.outputs.context }}
@@ -73,7 +73,7 @@ runs:
         echo "::notice title=Test Gen Staged::triage/test-gen/result.json"
 
     - name: Scan for leaks
-      uses: ./actions/_common/gitleaks-artifact
+      uses: ./.openci/actions/_common/gitleaks-artifact
       with:
         scan-path: triage/test-gen
 

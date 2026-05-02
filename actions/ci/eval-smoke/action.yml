@@ -51,7 +51,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: harness
-      uses: ./actions/_common/claude-harness
+      uses: ./.openci/actions/_common/claude-harness
       with:
         task:     ci/smoke-eval
         context:  ${{ steps.ctx.outputs.context }}
