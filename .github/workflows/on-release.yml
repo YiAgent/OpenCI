@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   release:
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/reusable/release.yml
     with:
       mode:       ${{ inputs.mode || 'both' }}
       image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}

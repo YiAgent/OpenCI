@@ -6,10 +6,8 @@ name: on-deploy
 
 on:
   workflow_run:
-    workflows: [on-ci]
+    workflows: [on-ci, on-release]
     types: [completed]
-  push:
-    tags: ["v*"]
   repository_dispatch:
     types: [observe-window-complete]
   schedule:
@@ -37,8 +35,12 @@ concurrency:
 
 jobs:
   stg:
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg') }}
-    uses: ./.github/workflows/stg.yml
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.name == 'on-ci'
+        && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg')
+    uses: ./.github/workflows/reusable/stg.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -46,8 +48,13 @@ jobs:
     secrets: inherit
 
   prd:
-    if: ${{ github.event_name == 'push' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd') }}
-    uses: ./.github/workflows/prd.yml
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.name == 'on-release'
+        && github.event.workflow_run.conclusion == 'success')
+      || github.event_name == 'repository_dispatch'
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd')
+    uses: ./.github/workflows/reusable/prd.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -56,14 +63,14 @@ jobs:
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: ./.github/workflows/prd-observe.yml
+    uses: ./.github/workflows/reusable/prd-observe.yml
     with:
       mode: canary-watch
     secrets: inherit
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: ./.github/workflows/prd-observe.yml
+    uses: ./.github/workflows/reusable/prd-observe.yml
     with:
       mode:      terraform-drift
       infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
@@ -73,7 +80,10 @@ jobs:
   # stg-agent-test — autonomous L1-L4 tests after stg deploy.
   # ──────────────────────────────────────────────────────────────────────
   stg-agent-test:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      github.event_name == 'workflow_run'
+        && github.event.workflow_run.name == 'on-ci'
+        && github.event.workflow_run.conclusion == 'success'
     needs: stg
     name: Staging Agent Test L${{ matrix.level }}
     runs-on: ubuntu-latest
