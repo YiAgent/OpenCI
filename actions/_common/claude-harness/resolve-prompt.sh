@@ -2,17 +2,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # resolve-prompt.sh — locate, load, and template the prompt for claude-harness.
 # ─────────────────────────────────────────────────────────────────────────────
-# Signature (5 args):
-#   <task> <direct-prompt> <caller-prompt-path> <action-dir> <context-json>
+# Inputs (read from env to survive arbitrary JSON in CONTEXT_JSON):
+#   TASK_INPUT         logical task name (e.g. pr/review)
+#   PROMPT_INPUT       direct prompt text or /slash-command
+#   PROMPT_PATH_INPUT  caller-supplied prompt path (relative to consumer repo)
+#   ACTION_DIR_INPUT   absolute path to this action's directory
+#   CONTEXT_JSON       JSON object whose scalar fields become {{name}} vars
 #
-# Why this script exists:
-#   claude-code-action@v1.x exposes only `prompt:` (string) — there is no
-#   `prompt_file` or `prompt_inputs`. We therefore: (1) resolve the source
-#   file according to the priority chain below, (2) read it into memory,
-#   (3) perform Mustache-style {{var}} substitution from the caller's JSON
-#   context plus auto-injected GitHub vars, and (4) emit the rendered text
-#   as a multi-line GITHUB_OUTPUT value the harness can pass straight to
-#   `prompt:`.
+# Why env, not args:
+#   Callers can supply CONTEXT_JSON containing PR diffs, error logs, etc.
+#   These routinely include single quotes, parentheses, newlines, and other
+#   shell-special characters that mangle any quoting scheme on the call site.
+#   Env vars are passed verbatim by GitHub Actions, sidestepping the issue.
+#
+# Backwards compat: a 5-positional-arg invocation is still supported so the
+# bats test suite can exercise the script without setting up env. Positional
+# args take precedence over env.
 #
 # Priority:
 #   1. DIRECT_PROMPT — non-empty text or /slash-command.
@@ -29,11 +34,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-TASK="${1:-}"
-DIRECT_PROMPT="${2:-}"
-CALLER_PROMPT_PATH="${3:-}"
-ACTION_DIR="${4:-}"
-CONTEXT_JSON="${5:-{\}}"
+TASK="${1:-${TASK_INPUT:-}}"
+DIRECT_PROMPT="${2:-${PROMPT_INPUT:-}}"
+CALLER_PROMPT_PATH="${3:-${PROMPT_PATH_INPUT:-}}"
+ACTION_DIR="${4:-${ACTION_DIR_INPUT:-}}"
+CONTEXT_JSON="${5:-${CONTEXT_JSON:-{\}}}"
 
 if [ -z "$TASK" ]; then
   echo "::error title=resolve-prompt::Missing required <task> argument" >&2
