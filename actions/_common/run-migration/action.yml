@@ -1,0 +1,25 @@
+# Unified migration runner — works for any environment.
+name: Run Migration
+description: Run a DB migration command, fail on non-zero exit.
+
+inputs:
+  environment:
+    description: Environment label (e.g. "staging", "production").
+    required: true
+  migration-cmd:
+    description: Shell command that runs the migration.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run migration
+      shell: bash
+      env:
+        MIGRATION_CMD: ${{ inputs.migration-cmd }}
+        ENV_LABEL: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        echo "::notice title=${ENV_LABEL} Migration::cmd=${MIGRATION_CMD}"
+        bash -c "$MIGRATION_CMD"
+        echo "::notice title=${ENV_LABEL} Migration::ok"

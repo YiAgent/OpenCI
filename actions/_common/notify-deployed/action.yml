@@ -1,0 +1,36 @@
+# Unified deploy notifier — delegates to integrations/slack-notify.
+name: Notify Deployed
+description: Post deploy status to Slack (works for any environment).
+
+inputs:
+  environment:
+    description: Environment label (e.g. "staging", "production").
+    required: true
+  status:
+    description: success | failure
+    required: true
+  app-name:
+    description: Application name.
+    required: true
+  image-ref:
+    description: Image reference that was deployed.
+    required: true
+  webhook-url:
+    description: Slack webhook URL (empty -> graceful skip).
+    required: false
+    default: ""
+  run-url:
+    description: GitHub Actions run URL.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.openci/actions/integrations/slack-notify
+      with:
+        webhook-url: ${{ inputs.webhook-url }}
+        status:      ${{ inputs.status }}
+        title:       "${{ inputs.environment }} · ${{ inputs.app-name }} · ${{ inputs.status }}"
+        body:        "Image: `${{ inputs.image-ref }}`"
+        link:        ${{ inputs.run-url }}

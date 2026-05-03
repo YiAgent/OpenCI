@@ -1,3 +1,8 @@
+---
+name: pr-review-agent
+description: Analyze a pull request and produce a structured action plan for the Stage 4 executor.
+---
+
 # pr/review-agent
 
 ## Purpose

@@ -73,13 +73,6 @@
       "keywords": ["feature-flag", "audit", "cleanup", "lifecycle"]
     },
     {
-      "name": "observability-health-report",
-      "source": "./skills/observability-health-report",
-      "description": "Synthesize a daily health report from telemetry data. Enhanced with SLI/SLO framework, golden signals, and burn-rate analysis.",
-      "category": "monitoring",
-      "keywords": ["health", "report", "observability", "telemetry", "slo", "sli"]
-    },
-    {
       "name": "agents-ai-changelog",
       "source": "./skills/agents-ai-changelog",
       "description": "Generate release notes in Keep a Changelog style from commit history. Enhanced with breaking change detection and PR enrichment.",
@@ -87,25 +80,18 @@
       "keywords": ["changelog", "release", "notes", "breaking-changes"]
     },
     {
+      "name": "pr-review-agent",
+      "source": "./skills/pr-review-agent",
+      "description": "Analyze a pull request and produce a structured action plan for the Stage 4 executor.",
+      "category": "code-quality",
+      "keywords": ["pr", "review", "agent", "action-plan"]
+    },
+    {
       "name": "agents-docubot",
       "source": "./skills/agents-docubot",
       "description": "Answer questions about repository documentation and source code with cited file paths. Enhanced with Context7 lookup and codebase onboarding.",
       "category": "documentation",
       "keywords": ["docubot", "docs", "question", "documentation", "context7"]
-    },
-    {
-      "name": "security-audit",
-      "source": "./skills/security-audit",
-      "description": "Perform comprehensive security audits of code changes or full codebase. Covers OWASP Top 10, secrets, injection, auth, and dependency vulnerabilities.",
-      "category": "security",
-      "keywords": ["security", "audit", "owasp", "vulnerability", "secrets"]
-    },
-    {
-      "name": "deployment-patterns",
-      "source": "./skills/deployment-patterns",
-      "description": "Review and generate deployment configurations: Docker, docker-compose, CI/CD pipelines, health checks, and rollback strategies.",
-      "category": "devops",
-      "keywords": ["deployment", "docker", "ci-cd", "kubernetes", "health-check"]
     }
   ]
 }

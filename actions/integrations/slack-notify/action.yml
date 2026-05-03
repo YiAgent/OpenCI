@@ -2,7 +2,7 @@
 # integrations/slack-notify — atomic Slack notifier (graceful-skip).
 # ─────────────────────────────────────────────────────────────────────────────
 # This is an ATOM (single responsibility, no other composites/atoms called),
-# so callers from a composite (e.g. stg/notify-deployed) don't break the
+# so callers from a composite (e.g. _common/notify-deployed) don't break the
 # "composite cannot call composite" rule (SPEC GC2).
 # ─────────────────────────────────────────────────────────────────────────────
 name: Slack Notify (atom)

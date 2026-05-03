@@ -181,18 +181,15 @@ openCI/
 │   └── renovate.json / dependabot.yml
 │
 ├── actions/                              # action 实现,按阶段分目录
-│   ├── _common/                          # detect-language / setup-env / post-comment
-│   │                                     # / claude-harness(AI composite 入口)
-│   ├── issue/    pr/    ci/    stg/    prd/    security/    community/
+│   ├── _common/                          # detect-language / setup-env / claude-harness
+│   │                                     # / notify-deployed / run-migration
+│   ├── issue/    pr/    ci/    stg/    prd/    security/
 │   ├── integrations/                     # SaaS push: sentry / datadog / posthog /
-│   │                                     # langsmith / axiom / slack / linear-link
+│   │                                     # langsmith / axiom / slack
 │   │                                     # + notify-deploy composite
-│   └── observability/                    # SaaS pull: query-* / collect-all /
-│                                         # publish-report
 │
-├── prompts/                              # AI prompt(与 action 解耦,变化频率不同)
-│   └── {stage}/{task}.md                 # pr/review、issue/triage、ci/smoke-eval、
-│                                         # observability/daily-health-report
+├── skills/                               # built-in Claude task prompts
+│   └── {skill-name}/SKILL.md             # pr/review、issue/triage、ci/smoke-eval
 │
 ├── lib/                                  # 2+ action 共用脚本(wait-on.js / parse-sarif.sh)
 │
@@ -1007,7 +1004,8 @@ GitHub 与 Linear 双向同步走官方 Linear GitHub App,OpenCI 不重造。仅
 | 模式 | 目录 | 数据流 | 失败策略 | 典型场景 |
 | --- | --- | --- | --- | --- |
 | **Push(部署标记)** | `actions/integrations/` | 单向推送事件 | `continue-on-error: true`(不影响部署) | Sentry release、Datadog deployment event |
-| **Pull(健康报告)** | `actions/observability/` | 拉取数据 + AI 合成 | 失败返回 `{"_error":"..."}` partial JSON | 每日健康日报、错误分诊 |
+
+> **注**:Pull 模式(健康报告)的 query-* 原子已移除。消费者需要自行实现数据采集 job + 调用 `agent.yml`(task=health-digest)来生成健康报告。参见 EvolveCI 的 `agent-daily.yml`。
 
 **为什么分开**:Push 是"告诉外部服务一件事"(部署了),Pull 是"从外部服务拉数据 + 处理"(汇总报告)。意图和数据流向不同,放一起会让 action 列表变难懂。
 
@@ -1766,9 +1764,9 @@ Claude Code 按以下顺序实施,每阶段可独立验证。
 | 15 | `prd.yml` 完整(`pre-check` + `check-error-rate`) | 验证错误率超阈值时阻断 | 5.5 / 7.2 |
 | 16 | `security-schedule.yml` + CodeQL + SBOM + Trivy | 手动触发,验证 Security tab | 5.6 |
 | 17 | `actions/integrations/notify-deploy` composite + 5 个 push 原子 | stg/prd 部署后 marker 到达各平台 | 7.8.1 |
-| 18 | `actions/observability/` 全套 + `health-report.yml` | 手动触发,验证 Issue + Slack 收到日报 | 7.8.2 |
+| 18 | ~~`actions/observability/` 全套~~ (已移除,消费者自行实现) | — | 7.8.2 |
 | 19 | **workflow_run 跨工作流聚合**(单条滚动评论) | 多 workflow 完成后只有一条评论 | aicert #2 |
-| 20 | **环境变量漂移守卫** | CI 校验 validate-env.sh | aicert #9 |
+| 20 | ~~**环境变量漂移守卫**~~ (validate-env 已移除) | — | aicert #9 |
 | 21 | **coverage 阶段门槛**(stg <60% 阻塞) | 注入低覆盖率,验证阻塞 | aicert #8 |
 
 ### P3 — 辅助与生态

@@ -1,8 +1,9 @@
 # Environment Variable Matrix (template)
 
 > Copy this file to `infra/ENV_MATRIX.md` in your **consumer** repository.
-> The actions/_common/validate-env atom (P2-20) parses it on every deploy
-> and blocks runs where required variables are missing.
+> Use it as a source-of-truth for which environment variables are required per environment.
+> Consumers should implement their own validation (e.g. a preflight script) that checks
+> required variables are present before deploy.
 
 ## Format
 
@@ -33,34 +34,8 @@
 
 - Anything in `Source: inline` lives in the workflow / Dockerfile and is
   treated as **public**. Never put credentials there.
-- `validate-env` only checks **presence**, not value validity. A typo in
+- Validation only checks **presence**, not value validity. A typo in
   the value still gets through; trust your runtime to fail fast.
 - The matrix file is the source-of-truth for which env an env-var is
   expected in. The `Source` column documents *where* it's stored, not
   enforced by CI.
-
-## Example wiring
-
-```yaml
-# .github/workflows/<consumer-stg>.yml
-jobs:
-  validate-env:
-    uses: YiAgent/OpenCI/.github/workflows/deploy.yml@v3
-    # ... or invoke the validate-env atom directly:
-  custom:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@<sha>
-      - uses: YiAgent/OpenCI/actions/_common/validate-env@<sha>
-        with:
-          target-env: stg
-        env:
-          DATABASE_URL:    ${{ secrets.DATABASE_URL }}
-          REDIS_URL:       ${{ secrets.REDIS_URL }}
-          KUBECONFIG_STG:  ${{ secrets.KUBECONFIG_STG }}
-          # ...
-```
-
-The atom reads `infra/ENV_MATRIX.md` from the **consumer** repo's
-checkout, so make sure the file is committed before stg/prd deploy
-workflows run.

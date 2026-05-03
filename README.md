@@ -250,12 +250,11 @@ Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
 .github/scripts/        # cross-workflow shell helpers
 .github/ISSUE_TEMPLATE/ # bug / feature / question / security templates
 .github/agent/          # shared + domain agent context and skill files
-actions/                # 83 composite + atomic actions
-  _common/              #   shared building blocks (claude-harness, detect-language, etc.)
+actions/                # 66 composite + atomic actions
+  _common/              #   shared building blocks (claude-harness, notify-deployed, etc.)
   pr/ ci/ stg/ prd/     #   stage-specific atoms
-  integrations/         #   SaaS-specific atoms
-  observability/        #   query-* + publish-* atoms
-  issue/ community/     #   issue lifecycle atoms
+  integrations/         #   SaaS-specific atoms (notify-deploy, slack-notify, etc.)
+  issue/                #   issue lifecycle atoms
   security/             #   weekly scan atoms
 skills/                 # built-in Claude task prompts (consumer can override)
 tests/                  # bats suites + fixtures

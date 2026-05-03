@@ -281,8 +281,9 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/run-migration
+      - uses: ./.openci/actions/_common/run-migration
         with:
+          environment:   production
           migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
 
   smoke-test:
@@ -524,8 +525,9 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: ./.openci/actions/prd/notify-deployed
+      - uses: ./.openci/actions/_common/notify-deployed
         with:
+          environment: production
           status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
           app-name:    ${{ inputs.app-name }}
           image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
