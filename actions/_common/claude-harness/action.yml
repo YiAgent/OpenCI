@@ -73,6 +73,18 @@ inputs:
     description: Claude Code OAuth token (alternative to api-key).
     required: false
     default: ""
+  use-commit-signing:
+    description: |
+      Sign commits made by Claude. "true" enables GitHub API signing (no key
+      needed). "ssh" uses the ssh-signing-key input.
+    required: false
+    default: "false"
+  ssh-signing-key:
+    description: |
+      SSH private key for signing commits when use-commit-signing is "ssh".
+      Pass as a secret: ${{ secrets.CLAUDE_SSH_SIGNING_KEY }}.
+    required: false
+    default: ""
   api-base-url:
     description: Custom Anthropic-compatible base URL (e.g. self-hosted proxy, OpenRouter). Exported as ANTHROPIC_BASE_URL.
     required: false
@@ -269,6 +281,8 @@ runs:
           ${{ inputs.extra-permissions }}
         plugins:             ${{ inputs.plugins }}
         plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+        use_commit_signing: ${{ inputs.use-commit-signing }}
+        ssh_signing_key:    ${{ inputs.ssh-signing-key }}
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
         classify_inline_comments:  ${{ inputs.classify-inline-comments }}
         include_fix_links:         ${{ inputs.include-fix-links }}
