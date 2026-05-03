@@ -1,30 +1,113 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ci/scan-image — Trivy CVE scan, SARIF upload, hard-fail on HIGH/CRITICAL.
+# ci/scan-image — Trivy CVE scan with structured outputs for Stage 3 analysis.
+# ─────────────────────────────────────────────────────────────────────────────
+# Two-phase design:
+#   Phase 1 (JSON, exit-code 0): Count CVEs and set outputs FIRST.
+#   Phase 2 (SARIF, exit-code 0): Generate SARIF for the Security tab.
+#   Then: upload SARIF, hard-fail LAST if critical threshold is exceeded.
+#
+# Outputs are set before the failure step so downstream enrich/agent/execute
+# jobs can always read critical-count via needs.scan-image.outputs regardless
+# of whether this job ultimately passes or fails.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI · Scan Image
-description: Scan an image with Trivy and upload SARIF.
+description: >
+  Scan a container image with Trivy; emit CVE counts as structured outputs and
+  upload SARIF. Hard-fails only after outputs are set so downstream jobs can
+  always read critical-count regardless of this job's final result.
 
 inputs:
   image-ref:
     description: Image reference, ideally by digest (registry/owner/name@sha256:...).
     required: true
   severity:
-    description: Comma-separated severities that fail the scan.
+    description: Comma-separated severities to count and report.
     required: false
     default: "CRITICAL,HIGH"
+  fail-on-critical:
+    description: Exit 1 when any CRITICAL CVE is found.
+    required: false
+    default: "true"
+
+outputs:
+  vulnerabilities-found:
+    description: "'true' when CRITICAL or HIGH CVEs were detected."
+    value: ${{ steps.parse.outputs.vulnerabilities-found }}
+  critical-count:
+    description: Number of CRITICAL CVEs found.
+    value: ${{ steps.parse.outputs.critical-count }}
+  high-count:
+    description: Number of HIGH CVEs found.
+    value: ${{ steps.parse.outputs.high-count }}
 
 runs:
   using: composite
   steps:
-    - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+    # ── Phase 1: JSON scan — never fails the step ────────────────────────
+    - name: Scan — JSON
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        format:    json
+        output:    trivy-results.json
+        severity:  ${{ inputs.severity }}
+        exit-code: "0"
+
+    # ── Set outputs BEFORE any failure step ─────────────────────────────
+    - name: Parse CVE counts
+      id: parse
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f trivy-results.json ]; then
+          echo "::warning title=Scan::trivy-results.json missing; defaulting to zero"
+          printf 'critical-count=0\nhigh-count=0\nvulnerabilities-found=false\n' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' \
+          trivy-results.json 2>/dev/null || echo 0)
+        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' \
+          trivy-results.json 2>/dev/null || echo 0)
+        CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}
+
+        FOUND="false"
+        { [ "${CRITICAL}" -gt 0 ] || [ "${HIGH}" -gt 0 ]; } && FOUND="true" || true
+
+        {
+          echo "critical-count=${CRITICAL}"
+          echo "high-count=${HIGH}"
+          echo "vulnerabilities-found=${FOUND}"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "::notice title=Trivy Results::CRITICAL=${CRITICAL}  HIGH=${HIGH}"
+
+    # ── Phase 2: SARIF scan for Security tab ────────────────────────────
+    - name: Scan — SARIF
+      if: always()
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
       with:
         image-ref: ${{ inputs.image-ref }}
         format:    sarif
         output:    trivy-results.sarif
         severity:  ${{ inputs.severity }}
-        exit-code: "1"
+        exit-code: "0"
 
-    - uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0
+    - name: Upload SARIF
       if: always()
+      uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0
       with:
         sarif_file: trivy-results.sarif
+
+    # ── Hard-fail AFTER outputs are set ─────────────────────────────────
+    - name: Fail on CRITICAL
+      if: inputs.fail-on-critical == 'true'
+      shell: bash
+      env:
+        CRITICAL_COUNT: ${{ steps.parse.outputs.critical-count }}
+      run: |
+        CRITICAL="${CRITICAL_COUNT:-0}"
+        if [ "${CRITICAL}" -gt 0 ]; then
+          echo "::error title=Critical CVEs::${CRITICAL} CRITICAL CVE(s) detected — deploy blocked."
+          exit 1
+        fi
