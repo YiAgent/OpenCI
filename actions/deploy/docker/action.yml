@@ -61,11 +61,19 @@ inputs:
     description: Seconds to wait for container to become healthy after deploy.
     required: false
     default: "60"
+  ssh-known-hosts:
+    description: |
+      Known-hosts entry for the target server (base64-encoded or raw).
+      When supplied the host key is validated against this value instead of
+      trusting whatever the server presents at connect time (TOFU).
+      Obtain via: ssh-keyscan -H <host> | base64
+    required: false
+    default: ""
 
 outputs:
   deploy-time:
     description: ISO 8601 deploy timestamp.
-    value: ${{ steps.deploy.outputs.deploy-time }}
+    value: ${{ steps.deploy.outputs.deploy-time || steps.deploy-run.outputs.deploy-time }}
   previous-image:
     description: Image ref running before this deploy (used by auto-rollback-docker).
     value: ${{ steps.snapshot.outputs.previous-image }}
@@ -87,10 +95,11 @@ runs:
       id: ssh-setup
       shell: bash
       env:
-        KEY_B64: ${{ inputs.ssh-key }}
-        PORT:    ${{ inputs.ssh-port }}
-        HOST:    ${{ inputs.ssh-host }}
-        USER:    ${{ inputs.ssh-user }}
+        KEY_B64:        ${{ inputs.ssh-key }}
+        KNOWN_HOSTS:    ${{ inputs.ssh-known-hosts }}
+        PORT:           ${{ inputs.ssh-port }}
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
       run: |
         set -euo pipefail
         key_path="${RUNNER_TEMP}/deploy_key_$$"
@@ -98,9 +107,15 @@ runs:
         chmod 600 "$key_path"
         echo "::add-mask::$(cat "$key_path" | tr -d '\n')"
         echo "SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
-        # Suppress host key prompt
         mkdir -p ~/.ssh
-        ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        if [ -n "$KNOWN_HOSTS" ]; then
+          # Prefer caller-supplied known_hosts over TOFU keyscan.
+          printf '%s\n' "$KNOWN_HOSTS" | base64 -d >> ~/.ssh/known_hosts 2>/dev/null \
+            || printf '%s\n' "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
+        else
+          echo "::warning title=SSH Security::ssh-known-hosts not provided; using TOFU (ssh-keyscan) — supply ssh-known-hosts for production"
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        fi
 
     - name: Snapshot previous image
       id: snapshot
@@ -158,7 +173,7 @@ runs:
         elapsed=0
         status="starting"
         while [ "$elapsed" -lt "$TIMEOUT" ]; do
-          cid="$(ssh_cmd "cd ${COMPOSE_DIR} && docker compose -f ${COMPOSE_FILE} ps -q ${APP}" 2>/dev/null || true)"
+          cid="$(ssh_cmd "cd ${COMPOSE_DIR} && docker compose -f ${COMPOSE_FILE} ps -q ${APP}" 2>/dev/null | head -1 || true)"
           if [ -n "$cid" ]; then
             status="$(ssh_cmd "docker inspect ${cid} --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null" || echo "starting")"
           fi
@@ -178,6 +193,7 @@ runs:
         echo "::notice title=Docker Deployed::app=$APP image=$IMAGE host=$HOST mode=compose at=$ts"
 
     - name: Deploy (run mode)
+      id: deploy-run
       if: inputs.deploy-mode == 'run'
       shell: bash
       env:

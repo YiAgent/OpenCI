@@ -63,6 +63,12 @@ inputs:
     description: Deployment environment label used in the incident issue title.
     required: false
     default: staging
+  ssh-known-hosts:
+    description: |
+      Known-hosts entry for the target server (base64-encoded or raw).
+      Must match the value used during the original deploy action.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -81,10 +87,11 @@ runs:
       id: ssh-setup
       shell: bash
       env:
-        KEY_B64: ${{ inputs.ssh-key }}
-        PORT:    ${{ inputs.ssh-port }}
-        HOST:    ${{ inputs.ssh-host }}
-        USER:    ${{ inputs.ssh-user }}
+        KEY_B64:     ${{ inputs.ssh-key }}
+        KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+        PORT:        ${{ inputs.ssh-port }}
+        HOST:        ${{ inputs.ssh-host }}
+        USER:        ${{ inputs.ssh-user }}
       run: |
         set -euo pipefail
         key_path="${RUNNER_TEMP}/rollback_key_$$"
@@ -93,7 +100,12 @@ runs:
         echo "::add-mask::$(cat "$key_path" | tr -d '\n')"
         echo "SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
         mkdir -p ~/.ssh
-        ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        if [ -n "$KNOWN_HOSTS" ]; then
+          printf '%s\n' "$KNOWN_HOSTS" | base64 -d >> ~/.ssh/known_hosts 2>/dev/null \
+            || printf '%s\n' "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
+        else
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        fi
 
     - name: Rollback (compose mode)
       if: inputs.deploy-mode == 'compose'
@@ -165,7 +177,7 @@ runs:
           exit 0
         fi
 
-        env_label="${ENVIRONMENT^}"
+        env_label="$(printf '%s' "$ENVIRONMENT" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
         title="P1: ${env_label} rollback (Docker) — ${APP}"
         body=$(printf '%s\n' \
           "## Auto-rollback fired (Docker)" \
