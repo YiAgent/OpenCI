@@ -1,0 +1,424 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# reusable/maintenance.yml — 4-stage maintenance pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 · Scan    — parallel CVE (Trivy), secrets (gitleaks), SAST (CodeQL)
+# Stage 2 · Update  — query pending Renovate/Dependabot PRs by semver label
+# Stage 3 · Enrich  — aggregate all signals into a compact context.json
+# Stage 4 · Agent   — Claude reads context, correlates CVE↔deps, files issues
+#
+# Mode routing:
+#   full        — all 4 stages
+#   scan-only   — stages 1 + 3 (no dep queries, no agent)
+#   deps-only   — stages 2 + 3 (no CVE scanning, no agent)
+#
+# Job dependency graph:
+#   detect-language ──→ scan-codeql ─────────────────────────────────┐
+#   scan-secrets ────────────────────────────────────────────────────→ enrich → agent → summary
+#   trivy-fs ────────────────────────────────────────────────────────┘  ↑
+#   check-updates ───────────────────────────────────────────────────────┘
+#
+# Security: all ${{ }} expressions that land in run: are passed via env: vars.
+# ─────────────────────────────────────────────────────────────────────────────
+name: maintenance (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references.
+        required: false
+        type: string
+        default: main
+      runner:
+        description: Runner label for all jobs.
+        required: false
+        type: string
+        default: ubuntu-latest
+      mode:
+        description: "Execution mode: full | scan-only | deps-only"
+        required: false
+        type: string
+        default: full
+      image-ref:
+        description: Container image ref for Trivy image scan (skipped when empty).
+        required: false
+        type: string
+        default: ""
+    secrets:
+      anthropic-api-key:
+        required: false
+      api-base-url:
+        required: false
+      snyk-token:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: maintenance-reusable
+  cancel-in-progress: false
+
+jobs:
+  # ── Stage 1a · Language detection (gates CodeQL) ───────────────────────────
+  detect-language:
+    name: Detect Language
+    if: inputs.mode == 'full' || inputs.mode == 'scan-only'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      language: ${{ steps.detect.outputs.language }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - id: detect
+        shell: bash
+        run: bash .openci/actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
+
+  # ── Stage 1b · CodeQL SAST ─────────────────────────────────────────────────
+  scan-codeql:
+    name: CodeQL SAST
+    needs: detect-language
+    if: |
+      (inputs.mode == 'full' || inputs.mode == 'scan-only') &&
+      needs.detect-language.outputs.language != 'unknown'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    outputs:
+      found: ${{ steps.result.outputs.found }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then REF="$OPENCI_REF_INPUT"
+          else REF="${WORKFLOW_REF##*@}"; REF="${REF#refs/heads/}"; REF="${REF#refs/tags/}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/security/scan-codeql
+        with:
+          language: ${{ needs.detect-language.outputs.language == 'node' && 'javascript' || needs.detect-language.outputs.language }}
+      - name: Mark SAST complete
+        id: result
+        shell: bash
+        run: echo "found=false" >> "$GITHUB_OUTPUT"
+
+  # ── Stage 1c · Secret scan (full git history) ──────────────────────────────
+  scan-secrets:
+    name: Secret Scan
+    if: inputs.mode == 'full' || inputs.mode == 'scan-only'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      found: ${{ steps.scan.outputs.found }}
+      count: ${{ steps.scan.outputs.count }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then REF="$OPENCI_REF_INPUT"
+          else REF="${WORKFLOW_REF##*@}"; REF="${REF#refs/heads/}"; REF="${REF#refs/tags/}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/maintenance/scan-secrets
+        id: scan
+      - name: Upload gitleaks report
+        if: steps.scan.outputs.found == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          retention-days: 30
+
+  # ── Stage 1d · CVE scan (Trivy filesystem) ─────────────────────────────────
+  trivy-fs:
+    name: Trivy CVE Scan
+    if: inputs.mode == 'full' || inputs.mode == 'scan-only'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      critical: ${{ steps.count.outputs.critical }}
+      high:     ${{ steps.count.outputs.high }}
+      medium:   ${{ steps.count.outputs.medium }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      # Run 1: SARIF upload to Security tab
+      - name: Trivy scan (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: '0'
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs
+
+      # Run 2: JSON for programmatic count extraction
+      - name: Trivy scan (JSON)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: '0'
+
+      - name: Extract CVE counts
+        id: count
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f trivy-results.json ]; then
+            { echo "critical=0"; echo "high=0"; echo "medium=0"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-results.json 2>/dev/null || echo 0)
+          HIGH=$(jq     '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")]     | length' trivy-results.json 2>/dev/null || echo 0)
+          MEDIUM=$(jq   '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")]   | length' trivy-results.json 2>/dev/null || echo 0)
+          { echo "critical=${CRITICAL}"; echo "high=${HIGH}"; echo "medium=${MEDIUM}"; } >> "$GITHUB_OUTPUT"
+
+  # ── Stage 2 · Check pending dependency updates ─────────────────────────────
+  check-updates:
+    name: Check Dep Updates
+    if: inputs.mode == 'full' || inputs.mode == 'deps-only'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      has_updates:  ${{ steps.check.outputs.has_updates }}
+      major_count:  ${{ steps.check.outputs.major_count }}
+      minor_count:  ${{ steps.check.outputs.minor_count }}
+      patch_count:  ${{ steps.check.outputs.patch_count }}
+      major_prs:    ${{ steps.check.outputs.major_prs }}
+      minor_prs:    ${{ steps.check.outputs.minor_prs }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then REF="$OPENCI_REF_INPUT"
+          else REF="${WORKFLOW_REF##*@}"; REF="${REF#refs/heads/}"; REF="${REF#refs/tags/}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/maintenance/check-updates
+        id: check
+        with:
+          github-token: ${{ github.token }}
+
+  # ── Stage 3 · Enrich context (always runs after scans) ─────────────────────
+  enrich:
+    name: Enrich Context
+    needs: [scan-secrets, trivy-fs, scan-codeql, check-updates]
+    if: always() && (inputs.mode == 'full' || inputs.mode == 'scan-only' || inputs.mode == 'deps-only')
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      has_issues:     ${{ steps.enrich.outputs.has_issues }}
+      overall_health: ${{ steps.enrich.outputs.overall_health }}
+      context_path:   ${{ steps.enrich.outputs.context_path }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then REF="$OPENCI_REF_INPUT"
+          else REF="${WORKFLOW_REF##*@}"; REF="${REF#refs/heads/}"; REF="${REF#refs/tags/}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/maintenance/enrich
+        id: enrich
+        with:
+          secrets_found:   ${{ needs.scan-secrets.outputs.found    || 'false' }}
+          secrets_count:   ${{ needs.scan-secrets.outputs.count    || '0' }}
+          trivy_critical:  ${{ needs.trivy-fs.outputs.critical     || '0' }}
+          trivy_high:      ${{ needs.trivy-fs.outputs.high         || '0' }}
+          trivy_medium:    ${{ needs.trivy-fs.outputs.medium       || '0' }}
+          codeql_found:    ${{ needs.scan-codeql.outputs.found     || 'false' }}
+          major_count:     ${{ needs.check-updates.outputs.major_count || '0' }}
+          minor_count:     ${{ needs.check-updates.outputs.minor_count || '0' }}
+          patch_count:     ${{ needs.check-updates.outputs.patch_count || '0' }}
+          major_prs:       ${{ needs.check-updates.outputs.major_prs   || '[]' }}
+          minor_prs:       ${{ needs.check-updates.outputs.minor_prs   || '[]' }}
+
+  # ── Stage 4 · Agent analysis (full mode only, when issues detected) ─────────
+  agent:
+    name: Maintenance Agent
+    needs: enrich
+    if: |
+      always() &&
+      inputs.mode == 'full' &&
+      needs.enrich.outputs.has_issues == 'true' &&
+      needs.enrich.result != 'failure'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then REF="$OPENCI_REF_INPUT"
+          else REF="${WORKFLOW_REF##*@}"; REF="${REF#refs/heads/}"; REF="${REF#refs/tags/}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - name: Read context file
+        id: ctx
+        env:
+          CTX_PATH: ${{ needs.enrich.outputs.context_path }}
+        shell: bash
+        run: |
+          CTX="$(cat "$CTX_PATH")"
+          { echo "context<<EOF"; echo "$CTX"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+      - uses: ./.openci/actions/_common/claude-harness
+        with:
+          task: maintenance-analyst
+          context: ${{ steps.ctx.outputs.context }}
+          github-token: ${{ github.token }}
+          api-key:      ${{ secrets.anthropic-api-key }}
+          api-base-url: ${{ secrets.api-base-url }}
+          extra-allowed-tools: "github_create_issue,github_list_issues"
+          max-turns: "15"
+
+  # ── Summary ─────────────────────────────────────────────────────────────────
+  summary:
+    name: Maintenance Summary
+    needs: [enrich, agent]
+    if: always() && needs.enrich.result != 'skipped'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - name: Write summary
+        env:
+          HEALTH:       ${{ needs.enrich.outputs.overall_health }}
+          HAS_ISSUES:   ${{ needs.enrich.outputs.has_issues }}
+          AGENT_RESULT: ${{ needs.agent.result }}
+          MODE:         ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ICON="✅"
+          [ "${HEALTH:-healthy}" = "needs-attention" ] && ICON="⚠️"
+          [ "${HEALTH:-healthy}" = "critical" ]        && ICON="🚨"
+          {
+            echo "## ${ICON} Maintenance Complete"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Mode | \`${MODE}\` |"
+            echo "| Health | \`${HEALTH:-healthy}\` |"
+            echo "| Issues found | \`${HAS_ISSUES:-false}\` |"
+            echo "| Agent | \`${AGENT_RESULT:-skipped}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

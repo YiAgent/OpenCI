@@ -1,0 +1,185 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# on-maintenance.yml — Unified entry: security sweeps + dependency intelligence.
+# ─────────────────────────────────────────────────────────────────────────────
+# Replaces security.yml. Trigger → mode mapping:
+#
+#   schedule Mon 02:00 UTC  → full       (weekly deep sweep + agent analysis)
+#   schedule Mon 15:00 UTC  → flag-audit (feature flag hygiene check)
+#   push / pull_request      → pr-review  (verify-sha integrity check only)
+#   workflow_dispatch        → caller-chosen mode
+#
+# Why merged: Security (find CVEs) and Dependencies (fix CVEs) are two sides of
+# the same problem. The agent stage sees both scan results and available updates
+# in one pass, so it can write "upgrade X to Y to fix CVE-Z" instead of filing
+# two disconnected items.
+#
+# What stays separate: dependencies.yml (pull_request_target for Renovate
+# auto-merge) uses a distinct trust model and MUST remain its own file.
+# ─────────────────────────────────────────────────────────────────────────────
+name: maintenance
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"    # Monday 02:00 UTC — full sweep
+    - cron: "0 15 * * 1"   # Monday 23:00 BJT — flag audit
+  push:
+    branches: [main]
+    paths:
+      - "manifest.yml"
+      - "actions/**/action.yml"
+      - ".github/workflows/**.yml"
+  pull_request:
+    paths:
+      - "manifest.yml"
+      - "actions/**/action.yml"
+      - ".github/workflows/**.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Execution mode"
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - scan-only
+          - deps-only
+          - flag-audit
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+  id-token: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: maintenance-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Mode resolution ─────────────────────────────────────────────────────────
+  resolve-mode:
+    name: Resolve Mode
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 2
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+
+      - name: Determine mode
+        id: resolve
+        env:
+          EVENT:      ${{ github.event_name }}
+          SCHEDULE:   ${{ github.event.schedule }}
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            workflow_dispatch)
+              echo "mode=${INPUT_MODE:-full}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request|push)
+              echo "mode=pr-review" >> "$GITHUB_OUTPUT"
+              ;;
+            schedule)
+              case "$SCHEDULE" in
+                "0 15 * * 1") echo "mode=flag-audit" >> "$GITHUB_OUTPUT" ;;
+                "0 2 * * 1")  echo "mode=full"        >> "$GITHUB_OUTPUT" ;;
+                *)             echo "mode=deps-only"   >> "$GITHUB_OUTPUT" ;;
+              esac
+              ;;
+            *) echo "mode=full" >> "$GITHUB_OUTPUT" ;;
+          esac
+        shell: bash
+
+  # ── Full maintenance sweep (full | scan-only | deps-only) ───────────────────
+  maintenance:
+    name: Maintenance
+    needs: resolve-mode
+    if: |
+      !contains(fromJSON('["pr-review","flag-audit"]'),
+        needs.resolve-mode.outputs.mode)
+    uses: ./.github/workflows/reusable/maintenance.yml
+    with:
+      mode:      ${{ needs.resolve-mode.outputs.mode }}
+      image-ref: ${{ vars.IMAGE_REF || '' }}
+      runner:    blacksmith-32vcpu-ubuntu-2404
+    secrets: inherit
+
+  # ── SHA integrity check on push / PR ────────────────────────────────────────
+  verify-sha:
+    name: Verify SHA Consistency
+    needs: resolve-mode
+    if: needs.resolve-mode.outputs.mode == 'pr-review'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+          yq --version
+
+      - name: Verify SHA consistency
+        shell: bash
+        run: bash .github/scripts/verify-sha-consistency.sh
+
+  # ── Feature flag audit (Monday BJT evening) ─────────────────────────────────
+  flag-audit:
+    name: Flag Audit
+    needs: resolve-mode
+    if: needs.resolve-mode.outputs.mode == 'flag-audit'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      # Vendor OpenCI so the flag-audit composite can reach claude-harness.
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          REF="${WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+
+      - uses: ./.openci/actions/_common/flag-audit
+        with:
+          github-token:      ${{ github.token }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}

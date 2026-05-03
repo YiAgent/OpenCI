@@ -1,0 +1,184 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# maintenance/enrich — Aggregate scan + update signals into agent context JSON.
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs after all scan and check-updates jobs (with if: always() so it fires
+# even when upstream jobs fail or are skipped). Builds a compact context.json
+# summarising the maintenance state of the repository.
+#
+# Health determination:
+#   critical        — secrets found OR critical CVEs detected
+#   needs-attention — high CVEs found OR major dep updates pending (>0)
+#   healthy         — no findings above medium severity
+#
+# Outputs:
+#   has_issues      "true" when health is critical or needs-attention.
+#   overall_health  "critical" | "needs-attention" | "healthy"
+#   context_path    Absolute path to the written context.json artifact.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Maintenance · Enrich Context
+description: Aggregate scan and dep-update signals into agent-readable context.json.
+
+inputs:
+  secrets_found:
+    description: '"true" when gitleaks detected secrets in history.'
+    required: false
+    default: 'false'
+  secrets_count:
+    description: Number of secret findings.
+    required: false
+    default: '0'
+  trivy_critical:
+    description: Count of CRITICAL CVEs found by Trivy.
+    required: false
+    default: '0'
+  trivy_high:
+    description: Count of HIGH CVEs found by Trivy.
+    required: false
+    default: '0'
+  trivy_medium:
+    description: Count of MEDIUM CVEs found by Trivy.
+    required: false
+    default: '0'
+  codeql_found:
+    description: '"true" when CodeQL found SAST issues.'
+    required: false
+    default: 'false'
+  major_count:
+    description: Count of open major-update PRs.
+    required: false
+    default: '0'
+  minor_count:
+    description: Count of open minor-update PRs.
+    required: false
+    default: '0'
+  patch_count:
+    description: Count of open patch-update PRs.
+    required: false
+    default: '0'
+  major_prs:
+    description: JSON array of {number, title} for major PRs.
+    required: false
+    default: '[]'
+  minor_prs:
+    description: JSON array of {number, title} for minor PRs.
+    required: false
+    default: '[]'
+
+outputs:
+  has_issues:
+    description: '"true" when health is critical or needs-attention.'
+    value: ${{ steps.enrich.outputs.has_issues }}
+  overall_health:
+    description: Overall health classification.
+    value: ${{ steps.enrich.outputs.overall_health }}
+  context_path:
+    description: Path to the written context.json file.
+    value: ${{ steps.enrich.outputs.context_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build context JSON
+      id: enrich
+      shell: bash
+      env:
+        SECRETS_FOUND:   ${{ inputs.secrets_found }}
+        SECRETS_COUNT:   ${{ inputs.secrets_count }}
+        TRIVY_CRITICAL:  ${{ inputs.trivy_critical }}
+        TRIVY_HIGH:      ${{ inputs.trivy_high }}
+        TRIVY_MEDIUM:    ${{ inputs.trivy_medium }}
+        CODEQL_FOUND:    ${{ inputs.codeql_found }}
+        MAJOR_COUNT:     ${{ inputs.major_count }}
+        MINOR_COUNT:     ${{ inputs.minor_count }}
+        PATCH_COUNT:     ${{ inputs.patch_count }}
+        MAJOR_PRS:       ${{ inputs.major_prs }}
+        MINOR_PRS:       ${{ inputs.minor_prs }}
+        REPO:            ${{ github.repository }}
+        RUN_ID:          ${{ github.run_id }}
+        SHA:             ${{ github.sha }}
+        RUN_URL:         ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+
+        # ── Determine overall health ────────────────────────────────────────
+        if [ "${SECRETS_FOUND}" = "true" ] || [ "${TRIVY_CRITICAL}" -gt 0 ]; then
+          HEALTH="critical"
+        elif [ "${TRIVY_HIGH}" -gt 0 ] || [ "${MAJOR_COUNT}" -gt 0 ] || [ "${CODEQL_FOUND}" = "true" ]; then
+          HEALTH="needs-attention"
+        else
+          HEALTH="healthy"
+        fi
+
+        HAS_ISSUES="false"
+        if [ "$HEALTH" != "healthy" ]; then
+          HAS_ISSUES="true"
+        fi
+
+        # ── Write context.json ──────────────────────────────────────────────
+        CONTEXT_PATH="${RUNNER_TEMP}/maintenance-context.json"
+
+        jq -n \
+          --arg  repo            "$REPO" \
+          --arg  sha             "$SHA" \
+          --arg  run_url         "$RUN_URL" \
+          --arg  health          "$HEALTH" \
+          --arg  secrets_found   "$SECRETS_FOUND" \
+          --argjson secrets_count   "${SECRETS_COUNT:-0}" \
+          --argjson trivy_critical  "${TRIVY_CRITICAL:-0}" \
+          --argjson trivy_high      "${TRIVY_HIGH:-0}" \
+          --argjson trivy_medium    "${TRIVY_MEDIUM:-0}" \
+          --arg  codeql_found    "$CODEQL_FOUND" \
+          --argjson major_count  "${MAJOR_COUNT:-0}" \
+          --argjson minor_count  "${MINOR_COUNT:-0}" \
+          --argjson patch_count  "${PATCH_COUNT:-0}" \
+          --argjson major_prs    "${MAJOR_PRS:-[]}" \
+          --argjson minor_prs    "${MINOR_PRS:-[]}" \
+          '{
+            repo:       $repo,
+            sha:        $sha,
+            run_url:    $run_url,
+            health:     $health,
+            scans: {
+              secrets: {
+                found: ($secrets_found == "true"),
+                count: $secrets_count
+              },
+              cve: {
+                critical: $trivy_critical,
+                high:     $trivy_high,
+                medium:   $trivy_medium
+              },
+              sast: {
+                found: ($codeql_found == "true")
+              }
+            },
+            deps: {
+              major: { count: $major_count, prs: $major_prs },
+              minor: { count: $minor_count, prs: $minor_prs },
+              patch: { count: $patch_count }
+            }
+          }' > "$CONTEXT_PATH"
+
+        echo "has_issues=${HAS_ISSUES}"     >> "$GITHUB_OUTPUT"
+        echo "overall_health=${HEALTH}"     >> "$GITHUB_OUTPUT"
+        echo "context_path=${CONTEXT_PATH}" >> "$GITHUB_OUTPUT"
+
+        # ── Job summary ─────────────────────────────────────────────────────
+        ICON="✅"
+        [ "$HEALTH" = "needs-attention" ] && ICON="⚠️"
+        [ "$HEALTH" = "critical" ]        && ICON="🚨"
+
+        {
+          echo "## ${ICON} Maintenance Context"
+          echo ""
+          echo "| Signal | Value |"
+          echo "|--------|-------|"
+          echo "| Overall health | \`${HEALTH}\` |"
+          echo "| Secrets in history | ${SECRETS_FOUND} (${SECRETS_COUNT}) |"
+          echo "| CVEs critical/high/med | ${TRIVY_CRITICAL} / ${TRIVY_HIGH} / ${TRIVY_MEDIUM} |"
+          echo "| SAST findings | ${CODEQL_FOUND} |"
+          echo "| Dep updates major/minor/patch | ${MAJOR_COUNT} / ${MINOR_COUNT} / ${PATCH_COUNT} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        echo "Context written to ${CONTEXT_PATH}"
+        cat "$CONTEXT_PATH"
