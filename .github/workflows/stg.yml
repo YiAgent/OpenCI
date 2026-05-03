@@ -1,0 +1,509 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# stg.yml — Staging deploy (reusable workflow, SPEC §5.4).
+# ─────────────────────────────────────────────────────────────────────────────
+# Serial chain (stg failures should stop fast and notify):
+#   preflight → deploy-k8s → run-migration? → smoke-test → notify-deployed
+#
+# Image is consumed BY DIGEST. The caller is responsible for not pointing at
+# a tag — the deploy atom does NOT do tag→digest resolution to avoid hidden
+# tag-shift races.
+#
+# Concurrency: same-ref deploys serialize but never cancel; we never want
+# to abandon a half-applied deployment.
+#
+# Security: no consumer-supplied PR field is used in shell here. The
+# health-url, app-name, etc. are repo-controlled inputs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: stg
+
+on:
+  workflow_call:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
+        required: false
+        type: string
+        default: main
+      runner:
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
+      image-digest:
+        type: string
+        required: false
+      image-name:
+        type: string
+        required: false
+      registry:
+        type: string
+        required: false
+        default: ghcr.io
+      app-name:
+        type: string
+        required: false
+      health-url:
+        type: string
+        required: false
+      k8s-namespace:
+        type: string
+        required: false
+        default: staging
+      run-migration:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      kubeconfig-stg:
+        required: false
+      slack-webhook-url:
+        required: false
+      sentry-token:
+        required: false
+      datadog-api-key:
+        required: false
+      posthog-api-key:
+        required: false
+      langsmith-api-key:
+        required: false
+      axiom-token:
+        required: false
+    outputs:
+      deploy-time:
+        description: ISO 8601 deploy timestamp.
+        value: ${{ jobs.deploy-k8s.outputs.deploy-time }}
+
+permissions: {}
+
+concurrency:
+  group: deploy-stg-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - name: Probe secrets
+        env:
+          KUBECONFIG_STG:    ${{ secrets.kubeconfig-stg }}
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+        run: |
+          bash .github/scripts/preflight-secrets.sh \
+            --required "KUBECONFIG_STG" \
+            --optional "SLACK_WEBHOOK_URL"
+
+  coverage-gate:
+    name: Coverage Gate
+    needs: preflight
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Optional: when no coverage artifact is available, skip silently. When
+    # an artifact exists, compute % and block stg deploy on shortfall.
+    if: ${{ vars.STG_COVERAGE_THRESHOLD != '' }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: coverage-report
+          path: .
+        continue-on-error: true
+      - uses: ./.openci/actions/pr/check-coverage
+        with:
+          coverage-file:      ${{ vars.STG_COVERAGE_FILE || 'coverage/lcov.info' }}
+          coverage-threshold: ${{ vars.STG_COVERAGE_THRESHOLD || '60' }}
+          mode:               stg
+
+  perf-baseline:
+    name: Perf Baseline
+    needs: preflight
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    # Soft-gate: never blocks the deploy. Flip enforce-perf to "true" via
+    # repo var once you have a stable baseline (SPEC §aicert #23).
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/stg/perf-baseline
+        with:
+          perf-dir:                  ${{ vars.PERF_DIR              || 'tests/perf' }}
+          enforce-perf:              ${{ vars.ENFORCE_PERF          || 'false' }}
+          regress-threshold-percent: ${{ vars.PERF_REGRESS_THRESHOLD || '30' }}
+          health-url:                ${{ vars.STG_HEALTH_URL        || '' }}
+
+  deploy-k8s:
+    name: Deploy K8s
+    needs: [preflight, coverage-gate, perf-baseline]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      deploy-time: ${{ steps.deploy.outputs.deploy-time }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - id: deploy
+        uses: ./.openci/actions/stg/deploy-k8s
+        with:
+          app-name:      ${{ inputs.app-name }}
+          image-ref:     ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          k8s-namespace: ${{ inputs.k8s-namespace }}
+          kubeconfig:    ${{ secrets.kubeconfig-stg }}
+
+  run-migration:
+    name: Run Migration
+    needs: deploy-k8s
+    if: inputs.run-migration == true
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/stg/run-migration
+        with:
+          migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
+
+  smoke-test:
+    name: Smoke Test
+    needs: [deploy-k8s, run-migration]
+    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/stg/smoke-test
+        with:
+          health-url: ${{ inputs.health-url }}
+
+  notify-observability:
+    name: Notify Observability
+    needs: [deploy-k8s, smoke-test]
+    # Always emit deploy markers when the deploy itself succeeded — even if
+    # smoke-test then failed. The deploy *did* happen, downstream tools need
+    # to know about it for accurate metric overlay.
+    if: always() && needs.deploy-k8s.result == 'success'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    continue-on-error: true
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/integrations/notify-deploy
+        with:
+          environment: stg
+          version:     ${{ inputs.image-digest }}
+          git-sha:     ${{ github.sha }}
+          app-name:    ${{ inputs.app-name }}
+          enable-sentry:     ${{ vars.ENABLE_SENTRY    || 'false' }}
+          enable-datadog:    ${{ vars.ENABLE_DATADOG   || 'false' }}
+          enable-posthog:    ${{ vars.ENABLE_POSTHOG   || 'false' }}
+          enable-langsmith:  ${{ vars.ENABLE_LANGSMITH || 'false' }}
+          enable-axiom:      ${{ vars.ENABLE_AXIOM     || 'false' }}
+          sentry-token:      ${{ secrets.sentry-token }}
+          sentry-org:        ${{ vars.SENTRY_ORG }}
+          sentry-project:    ${{ vars.SENTRY_PROJECT }}
+          datadog-api-key:   ${{ secrets.datadog-api-key }}
+          datadog-site:      ${{ vars.DATADOG_SITE     || 'datadoghq.com' }}
+          posthog-api-key:   ${{ secrets.posthog-api-key }}
+          posthog-host:      ${{ vars.POSTHOG_HOST     || 'app.posthog.com' }}
+          langsmith-api-key: ${{ secrets.langsmith-api-key }}
+          langsmith-project: ${{ vars.LANGSMITH_PROJECT }}
+          axiom-token:       ${{ secrets.axiom-token }}
+          axiom-dataset:     ${{ vars.AXIOM_DATASET }}
+
+  schedule-prd-dispatch:
+    name: Schedule PRD Dispatch
+    needs: [deploy-k8s, smoke-test]
+    if: needs.smoke-test.result == 'success' && vars.PRD_OBSERVATION_MINUTES != ''
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write   # write GitHub repo variables
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/_common/schedule-prd-dispatch
+        with:
+          image-digest:        ${{ inputs.image-digest }}
+          # In a real consumer the stg image digest is the same as the
+          # one passed in (we don't rebuild between ci.yml and stg.yml).
+          stg-image-digest:    ${{ inputs.image-digest }}
+          stg-deploy-time:     ${{ needs.deploy-k8s.outputs.deploy-time }}
+          image-name:          ${{ inputs.image-name }}
+          app-name:            ${{ inputs.app-name }}
+          observation-minutes: ${{ vars.PRD_OBSERVATION_MINUTES || '30' }}
+          github-token:        ${{ github.token }}
+
+  notify-deployed:
+    name: Notify Deployed
+    needs: [deploy-k8s, smoke-test]
+    if: always()
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          # Prefer explicit caller input; otherwise parse from workflow_ref
+          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
+          # which only works when caller pinned a real OpenCI ref directly.
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/stg/notify-deployed
+        with:
+          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
+          app-name:    ${{ inputs.app-name }}
+          image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          webhook-url: ${{ secrets.slack-webhook-url }}
+          run-url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

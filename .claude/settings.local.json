@@ -47,7 +47,16 @@
       "Bash(grep -E '^\\(1\\\\.\\\\.|not ok|ok [0-9]+$\\)')",
       "Bash(grep -E '\\\\.\\(yml|yaml\\)$')",
       "Bash(yamllint *)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(mv .github/workflows/reusable/*.yml .github/workflows/)",
+      "Bash(sed -i '' 's|uses: ./.github/workflows/reusable/|uses: ./.github/workflows/|g' .github/workflows/on-*.yml)",
+      "Bash(sed -i '' 's|reusable/ci.yml|ci.yml|; s|reusable/issue.yml|issue.yml|' .github/workflows/on-ci.yml .github/workflows/on-issue.yml)",
+      "Bash(sed -i '' 's|.github/workflows/reusable/agent.yml|.github/workflows/agent.yml|' tests/actions/harness-shape.bats)",
+      "Bash(actionlint .github/workflows/*.yml)",
+      "Bash(git checkout)",
+      "Bash(git checkout *)",
+      "Bash(git *)",
+      "Bash(python3 *)"
     ]
   }
 }

@@ -20,7 +20,7 @@ serious software project:
 - Build, push, sign, scan Docker images
 - Deploy to staging and production with observation windows + auto-rollback
 - Incident-grade error rate gates, canary 3σ checks, fix verification
-- Issue / community / stale lifecycle automation
+- Agent-driven issue lifecycle automation
 - Release engineering (cosign keyless, AI changelog, Pages docs deploy)
 - AI agent feedback, autonomous staging tests, docubot, Copilot review
 
@@ -140,7 +140,7 @@ workflows. All call `claude-harness` under the hood with task-specific prompts.
 | Workflow | Description |
 | --- | --- |
 | [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
-| [`issue.yml`](.github/workflows/issue.yml) | Unified issue domain — lifecycle, slash commands, Linear bridge, scheduled Sentry triage (mode-routed) |
+| [`issue.yml`](.github/workflows/issue.yml) | Agent-driven issue orchestrator: deterministic ingest, enrichment, Claude planning, guarded execution |
 | [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
 | [`agent.yml`](.github/workflows/agent.yml) | The Claude harness — single AI primitive. Consumers compose data-collection + agent.yml invocations in their own scheduled / event-driven workflows (see EvolveCI for the canonical pattern). OpenCI does not ship task-specific AI workflows. |
 
@@ -158,12 +158,17 @@ jobs:
 ```
 
 ```yaml
-# Issue Triage + Deduplication
+# Issue Agent Orchestration
 jobs:
   triage:
     uses: YiAgent/OpenCI/.github/workflows/issue.yml@v3
+    with:
+      mode: lifecycle
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      linear-token: ${{ secrets.LINEAR_TOKEN }}
+      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}
 ```
 
 ```yaml
@@ -209,15 +214,15 @@ files.
 
 | Public reusable | Purpose |
 | --- | --- |
-| [`reusable/ci.yml`](.github/workflows/ci.yml) | Merge-to-main build + scan + sign + AI smoke + SHA drift verification |
+| [`ci.yml`](.github/workflows/ci.yml) | Merge-to-main build + scan + sign + AI smoke + SHA drift verification |
 | [`pr.yml`](.github/workflows/pr.yml) | PR quality gate (lint / test / scan / build / coverage) + opt-in AI review |
-| [`reusable/issue.yml`](.github/workflows/issue.yml) | Issue lifecycle (auto-label / AI triage / dedupe / assign / slash commands / Linear bridge / Sentry triage) + first-contributor welcome + stale sweep |
-| [`reusable/release.yml`](.github/workflows/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
-| [`reusable/deploy.yml`](.github/workflows/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1–L4) / poll-prd-dispatch (mode-routed by `mode` and `environment`) |
-| [`reusable/security.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check (mode-routed) |
-| [`reusable/docs.yml`](.github/workflows/docs.yml) | Link-check on PR + optional build + Pages publish on main |
-| [`reusable/deps.yml`](.github/workflows/deps.yml) | Renovate patch PR auto-merge |
-| [`reusable/agent.yml`](.github/workflows/agent.yml) | Single Claude harness — generic ai-task + scheduled health-digest (multi-source observability synthesis) |
+| [`issue.yml`](.github/workflows/issue.yml) | Issue orchestrator with `lifecycle`, `maintenance`, and `ingest` modes |
+| [`release.yml`](.github/workflows/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
+| [`deploy.yml`](.github/workflows/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1-L4) / poll-prd-dispatch |
+| [`security.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check |
+| [`docs.yml`](.github/workflows/docs.yml) | Link-check on PR + optional build + Pages publish on main |
+| [`deps.yml`](.github/workflows/deps.yml) | Renovate patch PR auto-merge |
+| [`agent.yml`](.github/workflows/agent.yml) | Single Claude harness — generic ai-task + scheduled health-digest |
 
 OpenCI also dogfoods these reusables via 9 thin `on-*.yml` event entries
 at the top level of `.github/workflows/`. External consumers write their
@@ -241,10 +246,10 @@ Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
 ## Repository layout
 
 ```
-.github/workflows/      # 9 on-*.yml event entries (dogfooding) + reusable/ subdir
-.github/workflows/   # 9 public reusable workflows + 12 _*.yml private impls
+.github/workflows/      # on-*.yml event entries + public reusable workflows
 .github/scripts/        # cross-workflow shell helpers
 .github/ISSUE_TEMPLATE/ # bug / feature / question / security templates
+.github/agent/          # shared + domain agent context and skill files
 actions/                # 83 composite + atomic actions
   _common/              #   shared building blocks (claude-harness, detect-language, etc.)
   pr/ ci/ stg/ prd/     #   stage-specific atoms

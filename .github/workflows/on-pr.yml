@@ -28,8 +28,9 @@ concurrency:
 
 jobs:
   checks:
-    uses: ./.github/workflows/reusable/pr.yml
+    uses: ./.github/workflows/pr.yml
     with:
       enable-ai-review: true
       enable-eval:      true
+      runner:           blacksmith-32vcpu-ubuntu-2404
     secrets: inherit

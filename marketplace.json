@@ -31,6 +31,13 @@
       "keywords": ["triage", "issue", "classify", "complexity", "decompose"]
     },
     {
+      "name": "issue-orchestrate",
+      "source": "./skills/issue-orchestrate",
+      "description": "Plan guarded GitHub issue lifecycle actions from an enriched OpenCI agent workspace.",
+      "category": "productivity",
+      "keywords": ["issue", "agent", "orchestration", "action-plan"]
+    },
+    {
       "name": "ci-smoke-eval",
       "source": "./skills/ci-smoke-eval",
       "description": "Run smoke evaluation against a freshly built Docker image. Enhanced with eval-harness metrics, browser smoke checks, and flakiness detection.",

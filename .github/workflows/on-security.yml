@@ -40,9 +40,10 @@ concurrency:
 jobs:
   full:
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 2 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full') }}
-    uses: ./.github/workflows/reusable/security-schedule.yml
+    uses: ./.github/workflows/security-schedule.yml
     with:
       image-ref: ${{ vars.IMAGE_REF }}
+      runner:    blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   flag-audit:

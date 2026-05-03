@@ -1,0 +1,30 @@
+policy:
+  - section:
+      - id: [area]
+        block-list: []
+        label:
+          - name: area:frontend
+            keys: [frontend]
+          - name: area:backend
+            keys: [backend]
+          - name: area:ai
+            keys: [ai]
+          - name: area:ci
+            keys: [ci]
+          - name: area:docs
+            keys: [docs]
+          - name: area:infra
+            keys: [infra]
+          - name: area:other
+            keys: [other]
+      - id: [severity]
+        block-list: []
+        label:
+          - name: severity:blocker
+            keys: [blocker, "blocker (production outage / data loss)"]
+          - name: severity:high
+            keys: [high, "high (cannot ship feature)"]
+          - name: severity:medium
+            keys: [medium, "medium (workaround exists)"]
+          - name: severity:low
+            keys: [low, "low (cosmetic / annoyance)"]

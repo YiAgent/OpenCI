@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/resolve-openci — Resolve the OpenCI ref and vendor .openci/.
+# ─────────────────────────────────────────────────────────────────────────────
+# Eliminates the ~16 duplicate "Resolve OpenCI workflow ref" + checkout blocks
+# scattered across reusable workflows. A caller swaps those 16 lines for 3.
+#
+# Ref resolution order:
+#   1. openci-ref input (explicit, non-"main") → use as-is
+#   2. github.workflow_ref caller is YiAgent/OpenCI → extract ref from @<ref>
+#   3. Fall back to openci-ref input (which defaults to "main")
+# ─────────────────────────────────────────────────────────────────────────────
+name: Resolve OpenCI Source
+description: Resolve the OpenCI ref and vendor .openci/ into the workspace.
+
+inputs:
+  openci-ref:
+    description: OpenCI ref to vendor (default main; use a tag like v2 in production).
+    required: false
+    default: main
+  sparse-checkout:
+    description: |
+      Paths to sparse-checkout (newline-separated). Defaults to the minimal set
+      needed by composites and agent context. Pass empty string for a full checkout.
+    required: false
+    default: |
+      actions/
+      .github/agent/
+      .github/scripts/
+      .github/advanced-issue-labeler.yml
+      skills/
+
+outputs:
+  ref:
+    description: The resolved OpenCI ref that was checked out.
+    value: ${{ steps.resolve.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve OpenCI ref
+      id: resolve
+      shell: bash
+      env:
+        WORKFLOW_REF: ${{ github.workflow_ref }}
+        OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+      run: |
+        if [ -n "${OPENCI_REF_INPUT:-}" ] && [ "$OPENCI_REF_INPUT" != "main" ]; then
+          REF="$OPENCI_REF_INPUT"
+        else
+          REPO_PREFIX="${WORKFLOW_REF%%/.github*}"
+          if [ "$REPO_PREFIX" = "YiAgent/OpenCI" ]; then
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          else
+            REF="${OPENCI_REF_INPUT:-main}"
+          fi
+        fi
+        printf 'ref=%s\n' "$REF" >> "$GITHUB_OUTPUT"
+        echo "::notice title=OpenCI ref::$REF"
+
+    - name: Checkout OpenCI
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      with:
+        repository: YiAgent/OpenCI
+        ref: ${{ steps.resolve.outputs.ref }}
+        path: .openci
+        persist-credentials: false
+        sparse-checkout: ${{ inputs.sparse-checkout }}
+        sparse-checkout-cone-mode: false

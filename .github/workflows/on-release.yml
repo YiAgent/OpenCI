@@ -23,8 +23,9 @@ concurrency:
 
 jobs:
   release:
-    uses: ./.github/workflows/reusable/release.yml
+    uses: ./.github/workflows/release.yml
     with:
-      mode:       ${{ inputs.mode || 'both' }}
+      mode: ${{ inputs.mode || 'both' }}
       image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}
-      registry:   ghcr.io
+      registry: ghcr.io
+      runner: blacksmith-32vcpu-ubuntu-2404

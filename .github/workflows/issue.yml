@@ -1,0 +1,906 @@
+# issue.yml — agent-driven issue orchestrator.
+#
+# Pipeline:
+#   Stage 1: ingest       deterministic issue management + normalized payload
+#   Stage 2: enrich       merged shared/domain agent workspace
+#   Stage 3: agent        Claude returns issue-action-plan/v1
+#   Stage 4: execute      guarded allowlisted mutations + audit trail
+name: issue
+
+on:
+  workflow_call:
+    inputs:
+      openci-ref:
+        description: OpenCI ref to vendor for ./.openci references.
+        required: false
+        type: string
+        default: main
+      runner:
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
+      mode:
+        description: lifecycle | maintenance | ingest
+        required: false
+        type: string
+        default: lifecycle
+      model:
+        description: Override the AI model name.
+        required: false
+        type: string
+        default: ""
+      issue-stale-days:
+        type: number
+        required: false
+        default: 60
+      issue-close-days:
+        type: number
+        required: false
+        default: 14
+      pr-stale-days:
+        type: number
+        required: false
+        default: 30
+      pr-close-days:
+        type: number
+        required: false
+        default: 7
+      lock-after-days:
+        type: number
+        required: false
+        default: 30
+    secrets:
+      anthropic-api-key:
+        required: false
+      api-base-url:
+        required: false
+      sentry-token:
+        required: false
+      linear-token:
+        required: false
+      slack-webhook-url:
+        required: false
+      mcp-dispatch-token:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: >-
+    issue-${{
+      github.event.issue.number
+      || github.event.client_payload.id
+      || github.event.schedule
+      || github.run_id
+    }}
+  cancel-in-progress: ${{ github.event_name == 'issues' }}
+
+jobs:
+  maintenance:
+    name: Stage 1 · Maintenance
+    if: inputs.mode == 'maintenance' || inputs.mode == 'stale'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f
+        with:
+          repo-token: ${{ github.token }}
+          days-before-issue-stale: ${{ inputs.issue-stale-days }}
+          days-before-issue-close: ${{ inputs.issue-close-days }}
+          days-before-pr-stale: ${{ inputs.pr-stale-days }}
+          days-before-pr-close: ${{ inputs.pr-close-days }}
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned,security,help-wanted,priority:p0,priority:p1
+          exempt-pr-labels: pinned,security,wip
+          stale-issue-message: This issue has been inactive for a while and is marked stale. Comment to keep it open.
+          close-issue-message: Closing as stale. Reopen if still relevant.
+          stale-pr-message: This pull request has been inactive for a while and is marked stale. Comment to keep it open.
+          close-pr-message: Closing as stale. Reopen if still relevant.
+      - uses: dessant/lock-threads@7266a7ce5c1df01b1c6db85bf8cd86c737dadbe7
+        with:
+          issue-inactive-days: ${{ inputs.lock-after-days }}
+          pr-inactive-days: ${{ inputs.lock-after-days }}
+      - name: Process due issue follow-ups
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const now = Date.now();
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo,
+              state: 'open',
+              labels: 'followup:scheduled',
+              per_page: 100,
+            });
+
+            for (const issue of issues.filter((item) => !item.pull_request)) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...context.repo,
+                issue_number: issue.number,
+                per_page: 100,
+              });
+              const records = comments
+                .map((comment) => {
+                  const match = (comment.body || '').match(/<!-- openci-followup:(.*?) -->/);
+                  if (!match) return null;
+                  try {
+                    return {comment, payload: JSON.parse(match[1])};
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+                .sort((a, b) => new Date(b.comment.created_at) - new Date(a.comment.created_at));
+              const next = records[0];
+              if (!next || !next.payload.due_at || Date.parse(next.payload.due_at) > now) continue;
+
+              const dueMarker = `<!-- openci-followup-due:${next.payload.due_at} -->`;
+              if (comments.some((comment) => (comment.body || '').includes(dueMarker))) continue;
+
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: issue.number,
+                body: [
+                  dueMarker,
+                  `OpenCI follow-up is due: ${next.payload.due_at}`,
+                  '',
+                  next.payload.reason || 'No follow-up reason was provided.',
+                ].join('\n'),
+              });
+              try {
+                await github.rest.issues.removeLabel({...context.repo, issue_number: issue.number, name: 'followup:scheduled'});
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              await github.rest.issues.addLabels({...context.repo, issue_number: issue.number, labels: ['needs-followup']});
+            }
+
+  ingest:
+    name: Stage 1 · Ingest
+    if: inputs.mode != 'maintenance' && inputs.mode != 'stale'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      ingest-json: ${{ steps.pack.outputs.ingest-json }}
+      issue-number: ${{ steps.pack.outputs.issue-number }}
+      plan-subject: ${{ steps.pack.outputs.plan-subject }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - name: Checkout caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Checkout OpenCI for defaults
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+
+      - name: Parse issue form
+        id: issue-parser
+        if: github.event_name == 'issues' || github.event_name == 'issue_comment'
+        continue-on-error: true
+        uses: stefanbuck/github-issue-parser@cb6e97157cbf851e3a393ff8d57c93a484cc323f
+
+      - name: Apply area labels from issue form
+        id: label-area
+        if: github.event_name == 'issues' && github.event.action != 'closed'
+        continue-on-error: true
+        uses: redhat-plumbers-in-action/advanced-issue-labeler@b80ae64e3e156e9c111b075bfa04b295d54e8e2e
+        with:
+          issue-form: ${{ steps.issue-parser.outputs.jsonString }}
+          section: area
+          config-path: .openci/.github/advanced-issue-labeler.yml
+          token: ${{ github.token }}
+
+      - name: Apply severity labels from issue form
+        id: label-severity
+        if: github.event_name == 'issues' && github.event.action != 'closed'
+        continue-on-error: true
+        uses: redhat-plumbers-in-action/advanced-issue-labeler@b80ae64e3e156e9c111b075bfa04b295d54e8e2e
+        with:
+          issue-form: ${{ steps.issue-parser.outputs.jsonString }}
+          section: severity
+          config-path: .openci/.github/advanced-issue-labeler.yml
+          token: ${{ github.token }}
+
+      - name: Collect duplicate candidates
+        id: dedupe
+        if: github.event_name == 'issues' && github.event.action != 'closed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -euo pipefail
+          query="$(printf '%s' "$ISSUE_TITLE" \
+            | sed -E 's/^(bug|feat|feature|question|docs|chore|refactor|perf|ci|build|style):?[[:space:]]*//i' \
+            | tr '[:upper:]' '[:lower:]' \
+            | tr -c 'a-z0-9 ' ' ' \
+            | tr -s ' ' \
+            | awk '{
+                n=0
+                for (i=1; i<=NF; i++) {
+                  w=$i
+                  if (length(w) <= 2) continue
+                  if (w ~ /^(the|and|for|are|but|not|you|all|can|how|why|with|when|from|this|that|have|been|does|need|want|just|will|into|over|also|make)$/) continue
+                  printf("%s ", w); n++
+                  if (n >= 6) break
+                }
+              }')"
+          query="${query%% }"
+          if [ -z "$query" ]; then
+            candidates='[]'
+          else
+            candidates="$(gh search issues --repo "$REPO" --json number,title,state,url --limit 5 "in:title $query" 2>/dev/null || echo '[]')"
+            candidates="$(jq -c --argjson self "$ISSUE_NUM" '[.[] | select(.number != $self)]' <<<"$candidates")"
+          fi
+          {
+            echo "candidates<<EOF"
+            echo "$candidates"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pack ingest payload
+        id: pack
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          MODE: ${{ inputs.mode }}
+          REPO: ${{ github.repository }}
+          ISSUE_JSON: ${{ toJson(github.event.issue) }}
+          COMMENT_JSON: ${{ toJson(github.event.comment) }}
+          CLIENT_PAYLOAD_JSON: ${{ toJson(github.event.client_payload) }}
+          FORM_JSON: ${{ steps.issue-parser.outputs.jsonString }}
+          AREA_LABELS: ${{ steps.label-area.outputs.labels }}
+          SEVERITY_LABELS: ${{ steps.label-severity.outputs.labels }}
+          DUPLICATES_JSON: ${{ steps.dedupe.outputs.candidates }}
+        run: |
+          set -euo pipefail
+          mkdir -p agent-workspace/runtime
+          jq -nc \
+            --arg event_name "$EVENT_NAME" \
+            --arg event_action "$EVENT_ACTION" \
+            --arg mode "$MODE" \
+            --arg repo "$REPO" \
+            --argjson issue "${ISSUE_JSON:-null}" \
+            --argjson comment "${COMMENT_JSON:-null}" \
+            --argjson client_payload "${CLIENT_PAYLOAD_JSON:-null}" \
+            --argjson form "${FORM_JSON:-{\}}" \
+            --argjson area_labels "${AREA_LABELS:-[]}" \
+            --argjson severity_labels "${SEVERITY_LABELS:-[]}" \
+            --argjson duplicate_candidates "${DUPLICATES_JSON:-[]}" \
+            '{
+              event: {name: $event_name, action: $event_action, mode: $mode},
+              repo: {name: $repo},
+              issue: $issue,
+              comment: $comment,
+              client_payload: $client_payload,
+              form: $form,
+              management: {
+                labels_applied: ($area_labels + $severity_labels),
+                duplicate_candidates: $duplicate_candidates,
+                stale_action: null
+              }
+            }' > agent-workspace/runtime/ingest.json
+          issue_number="$(jq -r '.issue.number // .client_payload.issue.number // empty' agent-workspace/runtime/ingest.json)"
+          subject="$(jq -r '.issue.title // .client_payload.title // .client_payload.issue.title // "external issue event"' agent-workspace/runtime/ingest.json)"
+          {
+            echo "ingest-json<<EOF"
+            cat agent-workspace/runtime/ingest.json
+            echo "EOF"
+            echo "issue-number=$issue_number"
+            echo "plan-subject=$subject"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload ingest payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue-ingest-${{ github.run_id }}
+          path: agent-workspace/runtime/ingest.json
+          if-no-files-found: error
+
+  enrich:
+    name: Stage 2 · Enrich
+    needs: ingest
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    outputs:
+      workspace-artifact: ${{ steps.meta.outputs.workspace-artifact }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - name: Checkout caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Checkout OpenCI for defaults
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - name: Download ingest payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: issue-ingest-${{ github.run_id }}
+          path: agent-workspace/runtime
+
+      - name: Build merged agent workspace
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.ingest.outputs.issue-number }}
+          HAS_LINEAR_TOKEN: ${{ secrets.linear-token != '' }}
+          HAS_SENTRY_TOKEN: ${{ secrets.sentry-token != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p agent-workspace/context/shared agent-workspace/context/issue
+          mkdir -p agent-workspace/skills/shared agent-workspace/skills/issue
+          mkdir -p agent-workspace/runtime
+
+          copy_if_exists() {
+            src="$1"
+            dest="$2"
+            if [ -e "$src" ]; then
+              mkdir -p "$(dirname "$dest")"
+              cp -R "$src" "$dest"
+            fi
+          }
+
+          copy_if_exists ".openci/.github/agent/shared/context/AGENTS.md" "agent-workspace/context/shared/AGENTS.md"
+          copy_if_exists ".openci/.github/agent/issue/context/AGENTS.md" "agent-workspace/context/issue/AGENTS.md"
+          if [ -d ".openci/.github/agent/shared/skills" ]; then cp .openci/.github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true; fi
+          if [ -d ".openci/.github/agent/issue/skills" ]; then cp .openci/.github/agent/issue/skills/*.md agent-workspace/skills/issue/ 2>/dev/null || true; fi
+
+          copy_if_exists ".github/agent/shared/context/AGENTS.md" "agent-workspace/context/shared/AGENTS.md"
+          copy_if_exists ".github/agent/issue/context/AGENTS.md" "agent-workspace/context/issue/AGENTS.md"
+          if [ -d ".github/agent/shared/skills" ]; then cp .github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true; fi
+          if [ -d ".github/agent/issue/skills" ]; then cp .github/agent/issue/skills/*.md agent-workspace/skills/issue/ 2>/dev/null || true; fi
+
+          cp .github/CODEOWNERS agent-workspace/runtime/CODEOWNERS 2>/dev/null || true
+          cp .mcp.json agent-workspace/runtime/mcp-config.json 2>/dev/null || echo '{"mcpServers":{}}' > agent-workspace/runtime/mcp-config.json
+          jq -nc '{tasks: []}' > agent-workspace/runtime/mcp-tasks.json
+          merge_tasks() {
+            file="$1"
+            if [ -f "$file" ]; then
+              jq -s '
+                {
+                  tasks: (
+                    ((.[0].tasks // []) + (.[1].tasks // []))
+                    | unique_by(.name)
+                  )
+                }
+              ' agent-workspace/runtime/mcp-tasks.json "$file" > agent-workspace/runtime/mcp-tasks.tmp
+              mv agent-workspace/runtime/mcp-tasks.tmp agent-workspace/runtime/mcp-tasks.json
+            fi
+          }
+          merge_tasks ".openci/.github/agent/shared/mcp-tasks.json"
+          merge_tasks ".openci/.github/agent/issue/mcp-tasks.json"
+          merge_tasks ".github/agent/shared/mcp-tasks.json"
+          merge_tasks ".github/agent/issue/mcp-tasks.json"
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json comments,labels,assignees,state,url \
+              > agent-workspace/runtime/issue-live.json 2>/dev/null || echo '{}' > agent-workspace/runtime/issue-live.json
+            gh issue list --repo "$REPO" --state all --limit 10 --json number,title,state,labels,url \
+              > agent-workspace/runtime/related-issues.json 2>/dev/null || echo '[]' > agent-workspace/runtime/related-issues.json
+          else
+            echo '{}' > agent-workspace/runtime/issue-live.json
+            echo '[]' > agent-workspace/runtime/related-issues.json
+          fi
+
+          jq -nc \
+            --arg linear "$HAS_LINEAR_TOKEN" \
+            --arg sentry "$HAS_SENTRY_TOKEN" \
+            '{linear_token_available: ($linear == "true"), sentry_token_available: ($sentry == "true")}' \
+            > agent-workspace/runtime/env-metadata.json
+
+          jq -nc \
+            --slurpfile ingest agent-workspace/runtime/ingest.json \
+            --slurpfile live agent-workspace/runtime/issue-live.json \
+            --slurpfile related agent-workspace/runtime/related-issues.json \
+            --slurpfile env agent-workspace/runtime/env-metadata.json \
+            '{
+              ingest: $ingest[0],
+              live_issue: $live[0],
+              related_issues: $related[0],
+              env: $env[0],
+              workspace_layout: {
+                context: ["context/shared/AGENTS.md", "context/issue/AGENTS.md"],
+                skills: {
+                  shared: [],
+                  issue: []
+                },
+                mcp_tasks: "runtime/mcp-tasks.json"
+              }
+            }' > agent-workspace/agent-context.json
+
+          cat > agent-workspace/prompt.md <<'PROMPT'
+          You are the OpenCI issue agent. Read the prepared files in agent-workspace/.
+
+          Required reading:
+          - agent-workspace/context/shared/AGENTS.md
+          - agent-workspace/context/issue/AGENTS.md
+          - all files under agent-workspace/skills/
+          - agent-workspace/agent-context.json
+          - agent-workspace/runtime/ingest.json
+          - agent-workspace/runtime/mcp-tasks.json
+
+          Return exactly one JSON object and no surrounding prose:
+          {
+            "version": "issue-action-plan/v1",
+            "reasoning": "short audit explanation",
+            "actions": [],
+            "skip_reason": null
+          }
+
+          Only use skills present in agent-workspace/skills/. If no action is
+          needed, return an empty actions array with a skip_reason.
+          PROMPT
+
+      - name: Record workspace artifact name
+        id: meta
+        run: echo "workspace-artifact=issue-agent-workspace-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload merged agent workspace
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue-agent-workspace-${{ github.run_id }}
+          path: agent-workspace
+          if-no-files-found: error
+
+  agent:
+    name: Stage 3 · Agent Plan
+    needs: [ingest, enrich]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      id-token: write
+    outputs:
+      action-plan: ${{ steps.extract.outputs.action-plan }}
+      reasoning: ${{ steps.extract.outputs.reasoning }}
+      plan-hash: ${{ steps.extract.outputs.plan-hash }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - name: Checkout caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Checkout OpenCI for harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
+      - name: Download merged agent workspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.enrich.outputs.workspace-artifact }}
+          path: agent-workspace
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Issue Agent Skipped::ANTHROPIC_API_KEY not configured"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run issue agent
+        id: harness
+        if: steps.gate.outputs.skip != 'true'
+        uses: ./.openci/actions/_common/claude-harness
+        with:
+          task: issue/orchestrate
+          prompt-path: agent-workspace/prompt.md
+          context: "{}"
+          api-key: ${{ secrets.anthropic-api-key }}
+          api-base-url: ${{ secrets.api-base-url }}
+          model: ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
+          max-turns: "8"
+          github-token: ${{ github.token }}
+          use-sticky-comment: "false"
+          extra-disallowed-tools: "Bash(gh issue edit),Bash(gh issue close),Bash(gh issue reopen),Bash(gh api repos/*/git/refs)"
+
+      - name: Extract action plan
+        id: extract
+        env:
+          SKIPPED: ${{ steps.gate.outputs.skip }}
+          EXECUTION_FILE: ${{ steps.harness.outputs.execution-file }}
+        run: |
+          set -euo pipefail
+          if [ "$SKIPPED" = "true" ]; then
+            plan='{"version":"issue-action-plan/v1","reasoning":"Agent skipped because ANTHROPIC_API_KEY is not configured.","actions":[],"skip_reason":"missing-anthropic-api-key"}'
+          elif [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            raw="$(cat "$EXECUTION_FILE")"
+            plan="$(printf '%s' "$raw" | jq -r '
+              if type == "object" and .version == "issue-action-plan/v1" then .
+              else
+                [.. | strings | select(test("\"version\"[[:space:]]*:[[:space:]]*\"issue-action-plan/v1\""))] | last // empty
+              end
+            ' 2>/dev/null || true)"
+            if [ -n "$plan" ] && ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$plan"; then
+              plan="$(printf '%s' "$plan" | sed -n '/{/,/}/p' | jq -c . 2>/dev/null || true)"
+            fi
+            if [ -z "$plan" ]; then
+              plan='{"version":"issue-action-plan/v1","reasoning":"Agent output did not contain a parseable action plan.","actions":[{"id":"escalate-unparseable","skill":"escalate","params":{"reason":"Agent output was not parseable as issue-action-plan/v1.","labels":["needs-human"]},"risk":"low"}],"skip_reason":null}'
+            fi
+          else
+            plan='{"version":"issue-action-plan/v1","reasoning":"Agent execution file was not available.","actions":[{"id":"escalate-missing-output","skill":"escalate","params":{"reason":"Agent execution output was missing.","labels":["needs-human"]},"risk":"low"}],"skip_reason":null}'
+          fi
+
+          plan="$(jq -c . <<<"$plan")"
+          hash="$(printf '%s' "$plan" | sha256sum | awk '{print $1}')"
+          reasoning="$(jq -r '.reasoning // ""' <<<"$plan")"
+          {
+            echo "action-plan<<EOF"
+            echo "$plan"
+            echo "EOF"
+            echo "reasoning<<EOF"
+            echo "$reasoning"
+            echo "EOF"
+            echo "plan-hash=$hash"
+          } >> "$GITHUB_OUTPUT"
+
+  execute:
+    name: Stage 4 · Guarded Execute
+    needs: [ingest, enrich, agent]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - name: Download merged agent workspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.enrich.outputs.workspace-artifact }}
+          path: agent-workspace
+      - name: Execute guarded action plan
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          ACTION_PLAN: ${{ needs.agent.outputs.action-plan }}
+          PLAN_HASH: ${{ needs.agent.outputs.plan-hash }}
+          ISSUE_NUMBER: ${{ needs.ingest.outputs.issue-number }}
+          REASONING: ${{ needs.agent.outputs.reasoning }}
+          AUTHOR_ASSOC: ${{ github.event.comment.author_association || github.event.issue.author_association || '' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          LINEAR_TOKEN: ${{ secrets.linear-token }}
+          NOTIFY_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          MCP_DISPATCH_TOKEN: ${{ secrets.mcp-dispatch-token || github.token }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const plan = JSON.parse(process.env.ACTION_PLAN || '{"version":"issue-action-plan/v1","actions":[]}');
+            if (plan.version !== 'issue-action-plan/v1') {
+              throw new Error(`Unsupported plan version: ${plan.version}`);
+            }
+
+            const issueNumber = Number(process.env.ISSUE_NUMBER || 0);
+            const actorAssociation = process.env.AUTHOR_ASSOC || '';
+            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(actorAssociation);
+            const issueUrl = issueNumber
+              ? `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber}`
+              : `https://github.com/${context.repo.owner}/${context.repo.repo}`;
+            const loadJson = (file, fallback) => {
+              try {
+                return JSON.parse(fs.readFileSync(file, 'utf8'));
+              } catch {
+                return fallback;
+              }
+            };
+            const taskRegistry = loadJson(path.join(process.cwd(), 'agent-workspace/runtime/mcp-tasks.json'), {tasks: []});
+            const tasks = new Map((Array.isArray(taskRegistry.tasks) ? taskRegistry.tasks : []).map((task) => [task.name, task]));
+            const postJson = async (url, token, body) => {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  accept: 'application/vnd.github+json',
+                  'content-type': 'application/json',
+                  ...(token ? {authorization: `Bearer ${token}`} : {}),
+                  'x-github-api-version': '2022-11-28',
+                },
+                body: JSON.stringify(body),
+              });
+              if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`POST ${url} failed: ${response.status} ${text}`);
+              }
+              return response;
+            };
+            const linearRequest = async (query, variables) => {
+              const token = process.env.LINEAR_TOKEN || '';
+              if (!token) throw new Error('LINEAR_TOKEN is not configured');
+              const response = await fetch('https://api.linear.app/graphql', {
+                method: 'POST',
+                headers: {
+                  authorization: token,
+                  'content-type': 'application/json',
+                },
+                body: JSON.stringify({query, variables}),
+              });
+              const payload = await response.json();
+              if (!response.ok || payload.errors) {
+                throw new Error(`Linear GraphQL request failed: ${JSON.stringify(payload.errors || payload)}`);
+              }
+              return payload.data;
+            };
+            const computeDueAt = (params) => {
+              if (params.due_at) {
+                const parsed = Date.parse(params.due_at);
+                if (Number.isNaN(parsed)) throw new Error(`Invalid schedule_followup due_at: ${params.due_at}`);
+                return new Date(parsed).toISOString();
+              }
+              const days = Number(params.days || params.delay_days || 0);
+              if (!Number.isFinite(days) || days < 1 || days > 90) {
+                throw new Error('schedule_followup requires due_at or days between 1 and 90');
+              }
+              return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+            };
+            const allowed = new Set([
+              'add_label',
+              'remove_label',
+              'set_priority',
+              'assign_issue',
+              'add_comment',
+              'close_issue',
+              'reopen_issue',
+              'mark_duplicate',
+              'create_branch',
+              'link_linear',
+              'dispatch_mcp_task',
+              'schedule_followup',
+              'notify',
+              'escalate',
+            ]);
+            const highRisk = new Set(['close_issue', 'reopen_issue', 'create_branch', 'dispatch_mcp_task']);
+            const actions = Array.isArray(plan.actions) ? plan.actions : [];
+
+            if (!issueNumber && actions.some((a) => !['create_branch', 'link_linear', 'dispatch_mcp_task', 'schedule_followup', 'notify', 'escalate'].includes(a.skill))) {
+              throw new Error('Plan contains issue mutations but no issue number is available');
+            }
+
+            let audit = [];
+            for (const action of actions) {
+              if (!allowed.has(action.skill)) {
+                throw new Error(`Unknown issue agent skill: ${action.skill}`);
+              }
+              if (highRisk.has(action.skill) && actorAssociation && !trusted) {
+                audit.push(`blocked ${action.skill}: actor association ${actorAssociation} is not trusted`);
+                continue;
+              }
+
+              const params = action.params || {};
+              switch (action.skill) {
+                case 'add_label': {
+                  const labels = Array.isArray(params.labels) ? params.labels : [];
+                  if (labels.length && issueNumber) {
+                    await github.rest.issues.addLabels({...context.repo, issue_number: issueNumber, labels});
+                    audit.push(`add_label: ${labels.join(', ')}`);
+                  }
+                  break;
+                }
+                case 'remove_label': {
+                  const labels = Array.isArray(params.labels) ? params.labels : [];
+                  for (const name of labels) {
+                    try {
+                      await github.rest.issues.removeLabel({...context.repo, issue_number: issueNumber, name});
+                      audit.push(`remove_label: ${name}`);
+                    } catch (error) {
+                      if (error.status !== 404) throw error;
+                    }
+                  }
+                  break;
+                }
+                case 'set_priority': {
+                  const priority = params.priority || String((params.labels || [])[0] || '').replace(/^priority:/, '');
+                  if (!['p0', 'p1', 'p2', 'p3'].includes(priority)) break;
+                  for (const name of ['priority:p0', 'priority:p1', 'priority:p2', 'priority:p3']) {
+                    try {
+                      await github.rest.issues.removeLabel({...context.repo, issue_number: issueNumber, name});
+                    } catch (error) {
+                      if (error.status !== 404) throw error;
+                    }
+                  }
+                  await github.rest.issues.addLabels({...context.repo, issue_number: issueNumber, labels: [`priority:${priority}`]});
+                  audit.push(`set_priority: ${priority}`);
+                  break;
+                }
+                case 'assign_issue': {
+                  const assignees = Array.isArray(params.assignees) ? params.assignees : (params.assignee ? [params.assignee] : []);
+                  if (assignees.length && issueNumber) {
+                    await github.rest.issues.addAssignees({...context.repo, issue_number: issueNumber, assignees});
+                    audit.push(`assign_issue: ${assignees.join(', ')}`);
+                  }
+                  break;
+                }
+                case 'add_comment': {
+                  if (params.body && issueNumber) {
+                    await github.rest.issues.createComment({...context.repo, issue_number: issueNumber, body: params.body});
+                    audit.push('add_comment');
+                  }
+                  break;
+                }
+                case 'close_issue': {
+                  if (issueNumber) {
+                    await github.rest.issues.update({...context.repo, issue_number: issueNumber, state: 'closed', state_reason: params.reason === 'not_planned' ? 'not_planned' : 'completed'});
+                    audit.push('close_issue');
+                  }
+                  break;
+                }
+                case 'reopen_issue': {
+                  if (issueNumber) {
+                    await github.rest.issues.update({...context.repo, issue_number: issueNumber, state: 'open'});
+                    audit.push('reopen_issue');
+                  }
+                  break;
+                }
+                case 'mark_duplicate': {
+                  const duplicateOf = params.duplicate_of || params.duplicateOf;
+                  if (!duplicateOf || !issueNumber) break;
+                  await github.rest.issues.addLabels({...context.repo, issue_number: issueNumber, labels: ['duplicate']});
+                  await github.rest.issues.createComment({...context.repo, issue_number: issueNumber, body: params.body || `Duplicate of #${duplicateOf}`});
+                  audit.push(`mark_duplicate: #${duplicateOf}`);
+                  break;
+                }
+                case 'create_branch': {
+                  const branch = params.branch;
+                  if (!branch) break;
+                  const base = params.base || process.env.DEFAULT_BRANCH || 'main';
+                  const baseRef = await github.rest.git.getRef({...context.repo, ref: `heads/${base}`});
+                  try {
+                    await github.rest.git.createRef({...context.repo, ref: `refs/heads/${branch}`, sha: baseRef.data.object.sha});
+                    audit.push(`create_branch: ${branch}`);
+                  } catch (error) {
+                    if (error.status === 422) audit.push(`create_branch skipped: ${branch} exists`);
+                    else throw error;
+                  }
+                  break;
+                }
+                case 'escalate': {
+                  const labels = Array.isArray(params.labels) && params.labels.length ? params.labels : ['needs-human'];
+                  if (issueNumber) {
+                    await github.rest.issues.addLabels({...context.repo, issue_number: issueNumber, labels});
+                    audit.push(`escalate: ${labels.join(', ')}`);
+                  }
+                  break;
+                }
+                case 'link_linear': {
+                  const linearIssueId = params.linear_issue_id || params.issue_id || params.identifier;
+                  if (!linearIssueId) throw new Error('link_linear requires linear_issue_id');
+                  if (!process.env.LINEAR_TOKEN) {
+                    audit.push('link_linear skipped: linear-token is not configured');
+                    break;
+                  }
+                  const body = params.body || `GitHub issue linked: ${issueUrl}`;
+                  const issue = await linearRequest(
+                    'query OpenCIIssue($id: String!) { issue(id: $id) { id identifier url } }',
+                    {id: linearIssueId},
+                  );
+                  const targetIssueId = issue.issue?.id || linearIssueId;
+                  await linearRequest(
+                    'mutation OpenCIComment($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id url } } }',
+                    {input: {issueId: targetIssueId, body}},
+                  );
+                  audit.push(`link_linear: ${issue.issue?.identifier || linearIssueId}`);
+                  break;
+                }
+                case 'dispatch_mcp_task': {
+                  const taskName = params.task || params.name;
+                  if (!taskName) throw new Error('dispatch_mcp_task requires task');
+                  const task = tasks.get(taskName);
+                  if (!task) throw new Error(`dispatch_mcp_task task is not declared: ${taskName}`);
+                  const eventType = params.event_type || task.event_type || 'openci-mcp-task';
+                  await postJson(
+                    `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/dispatches`,
+                    process.env.MCP_DISPATCH_TOKEN || '',
+                    {
+                      event_type: eventType,
+                      client_payload: {
+                        source: 'openci-issue-agent',
+                        task: taskName,
+                        issue_number: issueNumber || null,
+                        issue_url: issueUrl,
+                        payload: params.payload || {},
+                      },
+                    },
+                  );
+                  audit.push(`dispatch_mcp_task: ${taskName}`);
+                  break;
+                }
+                case 'schedule_followup': {
+                  const dueAt = computeDueAt(params);
+                  const payload = {
+                    due_at: dueAt,
+                    reason: params.reason || params.body || '',
+                    task: params.task || 'issue-followup',
+                    created_by_run: context.runId,
+                  };
+                  if (issueNumber) {
+                    await github.rest.issues.addLabels({...context.repo, issue_number: issueNumber, labels: ['followup:scheduled']});
+                    await github.rest.issues.createComment({
+                      ...context.repo,
+                      issue_number: issueNumber,
+                      body: [
+                        `<!-- openci-followup:${JSON.stringify(payload)} -->`,
+                        `OpenCI scheduled a follow-up for ${dueAt}.`,
+                        '',
+                        payload.reason || 'No follow-up reason was provided.',
+                      ].join('\n'),
+                    });
+                  }
+                  audit.push(`schedule_followup: ${dueAt}`);
+                  break;
+                }
+                case 'notify': {
+                  const webhook = process.env.NOTIFY_WEBHOOK_URL || '';
+                  if (!webhook) {
+                    audit.push('notify skipped: slack-webhook-url is not configured');
+                    break;
+                  }
+                  const body = params.body || params.message || `OpenCI issue agent notification for ${issueUrl}`;
+                  const response = await fetch(webhook, {
+                    method: 'POST',
+                    headers: {'content-type': 'application/json'},
+                    body: JSON.stringify({
+                      text: body,
+                      channel: params.channel,
+                      source: 'openci-issue-agent',
+                      issue_url: issueUrl,
+                    }),
+                  });
+                  if (!response.ok) {
+                    throw new Error(`notify webhook failed: ${response.status} ${await response.text()}`);
+                  }
+                  audit.push(`notify: ${params.channel || 'webhook'}`);
+                  break;
+                }
+              }
+            }
+
+            if (issueNumber && audit.length) {
+              const marker = `<!-- openci-agent-run: ${context.runId}:${process.env.PLAN_HASH} -->`;
+              const existing = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: issueNumber, per_page: 100});
+              if (!existing.some((comment) => comment.body && comment.body.includes(marker))) {
+                const body = [
+                  marker,
+                  'OpenCI issue agent executed:',
+                  '',
+                  ...audit.map((line) => `- ${line}`),
+                  '',
+                  'Reasoning:',
+                  process.env.REASONING || plan.reasoning || '',
+                ].join('\n');
+                await github.rest.issues.createComment({...context.repo, issue_number: issueNumber, body});
+              }
+            }

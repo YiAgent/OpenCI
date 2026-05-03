@@ -1,5 +1,5 @@
 # on-ci.yml — event entry that fires the CI pipeline on every merge to main.
-# Forwards all inputs/secrets to reusable/ci.yml. External users should
+# Forwards all inputs/secrets to ci.yml. External users should
 # write their own on-ci.yml against `uses: YiAgent/OpenCI/.github/workflows/ci.yml@v3`.
 name: on-ci
 
@@ -22,12 +22,13 @@ concurrency:
 
 jobs:
   ci:
-    uses: ./.github/workflows/reusable/ci.yml
+    uses: ./.github/workflows/ci.yml
     with:
       openci-ref:      ${{ github.sha }}
       registry:        ghcr.io
       image-name:      ${{ vars.IMAGE_NAME || github.event.repository.name }}
       enable-ai-smoke: true
+      runner:          blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   harness-test:

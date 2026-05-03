@@ -23,8 +23,9 @@ concurrency:
 
 jobs:
   docs:
-    uses: ./.github/workflows/reusable/docs.yml
+    uses: ./.github/workflows/docs.yml
     with:
       build-cmd: ${{ vars.DOCS_BUILD_CMD }}
-      docs-dir:  ${{ vars.DOCS_DIR || 'docs' }}
-      site-dir:  ${{ vars.DOCS_SITE_DIR || 'site' }}
+      docs-dir: ${{ vars.DOCS_DIR || 'docs' }}
+      site-dir: ${{ vars.DOCS_SITE_DIR || 'site' }}
+      runner: blacksmith-32vcpu-ubuntu-2404

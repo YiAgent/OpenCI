@@ -32,7 +32,6 @@ PENDING="${PENDING:-$REPO_ROOT/manifest-pending.yml}"
 DEPRECATED_ACTIONS=(
   "semgrep/semgrep-action"
   "amondnet/vercel-action"
-  "actions/stale"
 )
 
 errors=0
