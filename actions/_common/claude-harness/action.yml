@@ -54,6 +54,13 @@ inputs:
     description: Maximum agent turns (passed as --max-turns).
     required: false
     default: "10"
+  session-timeout-ms:
+    description: |
+      Maximum milliseconds Claude Code waits for an API response per request.
+      Default 3 000 000 ms (50 min) suits long agent loops. Reduce for quick
+      PR handlers (e.g. "120000" = 2 min).
+    required: false
+    default: "3000000"
   system-prompt:
     description: Optional system prompt (passed as --system-prompt). Use for cross-task agent persona.
     required: false
@@ -209,6 +216,7 @@ runs:
         SLACK_WEBHOOK:       ${{ inputs.slack-webhook }}
         API_BASE_URL:        ${{ inputs.api-base-url }}
         EXTRA_ENV_JSON:      ${{ inputs.extra-env }}
+        SESSION_TIMEOUT_MS:  ${{ inputs.session-timeout-ms }}
         # Mirror api-key into ANTHROPIC_AUTH_TOKEN so Anthropic-compatible
         # gateways that require Bearer auth work with no extra wiring at
         # the caller side.
