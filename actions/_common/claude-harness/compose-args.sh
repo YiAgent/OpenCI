@@ -161,6 +161,7 @@ if command -v jq >/dev/null 2>&1; then
     --arg slack      "${SLACK_WEBHOOK:-}" \
     --arg base_url   "${API_BASE_URL:-}" \
     --arg auth_token "${AUTH_TOKEN_PASSTHROUGH:-}" \
+    --arg timeout    "${SESSION_TIMEOUT_MS:-3000000}" \
     --argjson extra  "${EXTRA_ENV_JSON:-{\}}" \
     '{
       env: (
@@ -168,7 +169,7 @@ if command -v jq >/dev/null 2>&1; then
           SLACK_WEBHOOK_URL:    $slack,
           ANTHROPIC_BASE_URL:   $base_url,
           ANTHROPIC_AUTH_TOKEN: $auth_token,
-          API_TIMEOUT_MS:       "3000000",
+          API_TIMEOUT_MS:       $timeout,
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
         } | with_entries(select(.value != "")))
         + $extra

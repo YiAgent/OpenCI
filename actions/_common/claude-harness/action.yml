@@ -54,6 +54,13 @@ inputs:
     description: Maximum agent turns (passed as --max-turns).
     required: false
     default: "10"
+  session-timeout-ms:
+    description: |
+      Maximum milliseconds Claude Code waits for an API response per request.
+      Default 3 000 000 ms (50 min) suits long agent loops. Reduce for quick
+      PR handlers (e.g. "120000" = 2 min).
+    required: false
+    default: "3000000"
   system-prompt:
     description: Optional system prompt (passed as --system-prompt). Use for cross-task agent persona.
     required: false
@@ -64,6 +71,18 @@ inputs:
     default: ""
   oauth-token:
     description: Claude Code OAuth token (alternative to api-key).
+    required: false
+    default: ""
+  use-commit-signing:
+    description: |
+      Sign commits made by Claude. "true" enables GitHub API signing (no key
+      needed). "ssh" uses the ssh-signing-key input.
+    required: false
+    default: "false"
+  ssh-signing-key:
+    description: |
+      SSH private key for signing commits when use-commit-signing is "ssh".
+      Pass as a secret: ${{ secrets.CLAUDE_SSH_SIGNING_KEY }}.
     required: false
     default: ""
   api-base-url:
@@ -86,6 +105,23 @@ inputs:
     description: GitHub token for MCP tool access and CI data queries. Falls back to default workflow token.
     required: false
     default: ""
+  bot-id:
+    description: |
+      GitHub App bot ID for custom Claude Code GitHub Apps. Leave empty to use
+      the default claude[bot] identity.
+    required: false
+    default: ""
+  bot-name:
+    description: |
+      GitHub App bot display name. Leave empty to use the default "claude".
+    required: false
+    default: ""
+  base-branch:
+    description: |
+      Base branch for new branches created by Claude. Leave empty to let the
+      official action use the repo default branch.
+    required: false
+    default: ""
   slack-webhook:
     description: Slack webhook URL exposed to Claude as SLACK_WEBHOOK_URL env var.
     required: false
@@ -101,6 +137,14 @@ inputs:
     description: Comma-separated list of tools to explicitly disallow (passed as --disallowedTools).
     required: false
     default: ""
+  extra-permissions:
+    description: |
+      Additional GitHub Actions permissions to grant, in YAML key: value form
+      (one per line). These are APPENDED to the hardcoded floor "actions: read"
+      which must always be present for the baseline mcp__github_ci__* tools.
+      Example: "contents: write\npull-requests: write"
+    required: false
+    default: ""
   mcp-config:
     description: |
       Either a JSON string of {"mcpServers": {...}} or a path (relative to
@@ -109,8 +153,33 @@ inputs:
       for inline overrides.
     required: false
     default: ""
+  plugins:
+    description: |
+      Newline-separated list of Claude Code plugin identifiers to install before
+      the agent run. Example: "anthropics/claude-code-plugin-foo@1.0.0"
+    required: false
+    default: ""
+  plugin-marketplaces:
+    description: |
+      Newline-separated list of custom marketplace URLs used to resolve plugins.
+    required: false
+    default: ""
   use-sticky-comment:
     description: Use a single sticky comment for PR/Issue dedup ("true" / "false").
+    required: false
+    default: "true"
+  classify-inline-comments:
+    description: |
+      Buffer inline comments and classify them with Claude Haiku before posting.
+      Set to "false" to post all inline comments immediately (useful in pure
+      automation pipelines where every comment is intentional).
+    required: false
+    default: "true"
+  include-fix-links:
+    description: |
+      Attach a "Fix this" link to each review comment that opens Claude Code
+      with the issue pre-loaded. Set to "false" to suppress these links in
+      fully-automated review jobs.
     required: false
     default: "true"
   extra-env:
@@ -187,6 +256,7 @@ runs:
         SLACK_WEBHOOK:       ${{ inputs.slack-webhook }}
         API_BASE_URL:        ${{ inputs.api-base-url }}
         EXTRA_ENV_JSON:      ${{ inputs.extra-env }}
+        SESSION_TIMEOUT_MS:  ${{ inputs.session-timeout-ms }}
         # Mirror api-key into ANTHROPIC_AUTH_TOKEN so Anthropic-compatible
         # gateways that require Bearer auth work with no extra wiring at
         # the caller side.
@@ -225,4 +295,14 @@ runs:
         settings:                ${{ steps.compose.outputs.settings }}
         additional_permissions: |
           actions: read
+          ${{ inputs.extra-permissions }}
+        plugins:             ${{ inputs.plugins }}
+        plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+        use_commit_signing: ${{ inputs.use-commit-signing }}
+        ssh_signing_key:    ${{ inputs.ssh-signing-key }}
+        bot_id:      ${{ inputs.bot-id }}
+        bot_name:    ${{ inputs.bot-name }}
+        base_branch: ${{ inputs.base-branch }}
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
+        classify_inline_comments:  ${{ inputs.classify-inline-comments }}
+        include_fix_links:         ${{ inputs.include-fix-links }}
