@@ -55,6 +55,7 @@ runs:
 
     # ── Set outputs BEFORE any failure step ─────────────────────────────
     - name: Parse CVE counts
+      if: always()
       id: parse
       shell: bash
       run: |

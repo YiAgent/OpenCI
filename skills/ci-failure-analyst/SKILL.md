@@ -44,7 +44,20 @@ the Bash or Read tool.
 cat ci-context.json
 ```
 
-Extract the build log (if present) and failure details.
+Check `failure_context.logs_available`. When it is `false`, detailed per-job
+logs are not embedded — fetch them via the GitHub API:
+
+```bash
+# List jobs for this run to get job IDs
+gh api repos/{{repo}}/actions/runs/{{run_id}}/jobs \
+  --jq '.jobs[] | {id, name, conclusion}'
+
+# Download log for a specific job (use the job ID from above)
+gh api repos/{{repo}}/actions/jobs/<job_id>/logs
+```
+
+Only use log evidence that you actually retrieve. Do NOT speculate about
+root causes if log fetching fails or returns empty output.
 
 ### Step 2 — Classify failure type
 

@@ -406,6 +406,12 @@ jobs:
           if [ "$SCAN_RESULT" = "failure" ]; then
             HAS_FAILURES="true"; DEPLOY_BLOCKED="true"
           fi
+          if [ "$SIGN_RESULT" = "failure" ]; then
+            HAS_FAILURES="true"; DEPLOY_BLOCKED="true"
+          fi
+          if [ "$SBOM_RESULT" = "failure" ]; then
+            HAS_FAILURES="true"; DEPLOY_BLOCKED="true"
+          fi
           if [ "$SHA_OK" = "false" ]; then
             HAS_FAILURES="true"
           fi
@@ -435,7 +441,9 @@ jobs:
               critical_cve:$critical_cve, high_cve:$high_cve,
               sha_ok:$sha_ok, migration_result:$migration_result,
               smoke_result:$smoke_result, image_digest:$image_digest,
-              run_id:$run_id, repo:$repo, commit:$commit}')
+              run_id:$run_id, repo:$repo, commit:$commit,
+              failure_context:{logs_available:false,
+                note:"Detailed per-job logs are available in the Actions UI at the run URL above. The analyst should use gh api to fetch logs when needed rather than relying on embedded log content."}}')
 
           {
             echo "has-failures=${HAS_FAILURES}"
