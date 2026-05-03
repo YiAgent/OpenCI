@@ -35,10 +35,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg')
     uses: ./.github/workflows/reusable/stg.yml
     with:
-      app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
-      image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
-      health-url:  ${{ vars.STG_HEALTH_URL }}
-      runner:      blacksmith-32vcpu-ubuntu-2404
+      app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
+      image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      health-url:          ${{ vars.STG_HEALTH_URL }}
+      runner:              blacksmith-32vcpu-ubuntu-2404
+      deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
+      ssh-host:            ${{ vars.STG_SSH_HOST }}
+      ssh-user:            ${{ vars.STG_SSH_USER || 'deploy' }}
+      ssh-port:            ${{ vars.STG_SSH_PORT || '22' }}
+      deploy-mode:         ${{ vars.DEPLOY_MODE || 'compose' }}
+      compose-file:        ${{ vars.COMPOSE_FILE || 'docker-compose.yml' }}
+      compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
     secrets: inherit
 
   prd:
@@ -49,10 +56,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd')
     uses: ./.github/workflows/reusable/prd.yml
     with:
-      app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
-      image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
-      health-url:  ${{ vars.PRD_HEALTH_URL }}
-      runner:      blacksmith-32vcpu-ubuntu-2404
+      app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
+      image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      health-url:          ${{ vars.PRD_HEALTH_URL }}
+      runner:              blacksmith-32vcpu-ubuntu-2404
+      deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
+      ssh-host:            ${{ vars.PRD_SSH_HOST }}
+      ssh-user:            ${{ vars.PRD_SSH_USER || 'deploy' }}
+      ssh-port:            ${{ vars.PRD_SSH_PORT || '22' }}
+      deploy-mode:         ${{ vars.DEPLOY_MODE || 'compose' }}
+      compose-file:        ${{ vars.COMPOSE_FILE || 'docker-compose.yml' }}
+      compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
     secrets: inherit
 
   # ──────────────────────────────────────────────────────────────────────

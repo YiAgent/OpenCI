@@ -1,8 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # stg.yml — Staging deploy (reusable workflow, SPEC §5.4).
 # ─────────────────────────────────────────────────────────────────────────────
+# Two deploy paths, select via deploy-type input:
+#   docker (default) — SSH + docker compose/run on a remote host.
+#   k8s              — kubectl set image on a Kubernetes cluster.
+#
 # Serial chain (stg failures should stop fast and notify):
-#   preflight → deploy-k8s → run-migration? → smoke-test → notify-deployed
+#   preflight → deploy-docker|deploy-k8s → run-migration? → smoke-test → notify-deployed
 #
 # Image is consumed BY DIGEST. The caller is responsible for not pointing at
 # a tag — the deploy atom does NOT do tag→digest resolution to avoid hidden
@@ -53,8 +57,50 @@ on:
         type: boolean
         required: false
         default: false
+      deploy-type:
+        description: "Deployment mechanism: docker (default) or k8s."
+        type: string
+        required: false
+        default: docker
+      ssh-host:
+        description: Target server hostname or IP (docker deploy).
+        type: string
+        required: false
+        default: ""
+      ssh-user:
+        description: SSH user on the target server (docker deploy).
+        type: string
+        required: false
+        default: deploy
+      ssh-port:
+        description: SSH port (docker deploy).
+        type: string
+        required: false
+        default: "22"
+      deploy-mode:
+        description: "Docker deploy mode: compose (default) or run."
+        type: string
+        required: false
+        default: compose
+      compose-file:
+        description: Path to docker-compose.yml on the target server.
+        type: string
+        required: false
+        default: docker-compose.yml
+      compose-project-dir:
+        description: Working directory on the server that contains docker-compose.yml.
+        type: string
+        required: false
+        default: "~"
+      docker-run-args:
+        description: Extra args appended to `docker run` (run mode only).
+        type: string
+        required: false
+        default: ""
     secrets:
       kubeconfig-stg:
+        required: false
+      ssh-key-stg:
         required: false
       slack-webhook-url:
         required: false
@@ -71,7 +117,7 @@ on:
     outputs:
       deploy-time:
         description: ISO 8601 deploy timestamp.
-        value: ${{ jobs.deploy-k8s.outputs.deploy-time }}
+        value: ${{ jobs.deploy-k8s.outputs.deploy-time || jobs.deploy-docker.outputs.deploy-time }}
 
 permissions: {}
 
@@ -117,12 +163,24 @@ jobs:
           persist-credentials: false
       - name: Probe secrets
         env:
+          DEPLOY_TYPE:       ${{ inputs.deploy-type }}
           KUBECONFIG_STG:    ${{ secrets.kubeconfig-stg }}
+          SSH_KEY_STG:       ${{ secrets.ssh-key-stg }}
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
         run: |
-          bash .github/scripts/preflight-secrets.sh \
-            --required "KUBECONFIG_STG" \
-            --optional "SLACK_WEBHOOK_URL"
+          if [ "$DEPLOY_TYPE" = "k8s" ]; then
+            bash .github/scripts/preflight-secrets.sh \
+              --required "KUBECONFIG_STG" \
+              --optional "SLACK_WEBHOOK_URL"
+          else
+            bash .github/scripts/preflight-secrets.sh \
+              --required "SSH_KEY_STG" \
+              --optional "SLACK_WEBHOOK_URL"
+          fi
+      - uses: ./.openci/actions/deploy/preflight
+        with:
+          environment:  staging
+          health-url:   ${{ inputs.health-url }}
 
   coverage-gate:
     name: Coverage Gate
@@ -223,6 +281,7 @@ jobs:
 
   deploy-k8s:
     name: Deploy K8s
+    if: inputs.deploy-type == 'k8s'
     needs: [preflight, coverage-gate, perf-baseline]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
@@ -267,10 +326,63 @@ jobs:
           k8s-namespace: ${{ inputs.k8s-namespace }}
           kubeconfig:    ${{ secrets.kubeconfig-stg }}
 
+  deploy-docker:
+    name: Deploy Docker
+    if: inputs.deploy-type != 'k8s'
+    needs: [preflight, coverage-gate, perf-baseline]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      deploy-time:    ${{ steps.deploy.outputs.deploy-time }}
+      previous-image: ${{ steps.deploy.outputs.previous-image }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:     ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - id: deploy
+        uses: ./.openci/actions/deploy/docker
+        with:
+          app-name:            ${{ inputs.app-name }}
+          image-ref:           ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          ssh-host:            ${{ inputs.ssh-host }}
+          ssh-user:            ${{ inputs.ssh-user }}
+          ssh-port:            ${{ inputs.ssh-port }}
+          ssh-key:             ${{ secrets.ssh-key-stg }}
+          deploy-mode:         ${{ inputs.deploy-mode }}
+          compose-file:        ${{ inputs.compose-file }}
+          compose-project-dir: ${{ inputs.compose-project-dir }}
+          docker-run-args:     ${{ inputs.docker-run-args }}
+
   run-migration:
     name: Run Migration
-    needs: deploy-k8s
-    if: inputs.run-migration == true
+    needs: [deploy-k8s, deploy-docker]
+    if: >-
+      inputs.run-migration == true &&
+      (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
@@ -311,8 +423,11 @@ jobs:
 
   smoke-test:
     name: Smoke Test
-    needs: [deploy-k8s, run-migration]
-    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
+    needs: [deploy-k8s, deploy-docker, run-migration]
+    if: >-
+      always() &&
+      (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success') &&
+      (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
@@ -350,13 +465,67 @@ jobs:
         with:
           health-url: ${{ inputs.health-url }}
 
+  auto-rollback-docker:
+    name: Auto Rollback (Docker)
+    needs: [deploy-docker, smoke-test]
+    if: >-
+      always() &&
+      needs.smoke-test.result == 'failure' &&
+      needs.deploy-docker.result == 'success'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:     ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/deploy/auto-rollback-docker
+        with:
+          app-name:            ${{ inputs.app-name }}
+          previous-image:      ${{ needs.deploy-docker.outputs.previous-image }}
+          failed-image:        ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          ssh-host:            ${{ inputs.ssh-host }}
+          ssh-user:            ${{ inputs.ssh-user }}
+          ssh-port:            ${{ inputs.ssh-port }}
+          ssh-key:             ${{ secrets.ssh-key-stg }}
+          deploy-mode:         ${{ inputs.deploy-mode }}
+          compose-file:        ${{ inputs.compose-file }}
+          compose-project-dir: ${{ inputs.compose-project-dir }}
+          docker-run-args:     ${{ inputs.docker-run-args }}
+          github-token:        ${{ github.token }}
+          environment:         staging
+
   notify-observability:
     name: Notify Observability
-    needs: [deploy-k8s, smoke-test]
+    needs: [deploy-k8s, deploy-docker, smoke-test]
     # Always emit deploy markers when the deploy itself succeeded — even if
     # smoke-test then failed. The deploy *did* happen, downstream tools need
     # to know about it for accurate metric overlay.
-    if: always() && needs.deploy-k8s.result == 'success'
+    if: always() && (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
@@ -416,7 +585,7 @@ jobs:
 
   schedule-prd-dispatch:
     name: Schedule PRD Dispatch
-    needs: [deploy-k8s, smoke-test]
+    needs: [deploy-k8s, deploy-docker, smoke-test]
     if: needs.smoke-test.result == 'success' && vars.PRD_OBSERVATION_MINUTES != ''
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
@@ -458,7 +627,7 @@ jobs:
           # In a real consumer the stg image digest is the same as the
           # one passed in (we don't rebuild between ci.yml and stg.yml).
           stg-image-digest:    ${{ inputs.image-digest }}
-          stg-deploy-time:     ${{ needs.deploy-k8s.outputs.deploy-time }}
+          stg-deploy-time:     ${{ needs.deploy-k8s.outputs.deploy-time || needs.deploy-docker.outputs.deploy-time }}
           image-name:          ${{ inputs.image-name }}
           app-name:            ${{ inputs.app-name }}
           observation-minutes: ${{ vars.PRD_OBSERVATION_MINUTES || '30' }}
@@ -466,7 +635,7 @@ jobs:
 
   notify-deployed:
     name: Notify Deployed
-    needs: [deploy-k8s, smoke-test]
+    needs: [deploy-k8s, deploy-docker, smoke-test]
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -504,7 +673,7 @@ jobs:
       - uses: ./.openci/actions/_common/notify-deployed
         with:
           environment: staging
-          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
+          status:      ${{ (needs.smoke-test.result == 'success' && (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')) && 'success' || 'failure' }}
           app-name:    ${{ inputs.app-name }}
           image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
           webhook-url: ${{ secrets.slack-webhook-url }}

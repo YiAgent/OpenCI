@@ -1,0 +1,241 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy/docker — SSH-based Docker deploy (default deploy type).
+# ─────────────────────────────────────────────────────────────────────────────
+# Two modes:
+#   compose (default) — docker compose pull + up -d on the target host.
+#   run               — docker stop/rm + docker run on the target host.
+#
+# Always snapshots the current image before deploying so auto-rollback-docker
+# has a concrete target.
+#
+# Security:
+#   • SSH key is written to a masked temp file and removed after the step.
+#   • image-ref must be a digest reference (registry/…@sha256:…) to prevent
+#     tag-shift races; the action fails hard for non-digest refs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy · Docker
+description: Deploy a Docker image to a remote host via SSH (compose or run).
+
+inputs:
+  app-name:
+    description: Service name in docker-compose.yml, or container name for `run` mode.
+    required: true
+  image-ref:
+    description: Full image reference (registry/owner/name@sha256:...).
+    required: true
+  ssh-host:
+    description: Target server hostname or IP.
+    required: true
+  ssh-user:
+    description: SSH user on the target server.
+    required: false
+    default: deploy
+  ssh-key:
+    description: Base64-encoded SSH private key.
+    required: true
+  ssh-port:
+    description: SSH port.
+    required: false
+    default: "22"
+  deploy-mode:
+    description: "compose (default) or run."
+    required: false
+    default: compose
+  compose-file:
+    description: Path to docker-compose.yml on the target server (compose mode).
+    required: false
+    default: docker-compose.yml
+  compose-project-dir:
+    description: Working directory on the server that contains docker-compose.yml.
+    required: false
+    default: "~"
+  container-name:
+    description: Override container name (run mode). Defaults to app-name.
+    required: false
+    default: ""
+  docker-run-args:
+    description: Extra args appended to `docker run` (run mode only).
+    required: false
+    default: ""
+  health-timeout:
+    description: Seconds to wait for container to become healthy after deploy.
+    required: false
+    default: "60"
+  ssh-known-hosts:
+    description: |
+      Known-hosts entry for the target server (base64-encoded or raw).
+      When supplied the host key is validated against this value instead of
+      trusting whatever the server presents at connect time (TOFU).
+      Obtain via: ssh-keyscan -H <host> | base64
+    required: false
+    default: ""
+
+outputs:
+  deploy-time:
+    description: ISO 8601 deploy timestamp.
+    value: ${{ steps.deploy.outputs.deploy-time || steps.deploy-run.outputs.deploy-time }}
+  previous-image:
+    description: Image ref running before this deploy (used by auto-rollback-docker).
+    value: ${{ steps.snapshot.outputs.previous-image }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate digest image ref
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image-ref }}
+      run: |
+        if [[ "$IMAGE" != *"@sha256:"* ]]; then
+          echo "::error title=Docker Deploy::image-ref must be a digest reference (@sha256:...); mutable tags are rejected"
+          exit 1
+        fi
+
+    - name: Write SSH key
+      id: ssh-setup
+      shell: bash
+      env:
+        KEY_B64:        ${{ inputs.ssh-key }}
+        KNOWN_HOSTS:    ${{ inputs.ssh-known-hosts }}
+        PORT:           ${{ inputs.ssh-port }}
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
+      run: |
+        set -euo pipefail
+        key_path="${RUNNER_TEMP}/deploy_key_$$"
+        echo "$KEY_B64" | base64 -d > "$key_path"
+        chmod 600 "$key_path"
+        echo "::add-mask::$(cat "$key_path" | tr -d '\n')"
+        echo "SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+        mkdir -p ~/.ssh
+        if [ -n "$KNOWN_HOSTS" ]; then
+          # Prefer caller-supplied known_hosts over TOFU keyscan.
+          printf '%s\n' "$KNOWN_HOSTS" | base64 -d >> ~/.ssh/known_hosts 2>/dev/null \
+            || printf '%s\n' "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
+        else
+          echo "::warning title=SSH Security::ssh-known-hosts not provided; using TOFU (ssh-keyscan) — supply ssh-known-hosts for production"
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        fi
+
+    - name: Snapshot previous image
+      id: snapshot
+      shell: bash
+      env:
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
+        PORT:           ${{ inputs.ssh-port }}
+        APP:            ${{ inputs.app-name }}
+        DEPLOY_MODE:    ${{ inputs.deploy-mode }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        COMPOSE_DIR:    ${{ inputs.compose-project-dir }}
+        COMPOSE_FILE:   ${{ inputs.compose-file }}
+      run: |
+        set -euo pipefail
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
+
+        prev=""
+        if [ "$DEPLOY_MODE" = "compose" ]; then
+          prev="$(ssh_cmd "cd ${COMPOSE_DIR} && docker compose -f ${COMPOSE_FILE} images ${APP} --format json 2>/dev/null \
+            | jq -r '.[0].Image // empty' | head -1" || echo "")"
+        else
+          container="${CONTAINER_NAME:-$APP}"
+          prev="$(ssh_cmd "docker inspect ${container} --format '{{.Config.Image}}' 2>/dev/null" || echo "")"
+        fi
+
+        echo "previous-image=${prev:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Docker Snapshot::app=$APP previous=${prev:-unknown}"
+
+    - name: Deploy (compose mode)
+      id: deploy
+      if: inputs.deploy-mode == 'compose'
+      shell: bash
+      env:
+        HOST:         ${{ inputs.ssh-host }}
+        USER:         ${{ inputs.ssh-user }}
+        PORT:         ${{ inputs.ssh-port }}
+        APP:          ${{ inputs.app-name }}
+        IMAGE:        ${{ inputs.image-ref }}
+        COMPOSE_DIR:  ${{ inputs.compose-project-dir }}
+        COMPOSE_FILE: ${{ inputs.compose-file }}
+        TIMEOUT:      ${{ inputs.health-timeout }}
+      run: |
+        set -euo pipefail
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
+
+        # Update image in compose override file so the compose file itself is
+        # not modified on the server (avoids dirty git state on server).
+        ssh_cmd "cd ${COMPOSE_DIR} && \
+          docker pull ${IMAGE} && \
+          IMAGE=${IMAGE} docker compose -f ${COMPOSE_FILE} up -d --no-build ${APP}"
+
+        # Wait for container health — resolve container ID first to avoid
+        # false-pass when docker inspect is given a service name.
+        elapsed=0
+        status="starting"
+        while [ "$elapsed" -lt "$TIMEOUT" ]; do
+          cid="$(ssh_cmd "cd ${COMPOSE_DIR} && docker compose -f ${COMPOSE_FILE} ps -q ${APP}" 2>/dev/null | head -1 || true)"
+          if [ -n "$cid" ]; then
+            status="$(ssh_cmd "docker inspect ${cid} --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null" || echo "starting")"
+          fi
+          if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
+            break
+          fi
+          sleep 5
+          elapsed=$((elapsed + 5))
+        done
+        if [ "$status" != "healthy" ] && [ "$status" != "none" ]; then
+          echo "::error title=Docker Deploy::health check timed out (app=$APP status=$status timeout=${TIMEOUT}s)"
+          exit 1
+        fi
+
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Docker Deployed::app=$APP image=$IMAGE host=$HOST mode=compose at=$ts"
+
+    - name: Deploy (run mode)
+      id: deploy-run
+      if: inputs.deploy-mode == 'run'
+      shell: bash
+      env:
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
+        PORT:           ${{ inputs.ssh-port }}
+        APP:            ${{ inputs.app-name }}
+        IMAGE:          ${{ inputs.image-ref }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        EXTRA_ARGS:     ${{ inputs.docker-run-args }}
+        TIMEOUT:        ${{ inputs.health-timeout }}
+      run: |
+        set -euo pipefail
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
+        container="${CONTAINER_NAME:-$APP}"
+
+        ssh_cmd "docker pull ${IMAGE}"
+        ssh_cmd "docker stop ${container} 2>/dev/null || true"
+        ssh_cmd "docker rm   ${container} 2>/dev/null || true"
+        ssh_cmd "docker run -d --name ${container} --restart unless-stopped ${EXTRA_ARGS} ${IMAGE}"
+
+        # Wait for container health
+        elapsed=0
+        status="starting"
+        while [ "$elapsed" -lt "$TIMEOUT" ]; do
+          status="$(ssh_cmd "docker inspect ${container} --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null" || echo "starting")"
+          if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
+            break
+          fi
+          sleep 5
+          elapsed=$((elapsed + 5))
+        done
+        if [ "$status" != "healthy" ] && [ "$status" != "none" ]; then
+          echo "::error title=Docker Deploy::health check timed out (app=$APP status=$status timeout=${TIMEOUT}s)"
+          exit 1
+        fi
+
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Docker Deployed::app=$APP image=$IMAGE host=$HOST mode=run at=$ts"
+
+    - name: Remove SSH key
+      if: always()
+      shell: bash
+      run: rm -f "$SSH_KEY_PATH"
