@@ -73,11 +73,17 @@ async function executeDocsPlan({ github, context, env }) {
 }
 
 async function applyUpdate({ github, owner, repo, branch, update }) {
+  // Hard allowlist: only permit doc-safe paths
+  const allowed = /^(docs\/|CHANGELOG\.md$|README\.md$)/.test(update.file || '');
+  if (!allowed) {
+    throw new Error(`Refusing to modify non-doc path: ${update.file}`);
+  }
+
   let content = update.content || '';
   let existingSha;
 
   if (update.type === 'modify') {
-    // Fetch the existing file so we can merge content
+    // Fetch the existing file and replace the named section (not append)
     try {
       const resp = await github.rest.repos.getContent({
         owner, repo,
@@ -90,9 +96,13 @@ async function applyUpdate({ github, owner, repo, branch, update }) {
       if (update.section && existing.includes(update.section)) {
         const sectionStart = existing.indexOf(update.section);
         const nextSection  = existing.indexOf('\n## ', sectionStart + 1);
-        content = nextSection !== -1
-          ? existing.slice(0, nextSection) + '\n\n' + update.content + '\n' + existing.slice(nextSection)
-          : existing + '\n\n' + update.content;
+        const sectionEnd   = nextSection !== -1 ? nextSection : existing.length;
+        content =
+          existing.slice(0, sectionStart).replace(/\s*$/, '') +
+          '\n\n' +
+          (update.content || '').trim() +
+          '\n\n' +
+          existing.slice(sectionEnd).replace(/^\s*/, '');
       } else {
         content = existing + '\n\n' + update.content;
       }

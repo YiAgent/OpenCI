@@ -272,7 +272,6 @@ jobs:
           docs-path:       ${{ inputs.docs-path }}
           api-spec-path:   ${{ inputs.api-spec-path }}
           api-source-path: ${{ inputs.api-source-path }}
-          run-id:          ${{ github.run_id }}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Stage 3 · Agent — claude-harness produces docs-action-plan/v1 JSON.

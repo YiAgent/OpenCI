@@ -2,7 +2,7 @@
 
 ## Standard Layout
 
-```
+```text
 docs/
 ├── README.md           ← docs landing page / index
 ├── getting-started.md  ← installation, quickstart
@@ -36,7 +36,7 @@ README.md               ← root-level project README
 
 Use the project's actual language tag. Common examples:
 
-```
+```markdown
 ```typescript
 ```javascript
 ```python

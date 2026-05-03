@@ -81,8 +81,25 @@ if found:
     print(json.dumps(found, separators=(',', ':')))
 PYEOF
 
-if [ -n "$FOUND" ] && printf '%s' "$FOUND" \
-    | jq -e '.version == "docs-action-plan/v1"' > /dev/null 2>&1; then
+if [ -n "$FOUND" ] && printf '%s' "$FOUND" | jq -e '
+  .version == "docs-action-plan/v1" and
+  (.summary | type == "string") and
+  (.updates | type == "array") and
+  (.skipped | type == "array") and
+  ((.skip_reason == null) or (.skip_reason | type == "string")) and
+  all(.updates[]?;
+    (.id     | type == "string") and
+    (.type == "create" or .type == "modify") and
+    (.file   | type == "string") and
+    (.reason | type == "string") and
+    (.content    | type == "string") and
+    (.confidence | type == "string")
+  ) and
+  all(.skipped[]?;
+    (.file   | type == "string") and
+    (.reason | type == "string")
+  )
+' > /dev/null 2>&1; then
   emit "$FOUND"
 else
   emit "$FALLBACK"

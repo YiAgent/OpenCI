@@ -75,6 +75,8 @@ runs:
           cat .github/agent/docs/context/rules.md             2>/dev/null || true
           printf '\n'
           cat .github/agent/docs/context/structure.md         2>/dev/null || true
+          printf '\n'
+          cat .github/agent/docs/context/changelog-format.md  2>/dev/null || true
         } > docs-workspace/context.md
 
     - name: Write agent prompt
