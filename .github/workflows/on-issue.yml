@@ -34,7 +34,7 @@ jobs:
     if: github.event_name == 'issues' || github.event_name == 'issue_comment'
     uses: ./.github/workflows/issue.yml
     with:
-      mode:   lifecycle
+      mode: lifecycle
       runner: blacksmith-32vcpu-ubuntu-2404
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -48,7 +48,7 @@ jobs:
     if: github.event_name == 'repository_dispatch'
     uses: ./.github/workflows/issue.yml
     with:
-      mode:   ingest
+      mode: ingest
       runner: blacksmith-32vcpu-ubuntu-2404
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -62,7 +62,7 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')
     uses: ./.github/workflows/issue.yml
     with:
-      mode:   maintenance
+      mode: maintenance
       runner: blacksmith-32vcpu-ubuntu-2404
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -76,7 +76,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.mode != 'maintenance'
     uses: ./.github/workflows/issue.yml
     with:
-      mode:   ${{ inputs.mode }}
+      mode: ${{ inputs.mode }}
       runner: blacksmith-32vcpu-ubuntu-2404
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
