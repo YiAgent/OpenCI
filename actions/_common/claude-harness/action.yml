@@ -113,6 +113,20 @@ inputs:
     description: Use a single sticky comment for PR/Issue dedup ("true" / "false").
     required: false
     default: "true"
+  classify-inline-comments:
+    description: |
+      Buffer inline comments and classify them with Claude Haiku before posting.
+      Set to "false" to post all inline comments immediately (useful in pure
+      automation pipelines where every comment is intentional).
+    required: false
+    default: "true"
+  include-fix-links:
+    description: |
+      Attach a "Fix this" link to each review comment that opens Claude Code
+      with the issue pre-loaded. Set to "false" to suppress these links in
+      fully-automated review jobs.
+    required: false
+    default: "true"
   extra-env:
     description: |
       Additional env vars to inject into Claude's bash tool context, as a JSON
@@ -226,3 +240,5 @@ runs:
         additional_permissions: |
           actions: read
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
+        classify_inline_comments:  ${{ inputs.classify-inline-comments }}
+        include_fix_links:         ${{ inputs.include-fix-links }}
