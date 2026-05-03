@@ -67,9 +67,9 @@ runs:
         fi
 
         CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' \
-          trivy-results.json 2>/dev/null || echo 0)
+          trivy-results.json)
         HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' \
-          trivy-results.json 2>/dev/null || echo 0)
+          trivy-results.json)
         CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}
 
         FOUND="false"

@@ -86,8 +86,9 @@ duplicate. Reference the run ID in your comment.
 
 ### Step 4 — Build failure analysis
 
-If build failed, look at the log in `ci-context.json` (field
-`.failure_context.build_log`). Identify:
+If build failed, check `failure_context.logs_available` in `ci-context.json`.
+When `false` (the typical case), fetch the build job log via `gh api` as shown
+in Step 1. Identify:
 - Which file and line caused the error
 - Whether it is a type error, missing dep, OOM, or infra flake
 - Whether it is likely flaky (same step recently failed/passed intermittently)
@@ -97,7 +98,9 @@ Flaky failures still warrant a `ci-failure` issue but with label `flaky`.
 ### Step 5 — CVE analysis
 
 For CRITICAL CVEs:
-- Identify the vulnerable package from `ci-context.json`
+- Download the `trivy-results.sarif` or `trivy-results.json` artifact from the
+  run (`gh api repos/{{repo}}/actions/runs/{{run_id}}/artifacts`) to identify
+  the vulnerable package and fixed version
 - State the minimum safe version (if known) or recommend dependency audit
 - Use label `security` AND `priority:critical`
 
@@ -178,7 +181,7 @@ echo "::error title=Deploy Blocked::CRITICAL CVE found — see issue #<number>"
 
 After completing your actions, print a brief summary:
 
-```
+```text
 CI Analysis complete.
 - Failure type: <type>
 - Action taken: <created issue #N | commented on #N | no action (reason)>
