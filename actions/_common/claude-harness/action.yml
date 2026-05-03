@@ -124,6 +124,17 @@ inputs:
       for inline overrides.
     required: false
     default: ""
+  plugins:
+    description: |
+      Newline-separated list of Claude Code plugin identifiers to install before
+      the agent run. Example: "anthropics/claude-code-plugin-foo@1.0.0"
+    required: false
+    default: ""
+  plugin-marketplaces:
+    description: |
+      Newline-separated list of custom marketplace URLs used to resolve plugins.
+    required: false
+    default: ""
   use-sticky-comment:
     description: Use a single sticky comment for PR/Issue dedup ("true" / "false").
     required: false
@@ -256,6 +267,8 @@ runs:
         additional_permissions: |
           actions: read
           ${{ inputs.extra-permissions }}
+        plugins:             ${{ inputs.plugins }}
+        plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
         classify_inline_comments:  ${{ inputs.classify-inline-comments }}
         include_fix_links:         ${{ inputs.include-fix-links }}
