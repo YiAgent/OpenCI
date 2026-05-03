@@ -1,0 +1,255 @@
+# test.yml — Self-bootstrapping comprehensive test suite for OpenCI.
+#
+# Test pyramid:
+#   Layer 1: Unit tests (BATS shell + Node.js) — fast, offline, always run
+#   Layer 2: Integration tests — exercises action pipelines with fixtures
+#   Layer 3: Agentic eval — calls Claude API to validate skill output shape
+#   Layer 4: Live E2E — fires a real test issue, observes full agentic pipeline
+#
+# The live E2E test makes this workflow self-bootstrapping: OpenCI tests
+# itself by triggering its own issue-ops pipeline and verifying the response.
+name: test
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      run-agentic-eval:
+        description: "Run live agentic eval tests (requires ANTHROPIC_API_KEY)"
+        type: boolean
+        default: false
+      run-live-e2e:
+        description: "Run self-bootstrapping live E2E test (creates a real issue)"
+        type: boolean
+        default: false
+      eval-model:
+        description: "Claude model for agentic eval (default: claude-haiku-4-5)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-shell:
+    name: "Unit › Shell (BATS)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Install BATS
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bats jq
+          bats --version
+
+      - name: Run action shell unit tests
+        run: bats --tap --recursive tests/actions/ 2>&1 | tee bats-unit.log
+
+      - name: Run script shell unit tests
+        run: bats --tap --recursive tests/scripts/ 2>&1 | tee bats-scripts.log
+
+      - name: Upload BATS logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bats-unit-logs-${{ github.run_id }}
+          path: "*.log"
+          if-no-files-found: ignore
+
+  unit-js:
+    name: "Unit › JavaScript"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Run issue execute-plan unit tests
+        run: node --test tests/actions/issue-execute-plan.test.js
+
+      - name: Run PR execute-plan unit tests
+        run: node --test tests/actions/pr-execute-plan.test.js
+
+  integration-pipeline:
+    name: "Integration › Issue Pipeline"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [unit-shell, unit-js]
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bats jq
+
+      - name: Run integration pipeline tests
+        run: bats --tap tests/integration/issue-pipeline.bats
+
+  integration-contract:
+    name: "Integration › Agent Plan Contract"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [unit-js]
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Run agent plan contract tests
+        run: node --test tests/integration/agent-plan-contract.test.js
+
+  agentic-offline:
+    name: "Agentic › Offline (Schema + Skill Contract)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [unit-js]
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Run offline issue triage eval (schema only)
+        run: node --test tests/agentic/issue-triage-eval.test.js
+
+      - name: Run offline PR review eval (schema only)
+        run: node --test tests/agentic/pr-review-eval.test.js
+
+  agentic-live:
+    name: "Agentic › Live Claude Eval"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [integration-pipeline, integration-contract, agentic-offline]
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run-agentic-eval == true) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Check API key
+        id: gate
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping live agentic eval"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Anthropic SDK
+        if: steps.gate.outputs.skip != 'true'
+        run: npm install --no-save @anthropic-ai/sdk
+
+      - name: Run live issue triage eval
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: ${{ inputs.eval-model || 'claude-haiku-4-5-20251001' }}
+        run: node --test tests/agentic/issue-triage-eval.test.js
+
+      - name: Run live PR review eval
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: ${{ inputs.eval-model || 'claude-haiku-4-5-20251001' }}
+        run: node --test tests/agentic/pr-review-eval.test.js
+
+  live-e2e:
+    name: "E2E › Self-Bootstrapping Issue Workflow"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [agentic-offline, integration-contract]
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run-live-e2e == true)
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Check required secrets
+        id: e2e-gate
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping live E2E"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run self-bootstrapping E2E test
+        if: steps.e2e-gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAX_WAIT_SEC: "600"
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: bash tests/e2e/live-e2e-verify.sh
+
+  all-tests:
+    name: "All Tests"
+    runs-on: ubuntu-latest
+    needs:
+      - unit-shell
+      - unit-js
+      - integration-pipeline
+      - integration-contract
+      - agentic-offline
+    if: always()
+    steps:
+      - name: Check all required jobs passed
+        run: |
+          results=(
+            "${{ needs.unit-shell.result }}"
+            "${{ needs.unit-js.result }}"
+            "${{ needs.integration-pipeline.result }}"
+            "${{ needs.integration-contract.result }}"
+            "${{ needs.agentic-offline.result }}"
+          )
+          failed=0
+          for result in "${results[@]}"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "FAIL: job result = $result"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "One or more required test jobs failed."
+            exit 1
+          fi
+          echo "All required test jobs passed."

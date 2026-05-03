@@ -1,0 +1,27 @@
+{
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "mode": "lifecycle"
+  },
+  "repo": { "name": "YiAgent/OpenCI" },
+  "issue": {
+    "number": 9003,
+    "title": "[test] Potential secret exposure in workflow run logs",
+    "body": "## Security concern\n\nI noticed that when the `claude-harness` action fails, the full environment is sometimes dumped to the log, which could expose secrets like `ANTHROPIC_API_KEY` or `LINEAR_TOKEN`.\n\n## Reproduction\nTrigger a harness failure with debug logging enabled.\n\n## Impact\nAny collaborator with read access to Actions logs can see the exposed secrets.\n\n## Suggested fix\nAdd `::add-mask::` directives for all secret values at the start of the harness.",
+    "labels": [],
+    "author_association": "OWNER",
+    "user": { "login": "security-reporter" },
+    "state": "open",
+    "created_at": "2026-05-03T12:00:00Z",
+    "updated_at": "2026-05-03T12:00:00Z"
+  },
+  "comment": null,
+  "client_payload": null,
+  "form": {},
+  "management": {
+    "labels_applied": [],
+    "duplicate_candidates": [],
+    "stale_action": null
+  }
+}

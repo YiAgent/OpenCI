@@ -1,0 +1,21 @@
+{
+  "version": "issue-action-plan/v1",
+  "reasoning": "Bug report from trusted member about CI failure. Labeling as bug + infra, priority p2. Clear reproduction steps provided.",
+  "actions": [
+    {
+      "skill": "add_label",
+      "params": { "labels": ["bug", "infra"] }
+    },
+    {
+      "skill": "set_priority",
+      "params": { "priority": "p2" }
+    },
+    {
+      "skill": "add_comment",
+      "params": {
+        "body": "Thanks for the detailed report! This looks like an issue with the `api-key-gate` action not handling the missing-key case gracefully. I've labeled this `bug/infra` with p2 priority. A fix would add proper skip logic."
+      }
+    }
+  ],
+  "skip_reason": null
+}
