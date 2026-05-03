@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: ./.github/workflows/reusable/pr.yml
+    uses: ./.github/workflows/pr.yml
     with:
       enable-ai-review: true
       enable-eval:      true

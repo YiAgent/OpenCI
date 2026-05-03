@@ -40,7 +40,7 @@ jobs:
         && github.event.workflow_run.name == 'on-ci'
         && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg')
-    uses: ./.github/workflows/reusable/stg.yml
+    uses: ./.github/workflows/stg.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -54,7 +54,7 @@ jobs:
         && github.event.workflow_run.conclusion == 'success')
       || github.event_name == 'repository_dispatch'
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd')
-    uses: ./.github/workflows/reusable/prd.yml
+    uses: ./.github/workflows/prd.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -63,14 +63,14 @@ jobs:
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: ./.github/workflows/reusable/prd-observe.yml
+    uses: ./.github/workflows/prd-observe.yml
     with:
       mode: canary-watch
     secrets: inherit
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: ./.github/workflows/reusable/prd-observe.yml
+    uses: ./.github/workflows/prd-observe.yml
     with:
       mode:      terraform-drift
       infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}

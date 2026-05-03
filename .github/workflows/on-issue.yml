@@ -1,5 +1,5 @@
 # on-issue.yml — event entry for the issue/community domain.
-# Routes every issue-related GitHub event into reusable/issue.yml with the
+# Routes every issue-related GitHub event into issue.yml with the
 # appropriate `mode`. External users mirror this pattern in their own repo.
 name: on-issue
 
@@ -34,19 +34,19 @@ concurrency:
 jobs:
   triage:
     if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'repository_dispatch'
-    uses: ./.github/workflows/reusable/issue.yml
+    uses: ./.github/workflows/issue.yml
     with:
       mode: ${{ inputs.mode || '' }}
     secrets: inherit
 
   welcome:
     if: github.event_name == 'pull_request_target' || github.event_name == 'issues'
-    uses: ./.github/workflows/reusable/issue.yml
+    uses: ./.github/workflows/issue.yml
     with:
       mode: welcome
 
   stale-sweep:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stale')
-    uses: ./.github/workflows/reusable/issue.yml
+    uses: ./.github/workflows/issue.yml
     with:
       mode: stale
