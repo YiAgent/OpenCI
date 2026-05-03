@@ -101,6 +101,14 @@ inputs:
     description: Comma-separated list of tools to explicitly disallow (passed as --disallowedTools).
     required: false
     default: ""
+  extra-permissions:
+    description: |
+      Additional GitHub Actions permissions to grant, in YAML key: value form
+      (one per line). These are APPENDED to the hardcoded floor "actions: read"
+      which must always be present for the baseline mcp__github_ci__* tools.
+      Example: "contents: write\npull-requests: write"
+    required: false
+    default: ""
   mcp-config:
     description: |
       Either a JSON string of {"mcpServers": {...}} or a path (relative to
@@ -239,6 +247,7 @@ runs:
         settings:                ${{ steps.compose.outputs.settings }}
         additional_permissions: |
           actions: read
+          ${{ inputs.extra-permissions }}
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
         classify_inline_comments:  ${{ inputs.classify-inline-comments }}
         include_fix_links:         ${{ inputs.include-fix-links }}
