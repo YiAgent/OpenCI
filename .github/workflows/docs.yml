@@ -1,4 +1,4 @@
-# docs.yml — event entry for documentation builds + Pages publish.
+# docs.yml — event entry for the documentation quality + agentic sync pipeline.
 name: docs
 
 on:
@@ -8,24 +8,33 @@ on:
       - "**/*.md"
   push:
     branches: [main]
-    paths:
-      - "docs/**"
-      - "**/*.md"
+  schedule:
+    - cron: "0 9 * * 1"  # every Monday at 09:00 UTC
+  release:
+    types: [published]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
+
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: false
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   docs:
     uses: ./.github/workflows/reusable/docs.yml
     with:
-      build-cmd: ${{ vars.DOCS_BUILD_CMD }}
-      docs-dir: ${{ vars.DOCS_DIR || 'docs' }}
-      site-dir: ${{ vars.DOCS_SITE_DIR || 'site' }}
-      runner: blacksmith-32vcpu-ubuntu-2404
+      build-cmd:    ${{ vars.DOCS_BUILD_CMD || '' }}
+      docs-path:    ${{ vars.DOCS_DIR || 'docs' }}
+      site-dir:     ${{ vars.DOCS_SITE_DIR || 'site' }}
+      enable-agent: true
+      runner:       blacksmith-32vcpu-ubuntu-2404
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
+    permissions:
+      contents:      write
+      pull-requests: write
+      issues:        write
+      pages:         write
+      id-token:      write
