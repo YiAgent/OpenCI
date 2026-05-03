@@ -298,7 +298,7 @@ jobs:
     outputs:
       has_issues:     ${{ steps.enrich.outputs.has_issues }}
       overall_health: ${{ steps.enrich.outputs.overall_health }}
-      context_path:   ${{ steps.enrich.outputs.context_path }}
+      context_json:   ${{ steps.enrich.outputs.context_json }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -371,18 +371,10 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - name: Read context file
-        id: ctx
-        env:
-          CTX_PATH: ${{ needs.enrich.outputs.context_path }}
-        shell: bash
-        run: |
-          CTX="$(cat "$CTX_PATH")"
-          { echo "context<<EOF"; echo "$CTX"; echo "EOF"; } >> "$GITHUB_OUTPUT"
       - uses: ./.openci/actions/_common/claude-harness
         with:
           task: maintenance-analyst
-          context: ${{ steps.ctx.outputs.context }}
+          context: ${{ needs.enrich.outputs.context_json }}
           github-token: ${{ github.token }}
           api-key:      ${{ secrets.anthropic-api-key }}
           api-base-url: ${{ secrets.api-base-url }}

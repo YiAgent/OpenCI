@@ -71,9 +71,9 @@ outputs:
   overall_health:
     description: Overall health classification.
     value: ${{ steps.enrich.outputs.overall_health }}
-  context_path:
-    description: Path to the written context.json file.
-    value: ${{ steps.enrich.outputs.context_path }}
+  context_json:
+    description: Compact JSON string containing all maintenance signals (passed directly to agent job).
+    value: ${{ steps.enrich.outputs.context_json }}
 
 runs:
   using: composite
@@ -114,10 +114,8 @@ runs:
           HAS_ISSUES="true"
         fi
 
-        # ── Write context.json ──────────────────────────────────────────────
-        CONTEXT_PATH="${RUNNER_TEMP}/maintenance-context.json"
-
-        jq -n \
+        # ── Build context JSON ──────────────────────────────────────────────
+        CTX_JSON="$(jq -cn \
           --arg  repo            "$REPO" \
           --arg  sha             "$SHA" \
           --arg  run_url         "$RUN_URL" \
@@ -139,29 +137,23 @@ runs:
             run_url:    $run_url,
             health:     $health,
             scans: {
-              secrets: {
-                found: ($secrets_found == "true"),
-                count: $secrets_count
-              },
-              cve: {
-                critical: $trivy_critical,
-                high:     $trivy_high,
-                medium:   $trivy_medium
-              },
-              sast: {
-                found: ($codeql_found == "true")
-              }
+              secrets: { found: ($secrets_found == "true"), count: $secrets_count },
+              cve:     { critical: $trivy_critical, high: $trivy_high, medium: $trivy_medium },
+              sast:    { found: ($codeql_found == "true") }
             },
             deps: {
               major: { count: $major_count, prs: $major_prs },
               minor: { count: $minor_count, prs: $minor_prs },
               patch: { count: $patch_count }
             }
-          }' > "$CONTEXT_PATH"
+          }')"
 
-        echo "has_issues=${HAS_ISSUES}"     >> "$GITHUB_OUTPUT"
-        echo "overall_health=${HEALTH}"     >> "$GITHUB_OUTPUT"
-        echo "context_path=${CONTEXT_PATH}" >> "$GITHUB_OUTPUT"
+        { echo "has_issues=${HAS_ISSUES}"; echo "overall_health=${HEALTH}"; } >> "$GITHUB_OUTPUT"
+
+        # Emit JSON content directly — use a randomized delimiter to prevent
+        # accidental EOF collision if PR titles or dep names contain "EOF".
+        DELIM="ENRICH_CTX_$(date +%s%N)"
+        { echo "context_json<<${DELIM}"; printf '%s' "$CTX_JSON"; echo ""; echo "${DELIM}"; } >> "$GITHUB_OUTPUT"
 
         # ── Job summary ─────────────────────────────────────────────────────
         ICON="✅"
@@ -180,5 +172,4 @@ runs:
           echo "| Dep updates major/minor/patch | ${MAJOR_COUNT} / ${MINOR_COUNT} / ${PATCH_COUNT} |"
         } >> "$GITHUB_STEP_SUMMARY"
 
-        echo "Context written to ${CONTEXT_PATH}"
-        cat "$CONTEXT_PATH"
+        echo "$CTX_JSON"
