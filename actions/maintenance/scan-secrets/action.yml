@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# maintenance/scan-secrets — Full git-history secret scan via gitleaks.
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs gitleaks in git-detect mode (scans the committed history, not just the
+# working tree). This catches secrets that were committed and later removed —
+# they still live in git history and are exploitable.
+#
+# Distinct from _common/gitleaks-artifact which scans a directory tree without
+# git context. Use this composite when fetch-depth: 0 is set on the checkout.
+#
+# Outputs:
+#   found  "true" when ≥1 verified secret is detected, "false" otherwise.
+#   count  Integer count of findings (0 when clean or on scan error).
+# ─────────────────────────────────────────────────────────────────────────────
+name: Maintenance · Secret Scan
+description: Full git-history gitleaks scan; outputs found count for the agent.
+
+outputs:
+  found:
+    description: '"true" when secrets detected in git history.'
+    value: ${{ steps.scan.outputs.found }}
+  count:
+    description: Number of findings (0 when clean).
+    value: ${{ steps.scan.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install gitleaks
+      shell: bash
+      env:
+        VERSION: "8.18.0"
+      run: |
+        set -euo pipefail
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks version
+          exit 0
+        fi
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64)           ARCH="x64"   ;;
+          aarch64|arm64)    ARCH="arm64" ;;
+        esac
+        URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_${OS}_${ARCH}.tar.gz"
+        TMP="$(mktemp -d)"
+        curl -sSL --max-time 60 "$URL" -o "${TMP}/g.tgz"
+        tar -xzf "${TMP}/g.tgz" -C "$TMP"
+        sudo install -m 0755 "${TMP}/gitleaks" /usr/local/bin/gitleaks
+        gitleaks version
+
+    - name: Scan git history
+      id: scan
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Exit codes: 0 = clean, 1 = leaks found, 2 = error
+        if gitleaks detect \
+            --redact \
+            --report-format json \
+            --report-path gitleaks-report.json \
+            2>/dev/null; then
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "count=0"     >> "$GITHUB_OUTPUT"
+          echo "::notice title=Gitleaks::No secrets detected in git history"
+        else
+          EXIT=$?
+          if [ "$EXIT" -eq 1 ] && [ -f gitleaks-report.json ]; then
+            COUNT=$(jq 'length' gitleaks-report.json 2>/dev/null || echo 1)
+            echo "found=true"        >> "$GITHUB_OUTPUT"
+            echo "count=${COUNT}"    >> "$GITHUB_OUTPUT"
+            echo "::error title=Gitleaks::${COUNT} secret(s) detected — see gitleaks-report.json"
+          else
+            # Scan error (exit 2) or missing report: don't block, warn instead.
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "count=0"     >> "$GITHUB_OUTPUT"
+            echo "::warning title=Gitleaks::scan exited $EXIT without a report; treating as clean"
+          fi
+        fi

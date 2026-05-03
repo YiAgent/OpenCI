@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# maintenance/check-updates — Query pending Renovate/Dependabot PRs by semver.
+# ─────────────────────────────────────────────────────────────────────────────
+# Calls the GitHub REST API to list open PRs from Renovate or Dependabot,
+# then classifies them by the semver labels defined in renovate.json:
+#   patch label  → auto-merged in reusable/deps.yml; counted here for context
+#   minor label  → needs attention; included in agent context
+#   major label  → breaking change; highest priority for agent review
+#
+# Requires: github-token with pull_requests: read permission.
+#
+# Outputs:
+#   has_updates   "true" if any pending dep update PRs exist.
+#   major_count   Integer count of open major-update PRs.
+#   minor_count   Integer count of open minor-update PRs.
+#   patch_count   Integer count of open patch-update PRs.
+#   major_prs     JSON array of {number, title} for major PRs (max 20).
+#   minor_prs     JSON array of {number, title} for minor PRs (max 20).
+# ─────────────────────────────────────────────────────────────────────────────
+name: Maintenance · Check Updates
+description: Query pending Renovate/Dependabot PRs classified by semver label.
+
+inputs:
+  github-token:
+    description: GitHub token with pull_requests read permission.
+    required: true
+
+outputs:
+  has_updates:
+    description: '"true" when any pending dependency update PRs exist.'
+    value: ${{ steps.classify.outputs.has_updates }}
+  major_count:
+    description: Count of open major-update PRs.
+    value: ${{ steps.classify.outputs.major_count }}
+  minor_count:
+    description: Count of open minor-update PRs.
+    value: ${{ steps.classify.outputs.minor_count }}
+  patch_count:
+    description: Count of open patch-update PRs.
+    value: ${{ steps.classify.outputs.patch_count }}
+  major_prs:
+    description: JSON array of {number, title} for major PRs.
+    value: ${{ steps.classify.outputs.major_prs }}
+  minor_prs:
+    description: JSON array of {number, title} for minor PRs.
+    value: ${{ steps.classify.outputs.minor_prs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Classify dependency update PRs
+      id: classify
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const depAuthors = ['renovate[bot]', 'dependabot[bot]', 'renovate'];
+
+          // Fetch all open PRs (up to 100 — enough for any active repo)
+          const { data: allPRs } = await github.rest.pulls.list({
+            owner: context.repo.owner,
+            repo:  context.repo.repo,
+            state: 'open',
+            per_page: 100,
+          });
+
+          // Filter to only bot-authored dependency update PRs
+          const depPRs = allPRs.filter(pr =>
+            depAuthors.includes(pr.user?.login ?? '')
+          );
+
+          const majorPRs = [];
+          const minorPRs = [];
+          let patchCount = 0;
+
+          for (const pr of depPRs) {
+            const labels = pr.labels.map(l => l.name);
+            const isMajor = labels.includes('major') || labels.includes('breaking-change');
+            const isMinor = labels.includes('minor');
+            const isPatch = labels.includes('patch');
+
+            if (isMajor) {
+              majorPRs.push({ number: pr.number, title: pr.title });
+            } else if (isMinor) {
+              minorPRs.push({ number: pr.number, title: pr.title });
+            } else if (isPatch) {
+              patchCount++;
+            } else {
+              // Unlabeled dep PR: treat as minor for agent visibility
+              minorPRs.push({ number: pr.number, title: pr.title });
+            }
+          }
+
+          // Cap arrays to avoid oversized outputs
+          const majorSlice = majorPRs.slice(0, 20);
+          const minorSlice = minorPRs.slice(0, 20);
+
+          const hasUpdates = (majorPRs.length + minorPRs.length + patchCount) > 0;
+
+          core.setOutput('has_updates',   String(hasUpdates));
+          core.setOutput('major_count',   String(majorPRs.length));
+          core.setOutput('minor_count',   String(minorPRs.length));
+          core.setOutput('patch_count',   String(patchCount));
+          core.setOutput('major_prs',     JSON.stringify(majorSlice));
+          core.setOutput('minor_prs',     JSON.stringify(minorSlice));
+
+          const summary = [
+            `**Dependency Update PRs**`,
+            `- Major (breaking): ${majorPRs.length}`,
+            `- Minor: ${minorPRs.length}`,
+            `- Patch (auto-merge eligible): ${patchCount}`,
+          ].join('\n');
+          await core.summary.addRaw(summary).write();
+
+          if (majorPRs.length > 0) {
+            core.warning(`${majorPRs.length} major dependency update(s) pending review`, {
+              title: 'Dependency Updates',
+            });
+          } else {
+            core.notice(`No major dependency updates pending`, {
+              title: 'Dependency Updates',
+            });
+          }
