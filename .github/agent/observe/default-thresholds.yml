@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# default-thresholds.yml
+# Metric name must match the `name` field in raw-metrics.json output.
+# Override per-project via inputs.thresholds_file.
+#
+# Schema per metric:
+#   warning:  alert but don't rollback
+#   critical: alert + consider rollback
+#   direction: high (alert when value > threshold) | low (alert when < threshold)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Sentry ───────────────────────────────────────────────────────────────────
+error_rate:
+  warning:   0.01     # 1%
+  critical:  0.05     # 5%
+  direction: high
+
+crash_free_rate:
+  warning:   99.0     # below 99% = warning
+  critical:  97.0     # below 97% = critical
+  direction: low
+
+new_issues_count:
+  warning:   5
+  critical:  20
+  direction: high
+
+p95_transaction_ms:
+  warning:   1000     # 1 second
+  critical:  3000     # 3 seconds
+  direction: high
+
+apdex:
+  warning:   0.85
+  critical:  0.70
+  direction: low
+
+# ── PostHog (product KPIs) ───────────────────────────────────────────────────
+error_event_count:
+  warning:   50
+  critical:  200
+  direction: high
+
+funnel_conversion:
+  warning:   60       # % — tune per product
+  critical:  40
+  direction: low
+
+# Business events: override these in your project thresholds file
+# event_purchase_count:
+#   warning:   100
+#   critical:  50
+#   direction: low    # drop in purchase volume is bad
+
+# ── Axiom (logs) ─────────────────────────────────────────────────────────────
+log_error_rate:
+  warning:   0.02     # 2% of log lines are errors
+  critical:  0.10     # 10%
+  direction: high
+
+request_p99_ms:
+  warning:   2000
+  critical:  5000
+  direction: high
+
+# ── Datadog (infra / APM) ────────────────────────────────────────────────────
+cpu_usage:
+  warning:   70
+  critical:  90
+  direction: high
+
+memory_usage:
+  warning:   80
+  critical:  95
+  direction: high
+
+p99_latency_ms:
+  warning:   1000
+  critical:  3000
+  direction: high
+
+# ── LangSmith (LLM) ──────────────────────────────────────────────────────────
+run_error_rate:
+  warning:   0.05     # 5% of LLM runs failing
+  critical:  0.20     # 20%
+  direction: high
+
+run_p99_latency_ms:
+  warning:   10000    # 10s p99 for LLM calls
+  critical:  30000    # 30s
+  direction: high
+
+total_cost_usd:
+  warning:   50.0     # per observe window — tune this aggressively
+  critical:  200.0
+  direction: high
+
+eval_score:
+  warning:   0.70     # eval score below 70% = warning
+  critical:  0.50     # below 50% = critical
+  direction: low
+
+feedback_score:
+  warning:   0.60
+  critical:  0.40
+  direction: low
