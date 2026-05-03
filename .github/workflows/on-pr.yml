@@ -32,4 +32,5 @@ jobs:
     with:
       enable-ai-review: true
       enable-eval:      true
+      runner:           blacksmith-32vcpu-ubuntu-2404
     secrets: inherit

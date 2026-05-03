@@ -55,6 +55,11 @@ on:
         type: boolean
         required: false
         default: false
+      runner:
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
     secrets:
       api-base-url:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
@@ -80,7 +85,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -107,7 +112,7 @@ jobs:
   detect-language:
     name: Detect Language
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -141,7 +146,7 @@ jobs:
     name: Auto Label
     needs: preflight
     if: github.event.pull_request != null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -183,7 +188,7 @@ jobs:
     # Only when CODEOWNERS hasn't already populated reviewers. GitHub
     # expression syntax has no `length()`, so check first element instead.
     if: github.event.pull_request != null && github.event.pull_request.requested_reviewers[0] == null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -223,7 +228,7 @@ jobs:
     name: Validate PR Title
     needs: preflight
     if: github.event.pull_request != null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -238,7 +243,7 @@ jobs:
     name: Validate PR Description
     needs: preflight
     if: github.event.pull_request != null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -277,7 +282,7 @@ jobs:
     name: Scan Dependencies
     needs: preflight
     if: github.event.pull_request != null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -292,7 +297,7 @@ jobs:
   scan-secrets:
     name: Scan Secrets
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -330,7 +335,7 @@ jobs:
   scan-sonarcloud:
     name: Scan SonarCloud
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -346,7 +351,7 @@ jobs:
   lint:
     name: Lint
     needs: detect-language
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -387,7 +392,7 @@ jobs:
   test:
     name: Test
     needs: detect-language
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -431,7 +436,7 @@ jobs:
   coverage:
     name: Coverage
     needs: test
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -478,7 +483,7 @@ jobs:
   build-check:
     name: Build Check
     needs: detect-language
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -525,7 +530,7 @@ jobs:
   ai-review:
     name: AI Review
     needs: [lint, test]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     if: inputs.enable-ai-review == true
     permissions:
@@ -571,7 +576,7 @@ jobs:
   eval-prompt:
     name: Eval Prompts
     needs: ai-review
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     if: always() && inputs.enable-eval == true
     permissions:
@@ -621,7 +626,7 @@ jobs:
     name: Copilot Review
     needs: preflight
     if: inputs.enable-copilot-review == true && github.event.pull_request != null
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -675,7 +680,7 @@ jobs:
       needs.test.result == 'success' &&
       needs.validate-pr-title.result == 'success' &&
       needs.scan-deps.result == 'success'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -725,7 +730,7 @@ jobs:
     name: Stage 3 · Agent Plan
     needs: enrich
     if: inputs.enable-ai-review == true
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -835,7 +840,7 @@ jobs:
     name: Stage 4 · Execute
     needs: [enrich, agent]
     if: always() && needs.agent.result == 'success'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       pull-requests: write

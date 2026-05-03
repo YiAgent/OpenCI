@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: main
+      runner:
+        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
       mode:
         description: Force a specific observer (canary-watch|terraform-drift|verify-fix)
         required: false
@@ -70,7 +75,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'canary-watch')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'canary-watch')
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -135,8 +140,8 @@ jobs:
         if: steps.recent.outputs.skip != 'true'
         id: rates
         env:
-          TOKEN:   ${{ secrets.sentry-token }}
-          ORG:     ${{ vars.SENTRY_ORG }}
+          TOKEN: ${{ secrets.sentry-token }}
+          ORG: ${{ vars.SENTRY_ORG }}
           PROJECT: ${{ vars.SENTRY_PROJECT }}
           ENV_VAR: ${{ vars.SENTRY_ENVIRONMENT || 'production' }}
         run: |
@@ -208,8 +213,8 @@ jobs:
         if: steps.recent.outputs.skip != 'true'
         uses: ./.openci/actions/prd/canary-watch
         with:
-          current-rate:     ${{ steps.rates.outputs.current }}
-          history-rates:    ${{ steps.rates.outputs.history }}
+          current-rate: ${{ steps.rates.outputs.current }}
+          history-rates: ${{ steps.rates.outputs.history }}
           regression-fails: "false"
 
   # ── terraform-drift (daily at 04:00 UTC) ─────────────────────────────────
@@ -219,7 +224,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'terraform-drift')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'terraform-drift')
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -257,7 +262,7 @@ jobs:
           persist-credentials: false
       - uses: ./.openci/actions/prd/terraform-drift
         with:
-          infra-dir:    ${{ inputs.infra-dir || vars.TERRAFORM_DIR || 'infrastructure' }}
+          infra-dir: ${{ inputs.infra-dir || vars.TERRAFORM_DIR || 'infrastructure' }}
           github-token: ${{ github.token }}
 
   # ── verify-fix (after prd workflow succeeds) ────────────────────────────
@@ -267,7 +272,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
       || (github.event_name == 'workflow_call'     && inputs.mode == 'verify-fix')
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -307,8 +312,8 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO:     ${{ github.repository }}
-          SHA:      ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           if [ -z "$SHA" ]; then
@@ -333,8 +338,8 @@ jobs:
         if: steps.pr.outputs.found == 'true'
         uses: ./.openci/actions/prd/verify-fix
         with:
-          pr-number:      ${{ steps.pr.outputs.number }}
-          github-token:   ${{ github.token }}
-          sentry-token:   ${{ secrets.sentry-token }}
-          sentry-org:     ${{ vars.SENTRY_ORG }}
+          pr-number: ${{ steps.pr.outputs.number }}
+          github-token: ${{ github.token }}
+          sentry-token: ${{ secrets.sentry-token }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}

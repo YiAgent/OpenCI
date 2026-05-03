@@ -20,7 +20,13 @@
 name: dep-auto-merge
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
 
 permissions: {}
 
@@ -31,7 +37,7 @@ concurrency:
 jobs:
   enable-auto-merge:
     name: Enable Auto-Merge
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
     if: |
       github.event.pull_request.user.login == 'renovate[bot]' &&
@@ -44,9 +50,9 @@ jobs:
         with: { egress-policy: audit }
       - name: gh pr merge --auto
         env:
-          GH_TOKEN:  ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO:      ${{ github.repository }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash

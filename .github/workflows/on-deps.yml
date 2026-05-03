@@ -16,3 +16,5 @@ concurrency:
 jobs:
   deps:
     uses: ./.github/workflows/deps.yml
+    with:
+      runner: blacksmith-32vcpu-ubuntu-2404

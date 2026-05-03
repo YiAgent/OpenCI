@@ -43,6 +43,7 @@ jobs:
     uses: ./.github/workflows/security-schedule.yml
     with:
       image-ref: ${{ vars.IMAGE_REF }}
+      runner:    blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   flag-audit:

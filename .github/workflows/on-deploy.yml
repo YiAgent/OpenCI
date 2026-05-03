@@ -45,6 +45,7 @@ jobs:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.STG_HEALTH_URL }}
+      runner:      blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   prd:
@@ -59,13 +60,15 @@ jobs:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.PRD_HEALTH_URL }}
+      runner:      blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
     uses: ./.github/workflows/prd-observe.yml
     with:
-      mode: canary-watch
+      mode:   canary-watch
+      runner: blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   observe-drift:
@@ -74,6 +77,7 @@ jobs:
     with:
       mode:      terraform-drift
       infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
+      runner:    blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   # ──────────────────────────────────────────────────────────────────────

@@ -42,8 +42,9 @@ jobs:
   agent:
     uses: ./.github/workflows/agent.yml
     with:
-      task:        ${{ inputs.task }}
-      prompt:      ${{ inputs.prompt }}
+      task: ${{ inputs.task }}
+      prompt: ${{ inputs.prompt }}
       prompt-path: ${{ inputs.prompt-path }}
-      model:       ${{ inputs.model }}
+      model: ${{ inputs.model }}
+      runner: blacksmith-32vcpu-ubuntu-2404
     secrets: inherit

@@ -15,6 +15,11 @@ on:
         required: false
         type: string
         default: main
+      runner:
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
       mode:
         description: lifecycle | maintenance | ingest
         required: false
@@ -75,7 +80,7 @@ jobs:
   maintenance:
     name: Stage 1 · Maintenance
     if: inputs.mode == 'maintenance' || inputs.mode == 'stale'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -160,7 +165,7 @@ jobs:
   ingest:
     name: Stage 1 · Ingest
     if: inputs.mode != 'maintenance' && inputs.mode != 'stale'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -311,7 +316,7 @@ jobs:
   enrich:
     name: Stage 2 · Enrich
     needs: ingest
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -465,7 +470,7 @@ jobs:
   agent:
     name: Stage 3 · Agent Plan
     needs: [ingest, enrich]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -566,7 +571,7 @@ jobs:
   execute:
     name: Stage 4 · Guarded Execute
     needs: [ingest, enrich, agent]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: write

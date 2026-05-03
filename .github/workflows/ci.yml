@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: main
+      runner:
+        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
       language:
         type: string
         required: false
@@ -75,7 +80,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -110,7 +115,7 @@ jobs:
           persist-credentials: false
       - name: Probe secrets
         env:
-          REGISTRY_TOKEN:    ${{ secrets.registry-token || github.token }}
+          REGISTRY_TOKEN: ${{ secrets.registry-token || github.token }}
           ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
         run: |
           bash .github/scripts/preflight-secrets.sh \
@@ -120,12 +125,12 @@ jobs:
   detect-language:
     name: Detect Language
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
     outputs:
-      language:        ${{ steps.detect.outputs.language }}
+      language: ${{ steps.detect.outputs.language }}
       package-manager: ${{ steps.detect.outputs.package-manager }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
@@ -171,16 +176,16 @@ jobs:
   build-docker:
     name: Build Docker
     needs: detect-language
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
       id-token: write
     outputs:
-      image-digest:  ${{ steps.build.outputs.image-digest }}
+      image-digest: ${{ steps.build.outputs.image-digest }}
       image-tag-sha: ${{ steps.build.outputs.image-tag-sha }}
-      completed-at:  ${{ steps.build.outputs.completed-at }}
+      completed-at: ${{ steps.build.outputs.completed-at }}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -213,14 +218,14 @@ jobs:
       - id: build
         uses: ./.openci/actions/ci/build-docker
         with:
-          image-name:     ${{ inputs.image-name }}
-          registry:       ${{ inputs.registry }}
+          image-name: ${{ inputs.image-name }}
+          registry: ${{ inputs.registry }}
           registry-token: ${{ secrets.registry-token || github.token }}
 
   scan-image:
     name: Scan Image
     needs: build-docker
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -261,7 +266,7 @@ jobs:
   sign-image:
     name: Sign Image
     needs: build-docker
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -296,7 +301,7 @@ jobs:
           ref: ${{ steps.openci-ref.outputs.ref }}
           path: .openci
           persist-credentials: false
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ inputs.registry }}
           username: ${{ github.actor }}
@@ -309,7 +314,7 @@ jobs:
     name: Check Migration
     needs: build-docker
     if: inputs.run-migration == true
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -352,7 +357,7 @@ jobs:
     name: AI Smoke Eval
     needs: build-docker
     if: inputs.enable-ai-smoke == true
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -389,10 +394,10 @@ jobs:
           persist-credentials: false
       - uses: ./.openci/actions/ci/eval-smoke
         with:
-          image-digest:      ${{ needs.build-docker.outputs.image-digest }}
+          image-digest: ${{ needs.build-docker.outputs.image-digest }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
-          api-base-url:      ${{ secrets.api-base-url }}
-          model:             ${{ inputs.model }}
+          api-base-url: ${{ secrets.api-base-url }}
+          model: ${{ inputs.model }}
 
   # ──────────────────────────────────────────────────────────────────────
   # verify-sha — manifest SHA drift check (script in .github/scripts).
@@ -400,7 +405,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   verify-sha:
     name: Verify SHA Consistency
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read

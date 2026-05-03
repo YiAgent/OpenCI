@@ -35,6 +35,11 @@ on:
         required: false
         type: string
         default: main
+      runner:
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
       image-digest:
         type: string
         required: false
@@ -99,7 +104,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -144,7 +149,7 @@ jobs:
   pre-check:
     name: Pre-Check
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -191,7 +196,7 @@ jobs:
   deploy-k8s:
     name: Deploy K8s (production)
     needs: pre-check
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     environment:
       name: production
@@ -241,7 +246,7 @@ jobs:
     name: Run Migration (production)
     needs: deploy-k8s
     if: inputs.run-migration == true
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     environment:
       name: production
@@ -284,7 +289,7 @@ jobs:
     name: Smoke Test (production)
     needs: [deploy-k8s, run-migration]
     if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -325,7 +330,7 @@ jobs:
     name: Auto Rollback
     needs: [deploy-k8s, smoke-test]
     if: always() && needs.smoke-test.result == 'failure' && needs.deploy-k8s.result == 'success'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -381,7 +386,7 @@ jobs:
     name: Create Release
     needs: smoke-test
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -425,7 +430,7 @@ jobs:
     name: Notify Observability
     needs: [deploy-k8s, smoke-test]
     if: always() && needs.deploy-k8s.result == 'success'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -486,7 +491,7 @@ jobs:
     name: Notify Deployed
     needs: [deploy-k8s, smoke-test]
     if: always()
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
       contents: read

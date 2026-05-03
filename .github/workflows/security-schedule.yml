@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: main
+      runner:
+        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
+        required: false
+        type: string
+        default: ubuntu-latest
       image-ref:
         type: string
         required: false
@@ -35,7 +40,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -79,7 +84,7 @@ jobs:
   detect-language:
     name: Detect Language
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -122,7 +127,7 @@ jobs:
     name: CodeQL SAST
     needs: detect-language
     if: needs.detect-language.outputs.language != 'unknown'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -170,7 +175,7 @@ jobs:
     name: Trivy Full Scan
     needs: preflight
     if: inputs.image-ref != ''
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -211,7 +216,7 @@ jobs:
   generate-sbom:
     name: Generate SBOM
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -227,7 +232,7 @@ jobs:
   scan-snyk:
     name: Snyk
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -268,7 +273,7 @@ jobs:
   scorecard:
     name: OpenSSF Scorecard
     needs: preflight
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
