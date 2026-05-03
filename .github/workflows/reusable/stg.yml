@@ -517,6 +517,7 @@ jobs:
           compose-project-dir: ${{ inputs.compose-project-dir }}
           docker-run-args:     ${{ inputs.docker-run-args }}
           github-token:        ${{ github.token }}
+          environment:         staging
 
   notify-observability:
     name: Notify Observability

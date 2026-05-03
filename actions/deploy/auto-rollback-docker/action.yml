@@ -59,6 +59,10 @@ inputs:
   github-token:
     description: "GITHUB_TOKEN with `issues: write`."
     required: true
+  environment:
+    description: Deployment environment label used in the incident issue title.
+    required: false
+    default: staging
 
 runs:
   using: composite
@@ -104,7 +108,7 @@ runs:
         COMPOSE_FILE: ${{ inputs.compose-file }}
       run: |
         set -euo pipefail
-        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
 
         ssh_cmd "docker pull ${PREV_IMAGE} || true"
         ssh_cmd "cd ${COMPOSE_DIR} && \
@@ -125,7 +129,7 @@ runs:
         EXTRA_ARGS:     ${{ inputs.docker-run-args }}
       run: |
         set -euo pipefail
-        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
         container="${CONTAINER_NAME:-$APP}"
 
         ssh_cmd "docker pull ${PREV_IMAGE} || true"
@@ -144,13 +148,14 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        GH_TOKEN:    ${{ inputs.github-token }}
-        APP:         ${{ inputs.app-name }}
-        FAILED_IMG:  ${{ inputs.failed-image }}
-        PREV_IMG:    ${{ inputs.previous-image }}
-        RUN_URL:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        WORKFLOW:    ${{ github.workflow }}
-        SHA:         ${{ github.sha }}
+        GH_TOKEN:     ${{ inputs.github-token }}
+        APP:          ${{ inputs.app-name }}
+        FAILED_IMG:   ${{ inputs.failed-image }}
+        PREV_IMG:     ${{ inputs.previous-image }}
+        ENVIRONMENT:  ${{ inputs.environment }}
+        RUN_URL:      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW:     ${{ github.workflow }}
+        SHA:          ${{ github.sha }}
       run: |
         set -euo pipefail
         marker="run-id:${{ github.run_id }}"
@@ -160,7 +165,8 @@ runs:
           exit 0
         fi
 
-        title="P1: Production rollback (Docker) — ${APP}"
+        env_label="${ENVIRONMENT^}"
+        title="P1: ${env_label} rollback (Docker) — ${APP}"
         body=$(printf '%s\n' \
           "## Auto-rollback fired (Docker)" \
           "" \

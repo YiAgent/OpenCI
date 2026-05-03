@@ -11,7 +11,7 @@
 # Security:
 #   • SSH key is written to a masked temp file and removed after the step.
 #   • image-ref must be a digest reference (registry/…@sha256:…) to prevent
-#     tag-shift races; the action warns (but does not fail) for non-digest refs.
+#     tag-shift races; the action fails hard for non-digest refs.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Deploy · Docker
 description: Deploy a Docker image to a remote host via SSH (compose or run).
@@ -73,13 +73,14 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Warn on non-digest image ref
+    - name: Validate digest image ref
       shell: bash
       env:
         IMAGE: ${{ inputs.image-ref }}
       run: |
         if [[ "$IMAGE" != *"@sha256:"* ]]; then
-          echo "::warning title=Docker Deploy::image-ref is not a digest reference; tag may shift"
+          echo "::error title=Docker Deploy::image-ref must be a digest reference (@sha256:...); mutable tags are rejected"
+          exit 1
         fi
 
     - name: Write SSH key
@@ -105,16 +106,17 @@ runs:
       id: snapshot
       shell: bash
       env:
-        HOST:        ${{ inputs.ssh-host }}
-        USER:        ${{ inputs.ssh-user }}
-        PORT:        ${{ inputs.ssh-port }}
-        APP:         ${{ inputs.app-name }}
-        DEPLOY_MODE: ${{ inputs.deploy-mode }}
-        COMPOSE_DIR: ${{ inputs.compose-project-dir }}
-        COMPOSE_FILE: ${{ inputs.compose-file }}
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
+        PORT:           ${{ inputs.ssh-port }}
+        APP:            ${{ inputs.app-name }}
+        DEPLOY_MODE:    ${{ inputs.deploy-mode }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        COMPOSE_DIR:    ${{ inputs.compose-project-dir }}
+        COMPOSE_FILE:   ${{ inputs.compose-file }}
       run: |
         set -euo pipefail
-        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
 
         prev=""
         if [ "$DEPLOY_MODE" = "compose" ]; then
@@ -143,7 +145,7 @@ runs:
         TIMEOUT:      ${{ inputs.health-timeout }}
       run: |
         set -euo pipefail
-        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
 
         # Update image in compose override file so the compose file itself is
         # not modified on the server (avoids dirty git state on server).
@@ -151,16 +153,25 @@ runs:
           docker pull ${IMAGE} && \
           IMAGE=${IMAGE} docker compose -f ${COMPOSE_FILE} up -d --no-build ${APP}"
 
-        # Wait for container health
+        # Wait for container health — resolve container ID first to avoid
+        # false-pass when docker inspect is given a service name.
         elapsed=0
+        status="starting"
         while [ "$elapsed" -lt "$TIMEOUT" ]; do
-          status="$(ssh_cmd "docker inspect ${APP} --format '{{.State.Health.Status}}' 2>/dev/null" || echo "none")"
+          cid="$(ssh_cmd "cd ${COMPOSE_DIR} && docker compose -f ${COMPOSE_FILE} ps -q ${APP}" 2>/dev/null || true)"
+          if [ -n "$cid" ]; then
+            status="$(ssh_cmd "docker inspect ${cid} --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null" || echo "starting")"
+          fi
           if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
             break
           fi
           sleep 5
           elapsed=$((elapsed + 5))
         done
+        if [ "$status" != "healthy" ] && [ "$status" != "none" ]; then
+          echo "::error title=Docker Deploy::health check timed out (app=$APP status=$status timeout=${TIMEOUT}s)"
+          exit 1
+        fi
 
         ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
@@ -180,7 +191,7 @@ runs:
         TIMEOUT:        ${{ inputs.health-timeout }}
       run: |
         set -euo pipefail
-        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "$@"; }
         container="${CONTAINER_NAME:-$APP}"
 
         ssh_cmd "docker pull ${IMAGE}"
@@ -190,14 +201,19 @@ runs:
 
         # Wait for container health
         elapsed=0
+        status="starting"
         while [ "$elapsed" -lt "$TIMEOUT" ]; do
-          status="$(ssh_cmd "docker inspect ${container} --format '{{.State.Health.Status}}' 2>/dev/null" || echo "none")"
+          status="$(ssh_cmd "docker inspect ${container} --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null" || echo "starting")"
           if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
             break
           fi
           sleep 5
           elapsed=$((elapsed + 5))
         done
+        if [ "$status" != "healthy" ] && [ "$status" != "none" ]; then
+          echo "::error title=Docker Deploy::health check timed out (app=$APP status=$status timeout=${TIMEOUT}s)"
+          exit 1
+        fi
 
         ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "deploy-time=$ts" >> "$GITHUB_OUTPUT"
