@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pr/enrich — Stage 2: build the agent workspace for the PR review agent.
+# ─────────────────────────────────────────────────────────────────────────────
+# Collects Stage 1 Gate outputs + live PR data (diff, files, reviews, meta)
+# into a structured agent-workspace/ directory, then uploads it as an artifact
+# for Stage 3 (agent) to consume.
+#
+# Mirrors the enrich pattern from issue.yml:
+#   ingest → enrich (this) → upload-artifact → agent downloads → execute
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR · Enrich
+description: Build PR agent workspace from Stage 1 outputs and live PR data.
+
+inputs:
+  gate-lint-result:
+    description: Result of the lint job (success|failure|skipped|cancelled).
+    required: false
+    default: "skipped"
+  gate-test-result:
+    description: Result of the test job (success|failure|skipped|cancelled).
+    required: false
+    default: "skipped"
+  gate-coverage-result:
+    description: Result of the coverage job (success|failure|skipped|cancelled).
+    required: false
+    default: "skipped"
+  gate-secrets-result:
+    description: Result of the scan-secrets job (success|failure|skipped|cancelled).
+    required: false
+    default: "skipped"
+  gate-validate-title-result:
+    description: Result of the validate-pr-title job.
+    required: false
+    default: "skipped"
+  gate-scan-deps-result:
+    description: Result of the scan-deps job.
+    required: false
+    default: "skipped"
+
+outputs:
+  workspace-artifact:
+    description: Name of the uploaded agent workspace artifact.
+    value: pr-agent-workspace-${{ github.run_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build gate-results.json
+      shell: bash
+      env:
+        LINT:       ${{ inputs.gate-lint-result }}
+        TEST:       ${{ inputs.gate-test-result }}
+        COVERAGE:   ${{ inputs.gate-coverage-result }}
+        SECRETS:    ${{ inputs.gate-secrets-result }}
+        TITLE:      ${{ inputs.gate-validate-title-result }}
+        DEPS:       ${{ inputs.gate-scan-deps-result }}
+      run: |
+        set -euo pipefail
+        mkdir -p agent-workspace/skills
+        # Convert GHA job result ('success'|'failure'|'skipped'|'cancelled') to bool
+        result_to_bool() { [ "$1" = "success" ] && echo "true" || echo "false"; }
+        jq -n \
+          --argjson lint       "$(result_to_bool "$LINT")" \
+          --argjson test       "$(result_to_bool "$TEST")" \
+          --argjson coverage   "$(result_to_bool "$COVERAGE")" \
+          --argjson secrets_ok "$(result_to_bool "$SECRETS")" \
+          --arg lint_result    "$LINT" \
+          --arg test_result    "$TEST" \
+          --arg coverage_result "$COVERAGE" \
+          --arg secrets_result "$SECRETS" \
+          --arg title_result   "$TITLE" \
+          --arg deps_result    "$DEPS" \
+          '{
+            lint_passed:    $lint,
+            test_passed:    $test,
+            coverage_passed: $coverage,
+            secrets_clean:  $secrets_ok,
+            results: {
+              lint:              $lint_result,
+              test:              $test_result,
+              coverage:          $coverage_result,
+              scan_secrets:      $secrets_result,
+              validate_pr_title: $title_result,
+              scan_deps:         $deps_result
+            }
+          }' > agent-workspace/gate-results.json
+
+    - name: Build pr-meta.json
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh pr view "${{ github.event.pull_request.number }}" \
+          --repo "${{ github.repository }}" \
+          --json number,title,author,baseRefName,headRefName,\
+                closingIssuesReferences,isDraft,mergeable,additions,deletions,\
+                changedFiles,body \
+          > agent-workspace/pr-meta.json
+
+    - name: Collect diff (capped 40 KB)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh pr diff "${{ github.event.pull_request.number }}" \
+          --repo "${{ github.repository }}" \
+          | head -c 40960 > agent-workspace/diff.patch || true
+
+    - name: Collect files changed
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh pr view "${{ github.event.pull_request.number }}" \
+          --repo "${{ github.repository }}" \
+          --json files > agent-workspace/files-changed.json
+
+    - name: Collect existing reviews
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh pr view "${{ github.event.pull_request.number }}" \
+          --repo "${{ github.repository }}" \
+          --json reviews,comments > agent-workspace/reviews.json
+
+    - name: Merge agent context and skills
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Merge shared + pr-specific AGENTS.md into a single context file.
+        # OpenCI defaults are in .openci/; caller overrides (if any) are in .github/agent/pr/.
+        {
+          cat .openci/.github/agent/shared/context/AGENTS.md 2>/dev/null || true
+          echo ""
+          cat .openci/.github/agent/pr/context/AGENTS.md    2>/dev/null || true
+          echo ""
+          cat .github/agent/shared/context/AGENTS.md        2>/dev/null || true
+          echo ""
+          cat .github/agent/pr/context/AGENTS.md            2>/dev/null || true
+        } > agent-workspace/context.md
+
+        # Copy skills: shared first, then pr-specific (pr skills override shared by filename).
+        cp .openci/.github/agent/shared/skills/*.md agent-workspace/skills/ 2>/dev/null || true
+        cp .openci/.github/agent/pr/skills/*.md     agent-workspace/skills/ 2>/dev/null || true
+        cp .github/agent/shared/skills/*.md         agent-workspace/skills/ 2>/dev/null || true
+        cp .github/agent/pr/skills/*.md             agent-workspace/skills/ 2>/dev/null || true
+
+    - name: Write agent prompt
+      shell: bash
+      run: |
+        cat > agent-workspace/prompt.md << 'PROMPT'
+        You are the OpenCI PR review agent. Read the workspace files and return
+        exactly one JSON object with schema version pr-action-plan/v1.
+
+        Required reading order:
+        1. agent-workspace/context.md       (behavior rules and output contract)
+        2. agent-workspace/skills/*.md      (available action skill definitions)
+        3. agent-workspace/gate-results.json
+        4. agent-workspace/pr-meta.json
+        5. agent-workspace/diff.patch
+        6. agent-workspace/files-changed.json
+        7. agent-workspace/reviews.json
+
+        Return ONE JSON object. No surrounding prose.
+        PROMPT
+
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      with:
+        name: pr-agent-workspace-${{ github.run_id }}
+        path: agent-workspace/
+        retention-days: 1
+        if-no-files-found: error

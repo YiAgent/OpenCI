@@ -659,3 +659,315 @@ jobs:
         with:
           pr-number:   ${{ github.event.pull_request.number }}
           release-pat: ${{ secrets.release-pat }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Stage 2 · Enrich — build agent workspace from Gate results + live PR data.
+  # Runs only when all required Stage 1 checks succeed (Gate semantics via
+  # needs). If any required job fails, enrich (and thus agent) does not run.
+  # ───────────────────────────────────────────────────────────────────────────
+  enrich:
+    name: Stage 2 · Enrich
+    needs: [lint, test, validate-pr-title, scan-deps, scan-secrets]
+    if: >-
+      always() &&
+      github.event.pull_request != null &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.validate-pr-title.result == 'success' &&
+      needs.scan-deps.result == 'success'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      workspace-artifact: pr-agent-workspace-${{ github.run_id }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/pr/enrich
+        with:
+          gate-lint-result:           ${{ needs.lint.result }}
+          gate-test-result:           ${{ needs.test.result }}
+          gate-coverage-result:       ${{ needs.coverage.result || 'skipped' }}
+          gate-secrets-result:        ${{ needs.scan-secrets.result }}
+          gate-validate-title-result: ${{ needs.validate-pr-title.result }}
+          gate-scan-deps-result:      ${{ needs.scan-deps.result }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Stage 3 · Agent — structured PR review via claude-harness.
+  # Produces pr-action-plan/v1 JSON for Stage 4 to consume.
+  # ───────────────────────────────────────────────────────────────────────────
+  agent:
+    name: Stage 3 · Agent Plan
+    needs: enrich
+    if: inputs.enable-ai-review == true
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    outputs:
+      plan:        ${{ steps.extract.outputs.plan }}
+      skip-reason: ${{ steps.extract.outputs.skip-reason }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: pr-agent-workspace-${{ github.run_id }}
+          path: agent-workspace
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        env:
+          K: ${{ secrets.anthropic-api-key }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "skip=true"  >> "$GITHUB_OUTPUT"
+            echo "::notice title=PR Agent Skipped::ANTHROPIC_API_KEY not configured"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run PR review agent
+        id: harness
+        if: steps.gate.outputs.skip != 'true'
+        uses: ./.openci/actions/_common/claude-harness
+        with:
+          task:               pr/review-agent
+          prompt-path:        agent-workspace/prompt.md
+          context:            "{}"
+          api-key:            ${{ secrets.anthropic-api-key }}
+          api-base-url:       ${{ secrets.api-base-url }}
+          model:              ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
+          max-turns:          "8"
+          github-token:       ${{ github.token }}
+          use-sticky-comment: "false"
+
+      - name: Extract action plan
+        id: extract
+        env:
+          SKIPPED:        ${{ steps.gate.outputs.skip }}
+          EXECUTION_FILE: ${{ steps.harness.outputs.execution-file }}
+        run: |
+          set -euo pipefail
+          SKIP_PLAN='{"version":"pr-action-plan/v1","summary":"Agent skipped.","risk":"low","risk_reason":"ANTHROPIC_API_KEY not configured.","reviewer_focus":[],"actions":[],"skip_reason":"missing-anthropic-api-key"}'
+          FAIL_PLAN='{"version":"pr-action-plan/v1","summary":"Agent output was not parseable.","risk":"low","risk_reason":"Could not extract pr-action-plan/v1 from execution output.","reviewer_focus":[],"actions":[{"id":"escalate-unparseable","skill":"escalate","params":{"reason":"Agent output was not parseable.","labels":["needs-human"]},"confidence":"high"}],"skip_reason":null}'
+
+          if [ "$SKIPPED" = "true" ]; then
+            plan="$SKIP_PLAN"
+          elif [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            raw="$(cat "$EXECUTION_FILE")"
+            plan="$(printf '%s' "$raw" | jq -r '
+              if type == "object" and .version == "pr-action-plan/v1" then .
+              else
+                [.. | strings | select(test("\"version\"[[:space:]]*:[[:space:]]*\"pr-action-plan/v1\""))] | last // empty
+              end
+            ' 2>/dev/null || true)"
+            if [ -z "$plan" ]; then
+              plan="$FAIL_PLAN"
+            fi
+          else
+            plan="$FAIL_PLAN"
+          fi
+
+          plan="$(jq -c . <<<"$plan")"
+          skip_reason="$(jq -r '.skip_reason // ""' <<<"$plan")"
+          {
+            echo "plan<<EOF"
+            echo "$plan"
+            echo "EOF"
+            echo "skip-reason=$skip_reason"
+          } >> "$GITHUB_OUTPUT"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Stage 4 · Execute — post sticky comment and run allowlisted actions.
+  # ───────────────────────────────────────────────────────────────────────────
+  execute:
+    name: Stage 4 · Execute
+    needs: [enrich, agent]
+    if: always() && needs.agent.result == 'success'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: pr-agent-workspace-${{ github.run_id }}
+          path: agent-workspace
+
+      - name: Check actor trust
+        id: trust
+        env:
+          ASSOC: ${{ github.event.pull_request.author_association || '' }}
+        run: |
+          case "$ASSOC" in
+            OWNER|MEMBER|COLLABORATOR) echo "trusted=true"  >> "$GITHUB_OUTPUT" ;;
+            *)                         echo "trusted=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Post summary and execute plan
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+        env:
+          ACTION_PLAN: ${{ needs.agent.outputs.plan }}
+          TRUSTED:     ${{ steps.trust.outputs.trusted }}
+          RUN_ID:      ${{ github.run_id }}
+        with:
+          script: |
+            const plan = JSON.parse(process.env.ACTION_PLAN || '{"version":"pr-action-plan/v1","actions":[]}');
+            if (plan.version !== 'pr-action-plan/v1') {
+              core.setFailed(`Unsupported plan version: ${plan.version}`); return;
+            }
+
+            const ALLOWED = new Set([
+              'add_label', 'remove_label', 'add_reviewer',
+              'request_changes', 'block_merge',
+              'escalate', 'assign_issue',
+            ]);
+            const HIGH_RISK = new Set(['request_changes', 'block_merge', 'escalate']);
+            const trusted = process.env.TRUSTED === 'true';
+            const pr = context.payload.pull_request?.number;
+            if (!pr) { core.warning('No pull_request in context; skipping execute.'); return; }
+
+            // ── Build and upsert sticky summary comment ──────────────────────
+            const riskIcon = { high: '🔴', medium: '🟡', low: '🟢' };
+            const focusLines = (plan.reviewer_focus || []).map(f => `- ${f}`).join('\n');
+            const body = [
+              '## 🤖 OpenCI PR Analysis',
+              '',
+              plan.summary || '',
+              '',
+              `**Risk** ${riskIcon[plan.risk] ?? '⚪'} \`${plan.risk}\` — ${plan.risk_reason || ''}`,
+              '',
+              focusLines ? `**Reviewer Focus**\n${focusLines}` : '',
+              '',
+              `<!-- openci-pr-run:${process.env.RUN_ID} -->`,
+            ].filter(l => l !== undefined).join('\n');
+
+            const existing = (await github.paginate(github.rest.issues.listComments, {
+              ...context.repo, issue_number: pr, per_page: 100,
+            })).find(c => (c.body || '').includes('<!-- openci-pr-run:'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+            }
+
+            // ── Execute allowlisted actions ───────────────────────────────────
+            if (plan.skip_reason) {
+              core.notice(`Agent skip_reason: ${plan.skip_reason}. No actions executed.`);
+              return;
+            }
+
+            for (const action of plan.actions ?? []) {
+              if (!ALLOWED.has(action.skill)) {
+                core.notice(`Skipped unknown skill: ${action.skill}`); continue;
+              }
+              if (action.confidence !== 'high') {
+                core.notice(`Skipped low-confidence: ${action.skill} (${action.confidence})`); continue;
+              }
+              if (!trusted && HIGH_RISK.has(action.skill)) {
+                core.notice(`Skipped high-risk for non-trusted actor: ${action.skill}`); continue;
+              }
+
+              const p = action.params || {};
+              switch (action.skill) {
+                case 'add_label':
+                  if ((p.labels || []).length) {
+                    await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels: p.labels });
+                  }
+                  break;
+                case 'remove_label':
+                  for (const name of (p.labels || [])) {
+                    try { await github.rest.issues.removeLabel({ ...context.repo, issue_number: pr, name }); }
+                    catch (e) { if (e.status !== 404) throw e; }
+                  }
+                  break;
+                case 'add_reviewer':
+                  await github.rest.pulls.requestReviewers({
+                    ...context.repo, pull_number: pr,
+                    reviewers: p.reviewers || [],
+                    team_reviewers: p.team_reviewers || [],
+                  });
+                  break;
+                case 'block_merge':
+                  await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels: ['do-not-merge'] });
+                  if (p.reason) {
+                    await github.rest.issues.createComment({ ...context.repo, issue_number: pr,
+                      body: `🚫 **Block merge**: ${p.reason}\n\n<!-- openci-block-merge -->` });
+                  }
+                  break;
+                case 'request_changes':
+                  if (p.body) {
+                    await github.rest.pulls.createReview({
+                      ...context.repo, pull_number: pr, body: p.body, event: 'REQUEST_CHANGES',
+                    });
+                  }
+                  break;
+                case 'assign_issue':
+                  await github.rest.issues.addAssignees({
+                    ...context.repo, issue_number: pr, assignees: p.assignees || [],
+                  });
+                  break;
+                case 'escalate': {
+                  const labels = (p.labels && p.labels.length) ? p.labels : ['needs-human'];
+                  await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels });
+                  break;
+                }
+              }
+              core.info(`Executed: ${action.skill}`);
+            }
