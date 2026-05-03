@@ -105,6 +105,23 @@ inputs:
     description: GitHub token for MCP tool access and CI data queries. Falls back to default workflow token.
     required: false
     default: ""
+  bot-id:
+    description: |
+      GitHub App bot ID for custom Claude Code GitHub Apps. Leave empty to use
+      the default claude[bot] identity.
+    required: false
+    default: ""
+  bot-name:
+    description: |
+      GitHub App bot display name. Leave empty to use the default "claude".
+    required: false
+    default: ""
+  base-branch:
+    description: |
+      Base branch for new branches created by Claude. Leave empty to let the
+      official action use the repo default branch.
+    required: false
+    default: ""
   slack-webhook:
     description: Slack webhook URL exposed to Claude as SLACK_WEBHOOK_URL env var.
     required: false
@@ -283,6 +300,9 @@ runs:
         plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
         use_commit_signing: ${{ inputs.use-commit-signing }}
         ssh_signing_key:    ${{ inputs.ssh-signing-key }}
+        bot_id:      ${{ inputs.bot-id }}
+        bot_name:    ${{ inputs.bot-name }}
+        base_branch: ${{ inputs.base-branch }}
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
         classify_inline_comments:  ${{ inputs.classify-inline-comments }}
         include_fix_links:         ${{ inputs.include-fix-links }}
