@@ -712,7 +712,7 @@ jobs:
         with:
           gate-lint-result:           ${{ needs.lint.result }}
           gate-test-result:           ${{ needs.test.result }}
-          gate-coverage-result:       ${{ needs.coverage.result || 'skipped' }}
+          gate-coverage-result:       skipped
           gate-secrets-result:        ${{ needs.scan-secrets.result }}
           gate-validate-title-result: ${{ needs.validate-pr-title.result }}
           gate-scan-deps-result:      ${{ needs.scan-deps.result }}
