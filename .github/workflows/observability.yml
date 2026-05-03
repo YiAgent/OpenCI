@@ -1,0 +1,57 @@
+# observability.yml — event entry for post-deploy observability.
+# Canary watch (every 15 min), terraform drift (daily), and verify-fix
+# (after prd deploy) all route to reusable/observability.yml.
+name: observability
+
+on:
+  workflow_run:
+    workflows: [prd]
+    types: [completed]
+  repository_dispatch:
+    types: [observe-window-complete]
+  schedule:
+    - cron: "*/15 * * * *"   # canary-watch
+    - cron: "0 4 * * *"      # terraform-drift
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: false
+        type: string
+        default: canary-watch
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: observability-${{ github.event_name }}-${{ github.event.workflow_run.id || github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  observe-canary:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
+    uses: ./.github/workflows/reusable/observability.yml
+    with:
+      mode:   canary-watch
+      runner: blacksmith-32vcpu-ubuntu-2404
+    secrets: inherit
+
+  observe-drift:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
+    uses: ./.github/workflows/reusable/observability.yml
+    with:
+      mode:      terraform-drift
+      infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
+      runner:    blacksmith-32vcpu-ubuntu-2404
+    secrets: inherit
+
+  verify-fix:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || github.event_name == 'repository_dispatch'
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
+    uses: ./.github/workflows/reusable/observability.yml
+    with:
+      mode:   verify-fix
+      runner: blacksmith-32vcpu-ubuntu-2404
+    secrets: inherit

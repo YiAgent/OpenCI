@@ -1,5 +1,5 @@
-# on-issue.yml — thin event entry for the issue agent domain.
-name: on-issue
+# issue-ops.yml — thin event entry for the issue agent domain.
+name: issue-ops
 
 on:
   issues:
@@ -26,13 +26,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: on-issue-${{ github.event.issue.number || github.event.client_payload.id || github.run_id }}
+  group: issue-ops-${{ github.event.issue.number || github.event.client_payload.id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   lifecycle:
     if: github.event_name == 'issues' || github.event_name == 'issue_comment'
-    uses: ./.github/workflows/issue.yml
+    uses: ./.github/workflows/reusable/issue.yml
     with:
       mode: lifecycle
       runner: blacksmith-32vcpu-ubuntu-2404
@@ -46,7 +46,7 @@ jobs:
 
   ingest:
     if: github.event_name == 'repository_dispatch'
-    uses: ./.github/workflows/issue.yml
+    uses: ./.github/workflows/reusable/issue.yml
     with:
       mode: ingest
       runner: blacksmith-32vcpu-ubuntu-2404
@@ -60,7 +60,7 @@ jobs:
 
   maintenance:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')
-    uses: ./.github/workflows/issue.yml
+    uses: ./.github/workflows/reusable/issue.yml
     with:
       mode: maintenance
       runner: blacksmith-32vcpu-ubuntu-2404
@@ -74,7 +74,7 @@ jobs:
 
   manual:
     if: github.event_name == 'workflow_dispatch' && inputs.mode != 'maintenance'
-    uses: ./.github/workflows/issue.yml
+    uses: ./.github/workflows/reusable/issue.yml
     with:
       mode: ${{ inputs.mode }}
       runner: blacksmith-32vcpu-ubuntu-2404

@@ -1,246 +1,31 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# release.yml — unified release workflow.
-# ─────────────────────────────────────────────────────────────────────────────
-# Combines marketplace tagging and Docker image release into one mode-routed
-# workflow. By default, a `git push origin v*` runs BOTH:
-#
-#   ┌─ trigger ────────────────────────────┬─ active job ─────────────────────┐
-#   │ push tags v*                         │ marketplace + docker (parallel)  │
-#   │ workflow_dispatch / workflow_call    │ inputs.mode router               │
-#   └──────────────────────────────────────┴──────────────────────────────────┘
-#
-# When called as a reusable workflow you can scope to one side:
-#   uses: YiWang24/OpenCI/.github/workflows/release.yml@v2
-#   with:
-#     mode:       docker        # marketplace | docker | both (default both)
-#     image-name: my-app        # required for docker mode
-#     registry:   ghcr.io       # optional
-#
-# Marketplace job creates:
-#   - GitHub Release v1.2.3   (auto-generated changelog)
-#   - Floating tag v1.2       → same commit
-#   - Floating tag v1         → same commit
-#
-# Docker job pushes:
-#   - <registry>/<owner>/<image>:<semver>
-#   - <registry>/<owner>/<image>:<major>.<minor>
-#   - <registry>/<owner>/<image>:sha-<short-sha>
-# Cosign keyless OIDC signs the resulting digest.
-# ─────────────────────────────────────────────────────────────────────────────
+# release.yml — event entry for tagged releases.
+# `git push origin v*` runs marketplace + docker release jobs by default.
 name: release
 
 on:
-  workflow_call:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
     inputs:
-      openci-ref:
-        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag like v2 in production).
-        required: false
-        type: string
-        default: main
-      runner:
-        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
-        required: false
-        type: string
-        default: ubuntu-latest
       mode:
-        description: Release facets to run (marketplace|docker|both)
         required: false
         type: string
         default: both
-      image-name:
-        type: string
-        required: false
-        default: ""
-      registry:
-        type: string
-        required: false
-        default: ghcr.io
 
-permissions: {}
-
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # ── marketplace tagging + GitHub Release ────────────────────────────────
-  marketplace:
-    name: Marketplace Release
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
-      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-
-      - name: Extract version info
-        id: version
-        run: |
-          set -euo pipefail
-          # Marketplace mode requires a tag ref. Workflow_dispatch / workflow_call
-          # on a branch ref (e.g. main) has no tag — graceful-skip the rest of
-          # the job. Real release flow always pushes a `v*` tag.
-          case "$GITHUB_REF" in
-            refs/tags/v*)
-              TAG="${GITHUB_REF#refs/tags/v}"
-              MAJOR="${TAG%%.*}"
-              MINOR="${TAG%.*}"
-              {
-                echo "skip=false"
-                echo "tag=v${TAG}"
-                echo "major=v${MAJOR}"
-                echo "minor=v${MINOR}"
-              } >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Marketplace Skipped::GITHUB_REF '$GITHUB_REF' is not a refs/tags/v* — push a version tag to publish a release"
-              ;;
-          esac
-
-      - name: Generate changelog
-        if: steps.version.outputs.skip != 'true'
-        id: changelog
-        run: |
-          set -euo pipefail
-          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREV" ]; then
-            COMMITS=$(git log --oneline HEAD)
-          else
-            COMMITS=$(git log --oneline "${PREV}..HEAD")
-          fi
-          {
-            echo "body<<__OPENCI_EOF__"
-            printf "## Changes\n\n%s\n\n---\n*Automated release by OpenCI*\n" "$COMMITS"
-            echo "__OPENCI_EOF__"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        if: steps.version.outputs.skip != 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          body: ${{ steps.changelog.outputs.body }}
-          draft: false
-          prerelease: false
-
-      - name: Update floating major/minor tags
-        if: steps.version.outputs.skip != 'true'
-        env:
-          MAJOR: ${{ steps.version.outputs.major }}
-          MINOR: ${{ steps.version.outputs.minor }}
-        run: |
-          set -euo pipefail
-          git tag -f "$MAJOR" HEAD
-          git tag -f "$MINOR" HEAD
-          git push -f origin "$MAJOR" "$MINOR"
-
-  # ── tag-driven Docker image release with cosign keyless ─────────────────
-  docker:
-    name: Release Docker
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'docker'))
-      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'docker'))
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
-      - name: Resolve OpenCI workflow ref
-        id: openci-ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
-        run: |
-          # Prefer explicit caller input; otherwise parse from workflow_ref
-          # ('owner/repo/.github/workflows/file.yml@refs/heads/<branch>'),
-          # which only works when caller pinned a real OpenCI ref directly.
-          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
-            REF="$OPENCI_REF_INPUT"
-          else
-            REF="${WORKFLOW_REF##*@}"
-            REF="${REF#refs/heads/}"
-            REF="${REF#refs/tags/}"
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-      - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: YiAgent/OpenCI
-          ref: ${{ steps.openci-ref.outputs.ref }}
-          path: .openci
-          persist-credentials: false
-
-      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
-
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ inputs.registry || 'ghcr.io' }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - id: meta
-        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
-        with:
-          images: ${{ inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/${{ inputs.image-name || github.event.repository.name }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short,prefix=sha-
-
-      - id: push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198e19c3bc6bb6 # v6.18.0
-        with:
-          push: "true"
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: "true"
-          sbom: "true"
-          cache-from: "type=gha"
-          cache-to: "type=gha,mode=max"
-
-      - name: Sign image (Cosign keyless)
-        uses: ./.openci/actions/ci/sign-image
-        with:
-          image-ref: ${{ inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/${{ inputs.image-name || github.event.repository.name }}@${{ steps.push.outputs.digest }}
+  release:
+    uses: ./.github/workflows/reusable/release.yml
+    with:
+      mode: ${{ inputs.mode || 'both' }}
+      image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      registry: ghcr.io
+      runner: blacksmith-32vcpu-ubuntu-2404

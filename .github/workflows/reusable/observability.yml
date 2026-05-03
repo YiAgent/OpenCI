@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# prd-observe.yml — unified post-deploy observability workflow.
+# observability.yml — unified post-deploy observability workflow.
 # ─────────────────────────────────────────────────────────────────────────────
 # Combines three prior workflows into one mode-routed entry point.
 # All three jobs are advisory — they file issues but never block deploys.
@@ -12,7 +12,7 @@
 #   └──────────────────────────────────────┴──────────────────────────────────┘
 #
 # Reusable invocation:
-#   uses: YiWang24/OpenCI/.github/workflows/prd-observe.yml@v2
+#   uses: YiWang24/OpenCI/.github/workflows/reusable/observability.yml@v3
 #   with:
 #     mode:      canary-watch       # canary-watch | terraform-drift | verify-fix
 #     infra-dir: infrastructure     # only used by terraform-drift
@@ -24,7 +24,7 @@
 # Security: all untrusted run-output values are passed through env: vars
 # inside run: blocks (head_sha is repo-controlled but treated identically).
 # ─────────────────────────────────────────────────────────────────────────────
-name: prd-observe
+name: observability
 
 on:
   workflow_call:
@@ -58,7 +58,7 @@ permissions: {}
 # Per-mode concurrency keys keep the three observers independent.
 concurrency:
   group: >-
-    prd-observe-${{
+    observability-${{
       github.event.schedule
       || github.event.workflow_run.id
       || inputs.mode

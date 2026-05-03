@@ -5,8 +5,8 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
-  WORKFLOW="${PROJECT_ROOT}/.github/workflows/issue.yml"
-  ENTRY="${PROJECT_ROOT}/.github/workflows/on-issue.yml"
+  WORKFLOW="${PROJECT_ROOT}/.github/workflows/reusable/issue.yml"
+  ENTRY="${PROJECT_ROOT}/.github/workflows/issue-ops.yml"
   BUILD_WORKSPACE="${PROJECT_ROOT}/actions/issue/build-workspace/build-workspace.sh"
   EXECUTE_JS="${PROJECT_ROOT}/actions/issue/execute-plan/execute.js"
 }

@@ -56,7 +56,17 @@
       "Bash(git checkout)",
       "Bash(git checkout *)",
       "Bash(git *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash([ -f \".github/workflows/$f\" ])",
+      "Skill(schedule)",
+      "Bash(doppler secrets *)",
+      "Bash(doppler projects *)",
+      "Bash(node *)",
+      "Bash(awk '/run: \\\\|/{block=1; start=NR; content=\"\"; next} block{if\\(/^      - /||/^  [a-zA-Z]/\\){if\\(length\\(content\\)>200\\){print \"Line \"start\": LARGE \\(>200 chars\\):\"substr\\(content,1,80\\)\"...\"} block=0} else {content=content$0}} END{if\\(block&&length\\(content\\)>200\\){print \"Line \"start\": LARGE:\"substr\\(content,1,80\\)\"...\"}}' /Users/wy/projects/yiagent/OpenCI/.github/workflows/pr.yml)",
+      "Bash(sed -n '1,15p' /Users/wy/projects/yiagent/OpenCI/tests/actions/api-key-gate.bats)",
+      "Bash(sed -n '195,202p' /Users/wy/projects/yiagent/OpenCI/.github/workflows/ci.yml)",
+      "Bash(sed -i '' 's|uses: YiWang24/OpenCI/.github/workflows/docs.yml@v2|uses: YiWang24/OpenCI/.github/workflows/reusable/docs.yml@v3|' .github/workflows/reusable/docs.yml)",
+      "Bash(sed -i '' 's|uses: YiWang24/OpenCI/.github/workflows/release.yml@v2|uses: YiWang24/OpenCI/.github/workflows/reusable/release.yml@v3|' .github/workflows/reusable/release.yml)"
     ]
   }
 }

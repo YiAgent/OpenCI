@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# security-schedule.yml — weekly full security sweep (SPEC §5.6).
+# security.yml — weekly full security sweep (reusable, SPEC §5.6).
 # ─────────────────────────────────────────────────────────────────────────────
 # 4 parallel jobs, each independent and tolerant of the others' failures.
 # Concurrency is global (no per-ref grouping) so weekly + manual + ad-hoc
@@ -8,7 +8,7 @@
 # Security: workflow consumes only repo-controlled inputs (image-ref) and
 # secrets; no PR-form fields used.
 # ─────────────────────────────────────────────────────────────────────────────
-name: security-schedule
+name: security
 
 on:
   workflow_call:
@@ -34,7 +34,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: security-schedule
+  group: security
   cancel-in-progress: false
 
 jobs:
