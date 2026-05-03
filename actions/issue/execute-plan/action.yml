@@ -1,0 +1,65 @@
+name: Issue Execute Plan
+description: >
+  Guarded executor for issue-action-plan/v1. Validates the allowlist, enforces
+  trust rules for high-risk skills, then runs each approved action and writes
+  an idempotent audit comment.
+
+inputs:
+  action-plan:
+    description: JSON string of the issue-action-plan/v1 produced by the agent.
+    required: true
+  plan-hash:
+    description: SHA-256 of the action plan — used as idempotency key in the audit comment.
+    required: true
+  issue-number:
+    description: GitHub issue number to mutate. May be empty for plan-only events.
+    required: false
+    default: ''
+  reasoning:
+    description: Agent reasoning string written into the audit comment.
+    required: false
+    default: ''
+  author-association:
+    description: Author association of the actor (OWNER / MEMBER / COLLABORATOR / …).
+    required: false
+    default: ''
+  default-branch:
+    description: Repository default branch, used as base for create_branch.
+    required: false
+    default: main
+  linear-token:
+    description: Linear API token for link_linear skill.
+    required: false
+    default: ''
+  notify-webhook-url:
+    description: Slack-compatible webhook URL for the notify skill.
+    required: false
+    default: ''
+  mcp-dispatch-token:
+    description: GitHub token used to dispatch MCP task events.
+    required: true
+  workspace-path:
+    description: Path to the agent workspace directory containing runtime/mcp-tasks.json.
+    required: false
+    default: agent-workspace
+
+runs:
+  using: composite
+  steps:
+    - name: Execute guarded action plan
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+      env:
+        ACTION_PLAN:       ${{ inputs.action-plan }}
+        PLAN_HASH:         ${{ inputs.plan-hash }}
+        ISSUE_NUMBER:      ${{ inputs.issue-number }}
+        REASONING:         ${{ inputs.reasoning }}
+        AUTHOR_ASSOC:      ${{ inputs.author-association }}
+        DEFAULT_BRANCH:    ${{ inputs.default-branch }}
+        LINEAR_TOKEN:      ${{ inputs.linear-token }}
+        NOTIFY_WEBHOOK_URL: ${{ inputs.notify-webhook-url }}
+        MCP_DISPATCH_TOKEN: ${{ inputs.mcp-dispatch-token }}
+        WORKSPACE_PATH:    ${{ inputs.workspace-path }}
+      with:
+        script: |
+          const { executeIssuePlan } = require('${{ github.action_path }}/execute.js');
+          await executeIssuePlan({ github, context, env: process.env });

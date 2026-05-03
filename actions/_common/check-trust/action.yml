@@ -1,0 +1,28 @@
+name: Check Actor Trust
+description: >
+  Determines whether the event actor is a trusted collaborator based on
+  GitHub's author_association field.
+
+inputs:
+  author-association:
+    description: GitHub author_association value (OWNER / MEMBER / COLLABORATOR / …).
+    required: false
+    default: ''
+
+outputs:
+  trusted:
+    description: '"true" when the actor is OWNER, MEMBER or COLLABORATOR.'
+    value: ${{ steps.check.outputs.trusted }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      env:
+        ASSOC: ${{ inputs.author-association }}
+      run: |
+        case "$ASSOC" in
+          OWNER|MEMBER|COLLABORATOR) echo "trusted=true"  >> "$GITHUB_OUTPUT" ;;
+          *)                         echo "trusted=false" >> "$GITHUB_OUTPUT" ;;
+        esac

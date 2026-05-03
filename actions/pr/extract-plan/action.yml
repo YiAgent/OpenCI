@@ -1,0 +1,33 @@
+name: PR Extract Action Plan
+description: >
+  Extracts a pr-action-plan/v1 JSON object from the claude-harness execution
+  output. Falls back to a safe escalate plan when the output is missing or
+  unparseable.
+
+inputs:
+  skipped:
+    description: '"true" when the agent was skipped (API key absent).'
+    required: false
+    default: 'false'
+  execution-file:
+    description: Path to the claude-harness execution output file.
+    required: false
+    default: ''
+
+outputs:
+  plan:
+    description: Compact JSON string of the pr-action-plan/v1 object.
+    value: ${{ steps.run.outputs.plan }}
+  skip-reason:
+    description: skip_reason field from the plan, or empty string.
+    value: ${{ steps.run.outputs.skip-reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        SKIPPED:        ${{ inputs.skipped }}
+        EXECUTION_FILE: ${{ inputs.execution-file }}
+      run: bash ${{ github.action_path }}/extract-plan.sh

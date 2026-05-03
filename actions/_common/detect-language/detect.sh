@@ -20,6 +20,23 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+emit() {
+  printf '%s=%s\n' "$1" "$2"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+# Allow caller to bypass detection with an explicit language override.
+if [ -n "${OVERRIDE:-}" ]; then
+  emit "language"        "$OVERRIDE"
+  emit "package-manager" "unknown"
+  emit "version-file"    ""
+  emit "runtime-version" ""
+  echo "::notice title=Language Detected::language=${OVERRIDE} package-manager=unknown (override)"
+  exit 0
+fi
+
 ROOT="${1:-${DETECT_DIR:-$PWD}}"
 cd "$ROOT"
 
@@ -90,13 +107,6 @@ elif [ -f build.gradle ]; then
     language="kotlin"
   fi
 fi
-
-emit() {
-  printf '%s=%s\n' "$1" "$2"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
-  fi
-}
 
 emit "language"        "$language"
 emit "package-manager" "$pkg_mgr"

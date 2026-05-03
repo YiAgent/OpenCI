@@ -772,15 +772,9 @@ jobs:
 
       - name: Skip when ANTHROPIC_API_KEY missing
         id: gate
-        env:
-          K: ${{ secrets.anthropic-api-key }}
-        run: |
-          if [ -z "$K" ]; then
-            echo "skip=true"  >> "$GITHUB_OUTPUT"
-            echo "::notice title=PR Agent Skipped::ANTHROPIC_API_KEY not configured"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
+        uses: ./.openci/actions/_common/api-key-gate
+        with:
+          api-key: ${{ secrets.anthropic-api-key }}
 
       - name: Run PR review agent
         id: harness
@@ -799,39 +793,10 @@ jobs:
 
       - name: Extract action plan
         id: extract
-        env:
-          SKIPPED:        ${{ steps.gate.outputs.skip }}
-          EXECUTION_FILE: ${{ steps.harness.outputs.execution-file }}
-        run: |
-          set -euo pipefail
-          SKIP_PLAN='{"version":"pr-action-plan/v1","summary":"Agent skipped.","risk":"low","risk_reason":"ANTHROPIC_API_KEY not configured.","reviewer_focus":[],"actions":[],"skip_reason":"missing-anthropic-api-key"}'
-          FAIL_PLAN='{"version":"pr-action-plan/v1","summary":"Agent output was not parseable.","risk":"low","risk_reason":"Could not extract pr-action-plan/v1 from execution output.","reviewer_focus":[],"actions":[{"id":"escalate-unparseable","skill":"escalate","params":{"reason":"Agent output was not parseable.","labels":["needs-human"]},"confidence":"high"}],"skip_reason":null}'
-
-          if [ "$SKIPPED" = "true" ]; then
-            plan="$SKIP_PLAN"
-          elif [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            raw="$(cat "$EXECUTION_FILE")"
-            plan="$(printf '%s' "$raw" | jq -r '
-              if type == "object" and .version == "pr-action-plan/v1" then .
-              else
-                [.. | strings | select(test("\"version\"[[:space:]]*:[[:space:]]*\"pr-action-plan/v1\""))] | last // empty
-              end
-            ' 2>/dev/null || true)"
-            if [ -z "$plan" ]; then
-              plan="$FAIL_PLAN"
-            fi
-          else
-            plan="$FAIL_PLAN"
-          fi
-
-          plan="$(jq -c . <<<"$plan")"
-          skip_reason="$(jq -r '.skip_reason // ""' <<<"$plan")"
-          {
-            echo "plan<<EOF"
-            echo "$plan"
-            echo "EOF"
-            echo "skip-reason=$skip_reason"
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.openci/actions/pr/extract-plan
+        with:
+          skipped: ${{ steps.gate.outputs.skip }}
+          execution-file: ${{ steps.harness.outputs.execution-file }}
 
   # ───────────────────────────────────────────────────────────────────────────
   # Stage 4 · Execute — post sticky comment and run allowlisted actions.
@@ -853,126 +818,23 @@ jobs:
         with:
           name: pr-agent-workspace-${{ github.run_id }}
           path: agent-workspace
+      - name: Checkout OpenCI for execute actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ inputs.openci-ref }}
+          path: .openci
+          persist-credentials: false
 
       - name: Check actor trust
         id: trust
-        env:
-          ASSOC: ${{ github.event.pull_request.author_association || '' }}
-        run: |
-          case "$ASSOC" in
-            OWNER|MEMBER|COLLABORATOR) echo "trusted=true"  >> "$GITHUB_OUTPUT" ;;
-            *)                         echo "trusted=false" >> "$GITHUB_OUTPUT" ;;
-          esac
+        uses: ./.openci/actions/_common/check-trust
+        with:
+          author-association: ${{ github.event.pull_request.author_association || '' }}
 
       - name: Post summary and execute plan
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
-        env:
-          ACTION_PLAN: ${{ needs.agent.outputs.plan }}
-          TRUSTED:     ${{ steps.trust.outputs.trusted }}
-          RUN_ID:      ${{ github.run_id }}
+        uses: ./.openci/actions/pr/execute-plan
         with:
-          script: |
-            const plan = JSON.parse(process.env.ACTION_PLAN || '{"version":"pr-action-plan/v1","actions":[]}');
-            if (plan.version !== 'pr-action-plan/v1') {
-              core.setFailed(`Unsupported plan version: ${plan.version}`); return;
-            }
-
-            const ALLOWED = new Set([
-              'add_label', 'remove_label', 'add_reviewer',
-              'request_changes', 'block_merge',
-              'escalate', 'assign_issue',
-            ]);
-            const HIGH_RISK = new Set(['request_changes', 'block_merge', 'escalate']);
-            const trusted = process.env.TRUSTED === 'true';
-            const pr = context.payload.pull_request?.number;
-            if (!pr) { core.warning('No pull_request in context; skipping execute.'); return; }
-
-            // ── Build and upsert sticky summary comment ──────────────────────
-            const riskIcon = { high: '🔴', medium: '🟡', low: '🟢' };
-            const focusLines = (plan.reviewer_focus || []).map(f => `- ${f}`).join('\n');
-            const body = [
-              '## 🤖 OpenCI PR Analysis',
-              '',
-              plan.summary || '',
-              '',
-              `**Risk** ${riskIcon[plan.risk] ?? '⚪'} \`${plan.risk}\` — ${plan.risk_reason || ''}`,
-              '',
-              focusLines ? `**Reviewer Focus**\n${focusLines}` : '',
-              '',
-              `<!-- openci-pr-run:${process.env.RUN_ID} -->`,
-            ].filter(l => l !== undefined).join('\n');
-
-            const existing = (await github.paginate(github.rest.issues.listComments, {
-              ...context.repo, issue_number: pr, per_page: 100,
-            })).find(c => (c.body || '').includes('<!-- openci-pr-run:'));
-
-            if (existing) {
-              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
-            }
-
-            // ── Execute allowlisted actions ───────────────────────────────────
-            if (plan.skip_reason) {
-              core.notice(`Agent skip_reason: ${plan.skip_reason}. No actions executed.`);
-              return;
-            }
-
-            for (const action of plan.actions ?? []) {
-              if (!ALLOWED.has(action.skill)) {
-                core.notice(`Skipped unknown skill: ${action.skill}`); continue;
-              }
-              if (action.confidence !== 'high') {
-                core.notice(`Skipped low-confidence: ${action.skill} (${action.confidence})`); continue;
-              }
-              if (!trusted && HIGH_RISK.has(action.skill)) {
-                core.notice(`Skipped high-risk for non-trusted actor: ${action.skill}`); continue;
-              }
-
-              const p = action.params || {};
-              switch (action.skill) {
-                case 'add_label':
-                  if ((p.labels || []).length) {
-                    await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels: p.labels });
-                  }
-                  break;
-                case 'remove_label':
-                  for (const name of (p.labels || [])) {
-                    try { await github.rest.issues.removeLabel({ ...context.repo, issue_number: pr, name }); }
-                    catch (e) { if (e.status !== 404) throw e; }
-                  }
-                  break;
-                case 'add_reviewer':
-                  await github.rest.pulls.requestReviewers({
-                    ...context.repo, pull_number: pr,
-                    reviewers: p.reviewers || [],
-                    team_reviewers: p.team_reviewers || [],
-                  });
-                  break;
-                case 'block_merge':
-                  await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels: ['do-not-merge'] });
-                  if (p.reason) {
-                    await github.rest.issues.createComment({ ...context.repo, issue_number: pr,
-                      body: `🚫 **Block merge**: ${p.reason}\n\n<!-- openci-block-merge -->` });
-                  }
-                  break;
-                case 'request_changes':
-                  if (p.body) {
-                    await github.rest.pulls.createReview({
-                      ...context.repo, pull_number: pr, body: p.body, event: 'REQUEST_CHANGES',
-                    });
-                  }
-                  break;
-                case 'assign_issue':
-                  await github.rest.issues.addAssignees({
-                    ...context.repo, issue_number: pr, assignees: p.assignees || [],
-                  });
-                  break;
-                case 'escalate': {
-                  const labels = (p.labels && p.labels.length) ? p.labels : ['needs-human'];
-                  await github.rest.issues.addLabels({ ...context.repo, issue_number: pr, labels });
-                  break;
-                }
-              }
-              core.info(`Executed: ${action.skill}`);
-            }
+          action-plan: ${{ needs.agent.outputs.plan }}
+          trusted: ${{ steps.trust.outputs.trusted }}
+          run-id: ${{ github.run_id }}
