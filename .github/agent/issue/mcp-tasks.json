@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "name": "issue-to-plan",
+      "description": "Ask a downstream MCP-backed planner to convert an issue into an implementation plan.",
+      "event_type": "openci-mcp-task"
+    },
+    {
+      "name": "issue-to-investigation",
+      "description": "Ask a downstream MCP-backed task runner to investigate an issue before implementation.",
+      "event_type": "openci-mcp-task"
+    },
+    {
+      "name": "issue-to-implementation",
+      "description": "Ask a downstream MCP-backed task runner to start implementation from an accepted issue.",
+      "event_type": "openci-mcp-task"
+    }
+  ]
+}

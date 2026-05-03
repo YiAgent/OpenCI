@@ -87,6 +87,8 @@ deps:
 
   # ── Issue / community (verified) ───────────────────────────────────────
   actions/stale:                          "b5d41d4e1d5dceea10e7104786b73624c18a190f"  # v10.2.0
+  stefanbuck/github-issue-parser:          "cb6e97157cbf851e3a393ff8d57c93a484cc323f"  # v3.2.5
+  redhat-plumbers-in-action/advanced-issue-labeler: "b80ae64e3e156e9c111b075bfa04b295d54e8e2e"  # v3.2.4
   dessant/lock-threads:                   "7266a7ce5c1df01b1c6db85bf8cd86c737dadbe7"  # v6.0.0
   kentaro-m/auto-assign-action:           "0a2c53d3721e4c5cfcce6afd4014aecc337979f6"  # v2.0.2
 
@@ -196,14 +198,17 @@ workflows:
   - id: issue
     path: .github/workflows/issue.yml
     description: >-
-      Unified issue domain — issue lifecycle (auto-label / ai-triage /
-      detect-duplicates / auto-assign), slash-command handling, Linear
-      branch bridge, and scheduled Sentry triage. Routed via event_name
-      and optional `inputs.mode`.
+      Unified issue domain — deterministic ingest, context enrichment,
+      agent action planning, and guarded execution. Routed by optional
+      `inputs.mode` (`lifecycle`, `maintenance`, `ingest`).
+    inputs:
+      mode: { type: string, default: lifecycle }
     secrets:
       anthropic-api-key: { required: false }
       sentry-token:      { required: false }
       linear-token:      { required: false }
+      slack-webhook-url: { required: false }
+      mcp-dispatch-token: { required: false }
 
   - id: community
     path: .github/workflows/issue.yml
@@ -214,6 +219,7 @@ workflows:
     path: .github/workflows/issue.yml
     description: Auto-mark and auto-close stale Issues/PRs.
     inputs:
+      mode:             { type: string, default: maintenance }
       issue-stale-days: { type: number, default: 60 }
       issue-close-days: { type: number, default: 14 }
       pr-stale-days:    { type: number, default: 30 }

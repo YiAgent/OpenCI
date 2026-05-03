@@ -112,12 +112,12 @@ jobs:
 }
 
 @test "rejects deprecated actions (Appendix B.2)" {
-  # actions/stale is deprecated.
+  # semgrep/semgrep-action is deprecated.
   write_workflow stale.yml '
 jobs:
   x:
     steps:
-      - uses: actions/stale@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - uses: semgrep/semgrep-action@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 '
   run bash "${SCRIPT}"
   [ "${status}" -eq 1 ]
