@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy/preflight — shared pre-deploy safety checks.
+# ─────────────────────────────────────────────────────────────────────────────
+# Checks (in order):
+#   1. Environment health probe  — target env responding before we deploy.
+#   2. Deploy window             — production defaults to Mon-Fri 10-16 UTC.
+#   3. Concurrent deploy guard   — block if another deploy.yml run is live.
+#
+# All three checks are skippable via inputs for emergency deploys or
+# non-production environments where the constraint isn't relevant.
+#
+# Outputs let callers gate downstream jobs:
+#   env-healthy   → "true" | "false"
+#   in-window     → "true" | "false"
+#   concurrent-ok → "true" | "false"
+#
+# The action itself exits 0 when all enabled checks pass. It exits non-zero
+# on the first failure unless soft-fail is set.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy · Preflight
+description: Environment health, deploy-window, and concurrent-deploy checks.
+
+inputs:
+  environment:
+    description: "staging or production. Used to set window-check default."
+    required: true
+  health-url:
+    description: URL to probe before deploying (skip when empty).
+    required: false
+    default: ""
+  health-retries:
+    description: Number of health probe retries.
+    required: false
+    default: "5"
+  health-retry-delay:
+    description: Seconds between health retries.
+    required: false
+    default: "6"
+  check-deploy-window:
+    description: Enforce deploy-window check. Auto-enabled for production.
+    required: false
+    default: ""        # empty = auto (enabled for production, disabled otherwise)
+  deploy-window-utc-start:
+    description: Earliest allowed deploy hour in UTC (0-23).
+    required: false
+    default: "10"
+  deploy-window-utc-end:
+    description: Latest allowed deploy hour in UTC (0-23, inclusive).
+    required: false
+    default: "16"
+  check-concurrent:
+    description: Block if another deploy workflow is already in progress.
+    required: false
+    default: "true"
+  github-token:
+    description: Token for gh CLI (concurrent check). Defaults to GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  env-healthy:
+    description: "true when health probe passed (or skipped)."
+    value: ${{ steps.health.outputs.healthy }}
+  in-window:
+    description: "true when within allowed deploy window (or check skipped)."
+    value: ${{ steps.window.outputs.in-window }}
+  concurrent-ok:
+    description: "true when no concurrent deploy detected (or check skipped)."
+    value: ${{ steps.concurrent.outputs.ok }}
+
+runs:
+  using: composite
+  steps:
+    - name: Probe environment health
+      id: health
+      shell: bash
+      env:
+        URL:     ${{ inputs.health-url }}
+        RETRIES: ${{ inputs.health-retries }}
+        DELAY:   ${{ inputs.health-retry-delay }}
+      run: |
+        set -euo pipefail
+        if [ -z "$URL" ]; then
+          echo "healthy=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preflight::health check skipped (no URL)"
+          exit 0
+        fi
+
+        attempt=1
+        while [ "$attempt" -le "$RETRIES" ]; do
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+          if [ "$code" = "200" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Preflight::env healthy url=$URL attempt=$attempt"
+            exit 0
+          fi
+          echo "::warning title=Preflight::health probe attempt=$attempt http=$code"
+          attempt=$((attempt + 1))
+          sleep "$DELAY"
+        done
+
+        echo "healthy=false" >> "$GITHUB_OUTPUT"
+        echo "::error title=Preflight::environment not healthy after $RETRIES retries url=$URL"
+        exit 1
+
+    - name: Check deploy window
+      id: window
+      shell: bash
+      env:
+        ENV:         ${{ inputs.environment }}
+        CHECK:       ${{ inputs.check-deploy-window }}
+        HOUR_START:  ${{ inputs.deploy-window-utc-start }}
+        HOUR_END:    ${{ inputs.deploy-window-utc-end }}
+      run: |
+        set -euo pipefail
+        # Auto-enable window check for production when not explicitly set.
+        effective_check="$CHECK"
+        if [ -z "$effective_check" ]; then
+          [ "$ENV" = "production" ] && effective_check="true" || effective_check="false"
+        fi
+
+        if [ "$effective_check" != "true" ]; then
+          echo "in-window=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preflight::deploy window check skipped (env=$ENV)"
+          exit 0
+        fi
+
+        hour="$(date -u +%-H)"
+        day="$(date -u +%u)"   # 1=Mon … 7=Sun
+
+        if [ "$day" -gt 5 ]; then
+          echo "in-window=false" >> "$GITHUB_OUTPUT"
+          echo "::error title=Preflight::deploy window violation — weekend deploy blocked (day=$day UTC)"
+          exit 1
+        fi
+
+        if [ "$hour" -lt "$HOUR_START" ] || [ "$hour" -gt "$HOUR_END" ]; then
+          echo "in-window=false" >> "$GITHUB_OUTPUT"
+          echo "::error title=Preflight::deploy window violation — hour=$hour UTC not in ${HOUR_START}-${HOUR_END}"
+          exit 1
+        fi
+
+        echo "in-window=true" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Preflight::deploy window OK hour=$hour UTC day=$day"
+
+    - name: Check concurrent deploys
+      id: concurrent
+      shell: bash
+      env:
+        CHECK:    ${{ inputs.check-concurrent }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO:     ${{ github.repository }}
+        CUR_RUN:  ${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        if [ "$CHECK" != "true" ]; then
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preflight::concurrent deploy check skipped"
+          exit 0
+        fi
+
+        # Count in-progress runs of the deploy workflow excluding the current run.
+        running="$(gh run list \
+          --repo "$REPO" \
+          --workflow=deploy.yml \
+          --status=in_progress \
+          --json databaseId \
+          --jq "[.[] | select(.databaseId != ($CUR_RUN | tonumber))] | length")"
+
+        if [ "${running:-0}" -gt 0 ]; then
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          echo "::error title=Preflight::concurrent deploy in progress ($running other run(s)); retry later"
+          exit 1
+        fi
+
+        echo "ok=true" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Preflight::no concurrent deploys"

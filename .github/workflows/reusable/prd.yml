@@ -74,6 +74,46 @@ on:
         type: boolean
         required: false
         default: false
+      deploy-type:
+        description: "Deployment mechanism: docker (default) or k8s."
+        type: string
+        required: false
+        default: docker
+      ssh-host:
+        description: Target server hostname or IP (docker deploy).
+        type: string
+        required: false
+        default: ""
+      ssh-user:
+        description: SSH user (docker deploy).
+        type: string
+        required: false
+        default: deploy
+      ssh-port:
+        description: SSH port (docker deploy).
+        type: string
+        required: false
+        default: "22"
+      deploy-mode:
+        description: "Docker deploy mode: compose (default) or run."
+        type: string
+        required: false
+        default: compose
+      compose-file:
+        description: Path to docker-compose.yml on target server.
+        type: string
+        required: false
+        default: docker-compose.yml
+      compose-project-dir:
+        description: Working directory on the server.
+        type: string
+        required: false
+        default: "~"
+      docker-run-args:
+        description: Extra args for docker run (run mode only).
+        type: string
+        required: false
+        default: ""
     secrets:
       anthropic-api-key:
         description: Anthropic-compatible API key — used by AI changelog in create-release.
@@ -82,6 +122,8 @@ on:
         description: Custom Anthropic-compatible base URL. Leave unset to use the default Anthropic endpoint.
         required: false
       kubeconfig-prd:
+        required: false
+      ssh-key-prd:
         required: false
       slack-webhook-url:
         required: false
@@ -139,12 +181,24 @@ jobs:
           persist-credentials: false
       - name: Probe secrets
         env:
+          DEPLOY_TYPE:       ${{ inputs.deploy-type }}
           KUBECONFIG_PRD:    ${{ secrets.kubeconfig-prd }}
+          SSH_KEY_PRD:       ${{ secrets.ssh-key-prd }}
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
         run: |
-          bash .github/scripts/preflight-secrets.sh \
-            --required "KUBECONFIG_PRD" \
-            --optional "SLACK_WEBHOOK_URL"
+          if [ "$DEPLOY_TYPE" = "k8s" ]; then
+            bash .github/scripts/preflight-secrets.sh \
+              --required "KUBECONFIG_PRD" \
+              --optional "SLACK_WEBHOOK_URL"
+          else
+            bash .github/scripts/preflight-secrets.sh \
+              --required "SSH_KEY_PRD" \
+              --optional "SLACK_WEBHOOK_URL"
+          fi
+      - uses: ./.openci/actions/deploy/preflight
+        with:
+          environment:  production
+          health-url:   ${{ inputs.health-url }}
 
   pre-check:
     name: Pre-Check
@@ -195,6 +249,7 @@ jobs:
 
   deploy-k8s:
     name: Deploy K8s (production)
+    if: inputs.deploy-type == 'k8s'
     needs: pre-check
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
@@ -242,10 +297,65 @@ jobs:
           k8s-namespace: ${{ inputs.k8s-namespace }}
           kubeconfig:    ${{ secrets.kubeconfig-prd }}
 
+  deploy-docker:
+    name: Deploy Docker (production)
+    if: inputs.deploy-type != 'k8s'
+    needs: pre-check
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    environment:
+      name: production
+    permissions:
+      contents: read
+    outputs:
+      deploy-time:    ${{ steps.deploy.outputs.deploy-time }}
+      previous-image: ${{ steps.deploy.outputs.previous-image }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:     ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - id: deploy
+        uses: ./.openci/actions/deploy/docker
+        with:
+          app-name:            ${{ inputs.app-name }}
+          image-ref:           ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          ssh-host:            ${{ inputs.ssh-host }}
+          ssh-user:            ${{ inputs.ssh-user }}
+          ssh-port:            ${{ inputs.ssh-port }}
+          ssh-key:             ${{ secrets.ssh-key-prd }}
+          deploy-mode:         ${{ inputs.deploy-mode }}
+          compose-file:        ${{ inputs.compose-file }}
+          compose-project-dir: ${{ inputs.compose-project-dir }}
+          docker-run-args:     ${{ inputs.docker-run-args }}
+
   run-migration:
     name: Run Migration (production)
-    needs: deploy-k8s
-    if: inputs.run-migration == true
+    needs: [deploy-k8s, deploy-docker]
+    if: >-
+      inputs.run-migration == true &&
+      (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     environment:
@@ -288,8 +398,11 @@ jobs:
 
   smoke-test:
     name: Smoke Test (production)
-    needs: [deploy-k8s, run-migration]
-    if: always() && needs.deploy-k8s.result == 'success' && (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
+    needs: [deploy-k8s, deploy-docker, run-migration]
+    if: >-
+      always() &&
+      (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success') &&
+      (needs.run-migration.result == 'success' || needs.run-migration.result == 'skipped')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
@@ -328,9 +441,12 @@ jobs:
           health-url: ${{ inputs.health-url }}
 
   auto-rollback:
-    name: Auto Rollback
+    name: Auto Rollback (K8s)
     needs: [deploy-k8s, smoke-test]
-    if: always() && needs.smoke-test.result == 'failure' && needs.deploy-k8s.result == 'success'
+    if: >-
+      always() &&
+      needs.smoke-test.result == 'failure' &&
+      needs.deploy-k8s.result == 'success'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
@@ -383,6 +499,59 @@ jobs:
           failed-image:      ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
           github-token:      ${{ github.token }}
 
+  auto-rollback-docker:
+    name: Auto Rollback (Docker)
+    needs: [deploy-docker, smoke-test]
+    if: >-
+      always() &&
+      needs.smoke-test.result == 'failure' &&
+      needs.deploy-docker.result == 'success'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:     ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+      - name: Checkout OpenCI for local actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+      - uses: ./.openci/actions/deploy/auto-rollback-docker
+        with:
+          app-name:            ${{ inputs.app-name }}
+          previous-image:      ${{ needs.deploy-docker.outputs.previous-image }}
+          failed-image:        ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
+          ssh-host:            ${{ inputs.ssh-host }}
+          ssh-user:            ${{ inputs.ssh-user }}
+          ssh-port:            ${{ inputs.ssh-port }}
+          ssh-key:             ${{ secrets.ssh-key-prd }}
+          deploy-mode:         ${{ inputs.deploy-mode }}
+          compose-file:        ${{ inputs.compose-file }}
+          compose-project-dir: ${{ inputs.compose-project-dir }}
+          docker-run-args:     ${{ inputs.docker-run-args }}
+          github-token:        ${{ github.token }}
+
   create-release:
     name: Create Release
     needs: smoke-test
@@ -429,8 +598,8 @@ jobs:
 
   notify-observability:
     name: Notify Observability
-    needs: [deploy-k8s, smoke-test]
-    if: always() && needs.deploy-k8s.result == 'success'
+    needs: [deploy-k8s, deploy-docker, smoke-test]
+    if: always() && (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
@@ -490,7 +659,7 @@ jobs:
 
   notify-deployed:
     name: Notify Deployed
-    needs: [deploy-k8s, smoke-test]
+    needs: [deploy-k8s, deploy-docker, smoke-test]
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -528,7 +697,7 @@ jobs:
       - uses: ./.openci/actions/_common/notify-deployed
         with:
           environment: production
-          status:      ${{ (needs.smoke-test.result == 'success' && needs.deploy-k8s.result == 'success') && 'success' || 'failure' }}
+          status:      ${{ (needs.smoke-test.result == 'success' && (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')) && 'success' || 'failure' }}
           app-name:    ${{ inputs.app-name }}
           image-ref:   ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ inputs.image-digest }}
           webhook-url: ${{ secrets.slack-webhook-url }}

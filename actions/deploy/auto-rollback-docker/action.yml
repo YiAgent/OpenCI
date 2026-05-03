@@ -1,0 +1,179 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy/auto-rollback-docker — SSH-based Docker rollback + incident issue.
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy:
+#   1. Re-pull the previous image on the target host.
+#   2. Restart the service with the previous image (compose or run mode).
+#   3. Open an incident issue (best-effort, idempotent by run_id).
+#
+# Mirrors the shape of prd/auto-rollback so callers treat K8s and Docker
+# rollback uniformly.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy · Auto Rollback (Docker)
+description: Roll back a Docker deployment to the previous image and open an incident issue.
+
+inputs:
+  app-name:
+    description: Service or container name.
+    required: true
+  previous-image:
+    description: Image ref to roll back to (output of deploy/docker).
+    required: true
+  failed-image:
+    description: Image ref that failed smoke test.
+    required: true
+  ssh-host:
+    description: Target server hostname or IP.
+    required: true
+  ssh-user:
+    description: SSH user on the target server.
+    required: false
+    default: deploy
+  ssh-key:
+    description: Base64-encoded SSH private key.
+    required: true
+  ssh-port:
+    description: SSH port.
+    required: false
+    default: "22"
+  deploy-mode:
+    description: "compose (default) or run."
+    required: false
+    default: compose
+  compose-file:
+    description: Path to docker-compose.yml on the target server (compose mode).
+    required: false
+    default: docker-compose.yml
+  compose-project-dir:
+    description: Working directory on the server that contains docker-compose.yml.
+    required: false
+    default: "~"
+  container-name:
+    description: Override container name (run mode). Defaults to app-name.
+    required: false
+    default: ""
+  docker-run-args:
+    description: Extra args for `docker run` (run mode only, same as deploy).
+    required: false
+    default: ""
+  github-token:
+    description: "GITHUB_TOKEN with `issues: write`."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate previous-image
+      shell: bash
+      env:
+        PREV: ${{ inputs.previous-image }}
+      run: |
+        if [ -z "$PREV" ] || [ "$PREV" = "unknown" ]; then
+          echo "::error title=Rollback Aborted::previous-image is unknown; cannot roll back automatically"
+          exit 1
+        fi
+
+    - name: Write SSH key
+      id: ssh-setup
+      shell: bash
+      env:
+        KEY_B64: ${{ inputs.ssh-key }}
+        PORT:    ${{ inputs.ssh-port }}
+        HOST:    ${{ inputs.ssh-host }}
+        USER:    ${{ inputs.ssh-user }}
+      run: |
+        set -euo pipefail
+        key_path="${RUNNER_TEMP}/rollback_key_$$"
+        echo "$KEY_B64" | base64 -d > "$key_path"
+        chmod 600 "$key_path"
+        echo "::add-mask::$(cat "$key_path" | tr -d '\n')"
+        echo "SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+        mkdir -p ~/.ssh
+        ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+    - name: Rollback (compose mode)
+      if: inputs.deploy-mode == 'compose'
+      shell: bash
+      env:
+        HOST:         ${{ inputs.ssh-host }}
+        USER:         ${{ inputs.ssh-user }}
+        PORT:         ${{ inputs.ssh-port }}
+        APP:          ${{ inputs.app-name }}
+        PREV_IMAGE:   ${{ inputs.previous-image }}
+        COMPOSE_DIR:  ${{ inputs.compose-project-dir }}
+        COMPOSE_FILE: ${{ inputs.compose-file }}
+      run: |
+        set -euo pipefail
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+
+        ssh_cmd "docker pull ${PREV_IMAGE} || true"
+        ssh_cmd "cd ${COMPOSE_DIR} && \
+          IMAGE=${PREV_IMAGE} docker compose -f ${COMPOSE_FILE} up -d --no-build ${APP}"
+
+        echo "::notice title=Docker Rollback OK::app=$APP rolled back to $PREV_IMAGE (compose)"
+
+    - name: Rollback (run mode)
+      if: inputs.deploy-mode == 'run'
+      shell: bash
+      env:
+        HOST:           ${{ inputs.ssh-host }}
+        USER:           ${{ inputs.ssh-user }}
+        PORT:           ${{ inputs.ssh-port }}
+        APP:            ${{ inputs.app-name }}
+        PREV_IMAGE:     ${{ inputs.previous-image }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        EXTRA_ARGS:     ${{ inputs.docker-run-args }}
+      run: |
+        set -euo pipefail
+        ssh_cmd() { ssh -i "$SSH_KEY_PATH" -p "$PORT" -o StrictHostKeyChecking=no "${USER}@${HOST}" "$@"; }
+        container="${CONTAINER_NAME:-$APP}"
+
+        ssh_cmd "docker pull ${PREV_IMAGE} || true"
+        ssh_cmd "docker stop ${container} 2>/dev/null || true"
+        ssh_cmd "docker rm   ${container} 2>/dev/null || true"
+        ssh_cmd "docker run -d --name ${container} --restart unless-stopped ${EXTRA_ARGS} ${PREV_IMAGE}"
+
+        echo "::notice title=Docker Rollback OK::app=$APP rolled back to $PREV_IMAGE (run)"
+
+    - name: Remove SSH key
+      if: always()
+      shell: bash
+      run: rm -f "$SSH_KEY_PATH"
+
+    - name: Open incident issue
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN:    ${{ inputs.github-token }}
+        APP:         ${{ inputs.app-name }}
+        FAILED_IMG:  ${{ inputs.failed-image }}
+        PREV_IMG:    ${{ inputs.previous-image }}
+        RUN_URL:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW:    ${{ github.workflow }}
+        SHA:         ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        marker="run-id:${{ github.run_id }}"
+        existing="$(gh issue list --state open --label incident --search "$marker in:body" --json number --jq '.[0].number' 2>/dev/null || echo "")"
+        if [ -n "$existing" ]; then
+          echo "::notice title=Incident Already Filed::issue #$existing"
+          exit 0
+        fi
+
+        title="P1: Production rollback (Docker) — ${APP}"
+        body=$(printf '%s\n' \
+          "## Auto-rollback fired (Docker)" \
+          "" \
+          "- App: \`${APP}\`" \
+          "- Failed image: \`${FAILED_IMG}\`" \
+          "- Rolled back to: \`${PREV_IMG}\`" \
+          "- Workflow: ${WORKFLOW}" \
+          "- Commit: \`${SHA}\`" \
+          "- Run: ${RUN_URL}" \
+          "- ${marker}" \
+          "" \
+          "Please investigate the smoke-test failure and decide on root cause.")
+        gh issue create \
+          --title "$title" \
+          --body  "$body" \
+          --label "incident,priority:p1"
