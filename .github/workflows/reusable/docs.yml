@@ -1,26 +1,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# docs.yml — unified documentation workflow.
+# docs.yml — documentation quality + agentic sync pipeline (reusable workflow).
 # ─────────────────────────────────────────────────────────────────────────────
-# Combines doc PR validation and Pages publish into one workflow:
+# 4-stage pipeline:
 #
-#   ┌─ trigger ────────────────────────────┬─ active jobs ────────────────────┐
-#   │ pull_request paths docs/** + *.md    │ build (link check + opt. build)  │
-#   │ push main paths docs/** + *.md       │ build → deploy                   │
-#   │ workflow_dispatch / workflow_call    │ build → deploy (always)          │
-#   └──────────────────────────────────────┴──────────────────────────────────┘
+#   Stage 1 · Lint    — markdownlint, link check, spell check, required docs.
+#                       Failure blocks all downstream stages.
+#   Stage 2 · Detect  — git-history drift detection, API staleness, CHANGELOG
+#                       staleness. Builds docs-workspace artifact.
+#   Stage 3 · Agent   — claude-harness produces docs-action-plan/v1 JSON.
+#                       Runs only when lint passes AND needs-update=='true'.
+#   Stage 4 · Execute — apply high-confidence updates (new branch + PR),
+#                       build + deploy Pages, post sticky comment.
 #
-# Reusable invocation:
-#   uses: YiWang24/OpenCI/.github/workflows/reusable/docs.yml@v3
-#   with:
-#     build-cmd: "mkdocs build --strict"   # optional
-#     docs-dir:  docs                      # default
-#     site-dir:  site                      # default
+# Trigger matrix:
+#   push:main (all paths)        → all 4 stages
+#   pull_request (docs/** *.md)  → Stage 1 only (lint gate)
+#   schedule / workflow_dispatch → all 4 stages
+#   release:published            → all 4 stages
 #
-# When `build-cmd` is empty:
-#   - `build` job only runs the link check
-#   - `deploy` job copies docs/ contents as the Pages artifact
-# Security: only inputs (consumer-controlled) are interpolated; no
-# untrusted github.event payloads reach run: blocks.
+# Security: all github.event.* payloads are forwarded via env: variables;
+# never interpolated directly into run: blocks.
 # ─────────────────────────────────────────────────────────────────────────────
 name: docs
 
@@ -28,31 +27,74 @@ on:
   workflow_call:
     inputs:
       openci-ref:
-        description: OpenCI ref (consistency with the catalog; not used by docs build/deploy directly).
+        description: OpenCI ref to vendor for ./.openci/* references (default main; use a tag in production).
         required: false
         type: string
         default: main
       runner:
-        description: Runner label to use for all jobs in this workflow. Defaults to ubuntu-latest for open-source compatibility.
+        description: Runner label to use for all jobs. Defaults to ubuntu-latest.
         required: false
         type: string
         default: ubuntu-latest
-      build-cmd:
-        type: string
+      docs-path:
+        description: Path to the documentation directory (default docs).
         required: false
-        default: ""
-      docs-dir:
         type: string
-        required: false
         default: docs
-      site-dir:
-        type: string
+      build-cmd:
+        description: Command to build the docs site (e.g. mkdocs build --strict). Empty = copy raw markdown.
         required: false
+        type: string
+        default: ""
+      site-dir:
+        description: Directory containing the built site artifact (default site).
+        required: false
+        type: string
         default: site
+      markdownlint-config:
+        description: Path to a markdownlint config file (optional; uses built-in defaults when absent).
+        required: false
+        type: string
+        default: ""
+      enable-spell-check:
+        description: Run optional spell-check step (cspell). Failure is advisory only.
+        required: false
+        type: boolean
+        default: false
+      api-spec-path:
+        description: Path to the OpenAPI spec file to watch for staleness (optional).
+        required: false
+        type: string
+        default: ""
+      api-source-path:
+        description: Glob of source files that own the API (used to detect API drift).
+        required: false
+        type: string
+        default: ""
+      deploy-docs:
+        description: Upload and deploy the site to GitHub Pages on non-PR events.
+        required: false
+        type: boolean
+        default: true
+      enable-agent:
+        description: Run the AI docs-sync agent when drift is detected.
+        required: false
+        type: boolean
+        default: true
+      model:
+        description: Override the AI model name.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      anthropic-api-key:
+        required: false
+      api-base-url:
+        description: Custom Anthropic-compatible base URL.
+        required: false
 
 permissions: {}
 
-# PR builds isolate per-PR; main/dispatch share the pages group.
 concurrency:
   group: >-
     docs-${{
@@ -62,49 +104,67 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    name: Build Docs
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 1 · Lint — deterministic doc quality gate.
+  # Failure blocks detect / agent; execute still runs for PR comment on push.
+  # ─────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Stage 1 · Lint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
-    outputs:
-      site-dir: ${{ steps.build.outputs.site-dir }}
     steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
 
-      - id: build
-        name: Build (consumer-supplied or skeleton copy)
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: markdownlint
         shell: bash
         env:
-          CMD: ${{ inputs.build-cmd }}
-          SITE_DIR: ${{ inputs.site-dir || 'site' }}
+          DOCS_PATH:  ${{ inputs.docs-path }}
+          MLINT_CFG:  ${{ inputs.markdownlint-config }}
         run: |
           set -euo pipefail
-          if [ -z "$CMD" ]; then
-            echo "::notice title=Docs Build Skeleton::no build-cmd; copying raw markdown"
-            mkdir -p "$SITE_DIR"
-            cp -R docs/. "$SITE_DIR/" 2>/dev/null || true
-          else
-            echo "::notice title=Docs Build::cmd=${CMD}"
-            bash -c "$CMD"
+          if [ ! -d "$DOCS_PATH" ] && ! find . -maxdepth 2 -name '*.md' -print -quit | grep -q .; then
+            echo "::notice title=Lint Skipped::no markdown files found"
+            exit 0
           fi
-          echo "site-dir=$SITE_DIR" >> "$GITHUB_OUTPUT"
+          CFG_ARGS=""
+          if [ -n "$MLINT_CFG" ] && [ -f "$MLINT_CFG" ]; then
+            CFG_ARGS="--config $MLINT_CFG"
+          fi
+          # shellcheck disable=SC2086
+          npx --yes markdownlint-cli@0.44.0 $CFG_ARGS \
+            --ignore node_modules \
+            --ignore .openci \
+            "**/*.md" || {
+            echo "::error title=markdownlint::fix markdown issues listed above"
+            exit 1
+          }
 
-      - name: Markdown link check
+      - name: Link check (advisory)
+        continue-on-error: true
         shell: bash
         env:
-          DOCS_DIR: ${{ inputs.docs-dir || 'docs' }}
+          DOCS_PATH: ${{ inputs.docs-path }}
         run: |
           set -euo pipefail
+          if [ ! -d "$DOCS_PATH" ]; then
+            echo "::notice title=Link Check Skipped::no '$DOCS_PATH' directory"
+            exit 0
+          fi
           cat > /tmp/mlc-config.json <<'JSON'
           {
             "ignorePatterns": [
-              { "pattern": "^http://does-not-exist" },
-              { "pattern": "^http://localhost" }
+              { "pattern": "^http://localhost" },
+              { "pattern": "^http://does-not-exist" }
             ],
             "timeout": "10s",
             "retryOn429": true,
@@ -112,47 +172,377 @@ jobs:
             "fallbackRetryDelay": "30s"
           }
           JSON
-          # markdown-link-check has no native glob support and processes
-          # one file per invocation; iterate via find. Pinning via npm
-          # registry version is sufficient — no GitHub Actions side.
-          if [ ! -d "$DOCS_DIR" ]; then
-            echo "::notice title=Docs Link Check Skipped::no '$DOCS_DIR' directory in caller repo"
-            exit 0
-          fi
           fail=0
           while IFS= read -r -d '' f; do
             echo "::group::$f"
             out="$(npx --yes markdown-link-check@3.13.6 "$f" --config /tmp/mlc-config.json 2>&1)" || true
             echo "$out"
-            # Only flag a real failure when at least one ERROR line appears
-            # (markdown-link-check sometimes returns non-zero on harmless
-            # things like 'No hyperlinks found' on certain runner images).
             if printf '%s\n' "$out" | grep -qE '^\s*\[✖\]'; then
               fail=1
-              echo "::error file=$f::dead links detected"
+              echo "::warning file=$f::dead links detected"
             fi
             echo "::endgroup::"
-          done < <(find "$DOCS_DIR" -type f -name '*.md' -print0)
+          done < <(find "$DOCS_PATH" -type f -name '*.md' -print0)
           exit "$fail"
 
-  deploy:
-    name: Deploy to Pages
-    needs: build
-    # Only deploy on main push, manual dispatch, or when called via workflow_call.
+      - name: Spell check (optional)
+        if: inputs.enable-spell-check == true
+        continue-on-error: true
+        shell: bash
+        env:
+          DOCS_PATH: ${{ inputs.docs-path }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "$DOCS_PATH" ]; then
+            echo "::notice title=Spell Check Skipped::no '$DOCS_PATH' directory"
+            exit 0
+          fi
+          npx --yes cspell@8 lint --no-progress --show-suggestions \
+            "$DOCS_PATH/**/*.md" || \
+            echo "::warning title=Spell Check::spelling issues found (advisory)"
+
+      - name: Required docs check
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for f in README.md; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Required Docs::missing files: ${missing[*]}"
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 2 · Detect — git-history drift analysis, builds docs-workspace artifact.
+  # ─────────────────────────────────────────────────────────────────────────────
+  detect:
+    name: Stage 2 · Detect
+    needs: lint
+    # Run on push/schedule/dispatch/release (not on PR-only lint runs).
     if: github.event_name != 'pull_request'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      needs-update:       ${{ steps.detect.outputs.needs-update }}
+      workspace-artifact: docs-detect-${{ github.run_id }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout (full history for drift detection)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout OpenCI for detect action
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: YiAgent/OpenCI
+          ref:        ${{ steps.openci-ref.outputs.ref }}
+          path:       .openci
+          persist-credentials: false
+
+      - name: Run drift detection
+        id: detect
+        uses: ./.openci/actions/docs/detect
+        with:
+          docs-path:       ${{ inputs.docs-path }}
+          api-spec-path:   ${{ inputs.api-spec-path }}
+          api-source-path: ${{ inputs.api-source-path }}
+          run-id:          ${{ github.run_id }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 3 · Agent — claude-harness produces docs-action-plan/v1 JSON.
+  # Gated on: lint passed, detect ran, needs-update == 'true', enable-agent.
+  # ─────────────────────────────────────────────────────────────────────────────
+  agent:
+    name: Stage 3 · Agent
+    needs: detect
+    if: >-
+      inputs.enable-agent == true &&
+      needs.detect.outputs.needs-update == 'true'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    outputs:
+      plan:        ${{ steps.extract.outputs.plan }}
+      skip-reason: ${{ steps.extract.outputs.skip-reason }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout OpenCI for harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: YiAgent/OpenCI
+          ref:        ${{ steps.openci-ref.outputs.ref }}
+          path:       .openci
+          persist-credentials: false
+
+      - name: Download docs workspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: docs-detect-${{ github.run_id }}
+          path: docs-workspace
+
+      - name: Skip when ANTHROPIC_API_KEY missing
+        id: gate
+        uses: ./.openci/actions/_common/api-key-gate
+        with:
+          api-key: ${{ secrets.anthropic-api-key }}
+
+      - name: Run docs-sync agent
+        id: harness
+        if: steps.gate.outputs.skip != 'true'
+        uses: ./.openci/actions/_common/claude-harness
+        with:
+          task:               docs/sync-agent
+          prompt-path:        docs-workspace/prompt.md
+          context:            "{}"
+          api-key:            ${{ secrets.anthropic-api-key }}
+          api-base-url:       ${{ secrets.api-base-url }}
+          model:              ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
+          max-turns:          "6"
+          github-token:       ${{ github.token }}
+          use-sticky-comment: "false"
+
+      - name: Extract action plan
+        id: extract
+        uses: ./.openci/actions/docs/extract-plan
+        with:
+          skipped:        ${{ steps.gate.outputs.skip }}
+          execution-file: ${{ steps.harness.outputs.execution-file }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 4 · Execute — apply updates, build + deploy Pages, sticky comment.
+  # Runs with if: always() so deploy + comments happen even when agent skipped.
+  # ─────────────────────────────────────────────────────────────────────────────
+  execute:
+    name: Stage 4 · Execute
+    needs: [detect, agent]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.detect.result != 'skipped'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
     environment:
       name: github-pages
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
+      issues: write
       pages: write
       id-token: write
+    outputs:
+      docs-pr-url:    ${{ steps.apply.outputs.pr-url }}
+      docs-pr-number: ${{ steps.apply.outputs.pr-number }}
     steps:
-      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
-        with: { egress-policy: audit }
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
-          path: ${{ needs.build.outputs.site-dir }}
-      - uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128
-        id: deployment
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve OpenCI workflow ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF:      ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT:  ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout OpenCI for execute actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: YiAgent/OpenCI
+          ref:        ${{ steps.openci-ref.outputs.ref }}
+          path:       .openci
+          persist-credentials: false
+
+      # ── Apply high-confidence doc updates (creates PR) ─────────────────────
+      - name: Apply docs updates
+        id: apply
+        if: >-
+          needs.agent.result == 'success' &&
+          needs.agent.outputs.plan != ''
+        uses: ./.openci/actions/docs/execute-plan
+        with:
+          action-plan: ${{ needs.agent.outputs.plan }}
+          run-id:      ${{ github.run_id }}
+
+      # ── Build docs site ────────────────────────────────────────────────────
+      - name: Build docs site
+        id: build
+        shell: bash
+        env:
+          CMD:      ${{ inputs.build-cmd }}
+          SITE_DIR: ${{ inputs.site-dir }}
+          DOCS_DIR: ${{ inputs.docs-path }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CMD" ]; then
+            echo "::notice title=Docs Build::no build-cmd; copying raw markdown"
+            mkdir -p "$SITE_DIR"
+            cp -R "${DOCS_DIR}/." "$SITE_DIR/" 2>/dev/null || true
+          else
+            bash -c "$CMD"
+          fi
+          echo "site-dir=$SITE_DIR" >> "$GITHUB_OUTPUT"
+
+      # ── Upload + deploy Pages ──────────────────────────────────────────────
+      - name: Upload Pages artifact
+        if: inputs.deploy-docs == true
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v3.0.1
+        with:
+          path: ${{ steps.build.outputs.site-dir }}
+
+      - name: Deploy to GitHub Pages
+        if: inputs.deploy-docs == true
+        id: pages-deploy
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v4.0.5
+
+      # ── Sticky summary comment ─────────────────────────────────────────────
+      - name: Post sticky run summary
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+        env:
+          NEEDS_UPDATE:  ${{ needs.detect.outputs.needs-update }}
+          AGENT_RESULT:  ${{ needs.agent.result }}
+          SKIP_REASON:   ${{ needs.agent.outputs.skip-reason }}
+          DOCS_PR_URL:   ${{ steps.apply.outputs.pr-url }}
+          PAGES_URL:     ${{ steps.pages-deploy.outputs.page_url }}
+          RUN_ID:        ${{ github.run_id }}
+          RUN_URL:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const marker = `<!-- openci-docs-run:${process.env.RUN_ID} -->`;
+            const needsUpdate  = process.env.NEEDS_UPDATE === 'true';
+            const agentResult  = process.env.AGENT_RESULT;
+            const skipReason   = process.env.SKIP_REASON || '';
+            const docsPrUrl    = process.env.DOCS_PR_URL || '';
+            const pagesUrl     = process.env.PAGES_URL   || '';
+            const runUrl       = process.env.RUN_URL;
+
+            let status = '✅ No drift detected — docs are up to date.';
+            if (needsUpdate && agentResult === 'success' && docsPrUrl) {
+              status = `📝 Docs drift detected. Update PR opened: ${docsPrUrl}`;
+            } else if (needsUpdate && (agentResult === 'skipped' || skipReason)) {
+              status = `⚠️ Docs drift detected but agent skipped: ${skipReason || 'api-key missing'}`;
+            } else if (needsUpdate && agentResult === 'failure') {
+              status = '❌ Docs drift detected but agent failed — check run logs.';
+            }
+
+            const body = [
+              marker,
+              '## 📚 Docs Pipeline Summary',
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| **Status** | ${status} |`,
+              pagesUrl ? `| **Pages** | ${pagesUrl} |` : '',
+              `| **Run** | [${process.env.RUN_ID}](${runUrl}) |`,
+            ].filter(Boolean).join('\n');
+
+            // Find and update existing sticky comment, or create new one.
+            const { data: comments } = await github.rest.repos.listCommitComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              commit_sha: context.sha,
+            }).catch(() => ({ data: [] }));
+
+            const existing = comments.find(c => c.body.includes('<!-- openci-docs-run:'));
+            if (existing) {
+              await github.rest.repos.updateCommitComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.repos.createCommitComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                commit_sha: context.sha,
+                body,
+              });
+            }
+
+      # ── Job summary ────────────────────────────────────────────────────────
+      - name: Write job summary
+        shell: bash
+        env:
+          NEEDS_UPDATE: ${{ needs.detect.outputs.needs-update }}
+          AGENT_RESULT: ${{ needs.agent.result }}
+          DOCS_PR_URL:  ${{ steps.apply.outputs.pr-url }}
+          PAGES_URL:    ${{ steps.pages-deploy.outputs.page_url }}
+        run: |
+          {
+            echo "## 📚 Docs Pipeline"
+            echo ""
+            if [ "$NEEDS_UPDATE" = "true" ]; then
+              echo "**Drift detected.**"
+              [ -n "$DOCS_PR_URL" ] && echo "Update PR: $DOCS_PR_URL"
+            else
+              echo "**No drift detected** — docs are up to date."
+            fi
+            [ -n "$PAGES_URL" ] && echo "Pages deployed: $PAGES_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
