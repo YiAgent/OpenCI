@@ -1,10 +1,10 @@
-# on-pr.yml — event entry that fires the PR quality gate on every PR.
+# pull-request.yml — event entry that fires the PR quality gate on every PR.
 # OpenCI no longer ships standalone "pr-agent" task workflows — consumers
 # write their own thin scheduled / event-driven workflows that call
 # agent.yml directly with task + prompt-path + context (see EvolveCI
 # repo for the canonical pattern). This shim only runs the deterministic
 # PR checks via pr.yml.
-name: on-pr
+name: pull-request
 
 on:
   pull_request:
@@ -23,12 +23,12 @@ permissions:
   packages: read
 
 concurrency:
-  group: on-pr-${{ github.event.pull_request.number || github.run_id }}
+  group: pull-request-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   checks:
-    uses: ./.github/workflows/pr.yml
+    uses: ./.github/workflows/reusable/pr.yml
     with:
       enable-ai-review: true
       enable-eval:      true

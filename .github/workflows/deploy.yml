@@ -1,18 +1,12 @@
-# on-deploy.yml — direct event entries for the deploy domain.
-# No facade — each event routes straight to the relevant reusable
-# (stg.yml / prd.yml / prd-observe.yml) or runs an inline job
-# (poll, stg-agent-test). External users mirror this pattern.
-name: on-deploy
+# deploy.yml — event entries for the deploy domain.
+# Routes CI/release completions to reusable/stg.yml and reusable/prd.yml.
+# Observability triggers live in observability.yml.
+name: deploy
 
 on:
   workflow_run:
-    workflows: [on-ci, on-release]
+    workflows: [ci, release]
     types: [completed]
-  repository_dispatch:
-    types: [observe-window-complete]
-  schedule:
-    - cron: "*/15 * * * *"
-    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -25,22 +19,21 @@ permissions:
   packages: read
   id-token: write
   pull-requests: write
-  issues: write
   deployments: write
   actions: write
 
 concurrency:
-  group: on-deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
+  group: deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
   cancel-in-progress: false
 
 jobs:
   stg:
     if: >-
       (github.event_name == 'workflow_run'
-        && github.event.workflow_run.name == 'on-ci'
+        && github.event.workflow_run.name == 'ci'
         && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg')
-    uses: ./.github/workflows/stg.yml
+    uses: ./.github/workflows/reusable/stg.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -51,33 +44,15 @@ jobs:
   prd:
     if: >-
       (github.event_name == 'workflow_run'
-        && github.event.workflow_run.name == 'on-release'
+        && github.event.workflow_run.name == 'release'
         && github.event.workflow_run.conclusion == 'success')
-      || github.event_name == 'repository_dispatch'
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd')
-    uses: ./.github/workflows/prd.yml
+    uses: ./.github/workflows/reusable/prd.yml
     with:
       app-name:    ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:  ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:  ${{ vars.PRD_HEALTH_URL }}
       runner:      blacksmith-32vcpu-ubuntu-2404
-    secrets: inherit
-
-  observe-canary:
-    if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: ./.github/workflows/prd-observe.yml
-    with:
-      mode:   canary-watch
-      runner: blacksmith-32vcpu-ubuntu-2404
-    secrets: inherit
-
-  observe-drift:
-    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: ./.github/workflows/prd-observe.yml
-    with:
-      mode:      terraform-drift
-      infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
-      runner:    blacksmith-32vcpu-ubuntu-2404
     secrets: inherit
 
   # ──────────────────────────────────────────────────────────────────────
@@ -86,7 +61,7 @@ jobs:
   stg-agent-test:
     if: >-
       github.event_name == 'workflow_run'
-        && github.event.workflow_run.name == 'on-ci'
+        && github.event.workflow_run.name == 'ci'
         && github.event.workflow_run.conclusion == 'success'
     needs: stg
     name: Staging Agent Test L${{ matrix.level }}
