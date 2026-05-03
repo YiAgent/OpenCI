@@ -1,0 +1,36 @@
+name: Issue Extract Action Plan
+description: >
+  Extracts an issue-action-plan/v1 JSON object from the claude-harness
+  execution output. Falls back to safe escalate plans when the output is
+  missing or unparseable.
+
+inputs:
+  skipped:
+    description: '"true" when the agent was skipped (API key absent).'
+    required: false
+    default: 'false'
+  execution-file:
+    description: Path to the claude-harness execution output file.
+    required: false
+    default: ''
+
+outputs:
+  action-plan:
+    description: Compact JSON string of the issue-action-plan/v1 object.
+    value: ${{ steps.run.outputs.action-plan }}
+  reasoning:
+    description: Human-readable reasoning string from the plan.
+    value: ${{ steps.run.outputs.reasoning }}
+  plan-hash:
+    description: SHA-256 of the action plan used as idempotency key.
+    value: ${{ steps.run.outputs.plan-hash }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        SKIPPED:        ${{ inputs.skipped }}
+        EXECUTION_FILE: ${{ inputs.execution-file }}
+      run: bash ${{ github.action_path }}/extract-plan.sh

@@ -7,6 +7,8 @@ setup() {
   PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   WORKFLOW="${PROJECT_ROOT}/.github/workflows/issue.yml"
   ENTRY="${PROJECT_ROOT}/.github/workflows/on-issue.yml"
+  BUILD_WORKSPACE="${PROJECT_ROOT}/actions/issue/build-workspace/build-workspace.sh"
+  EXECUTE_JS="${PROJECT_ROOT}/actions/issue/execute-plan/execute.js"
 }
 
 @test "issue workflow exposes the three consolidated modes" {
@@ -35,20 +37,20 @@ setup() {
 }
 
 @test "issue workflow builds merged shared and issue agent workspace" {
-  grep -q '.github/agent/shared/context/AGENTS.md' "$WORKFLOW"
-  grep -q '.github/agent/issue/context/AGENTS.md' "$WORKFLOW"
-  grep -q 'agent-workspace/agent-context.json' "$WORKFLOW"
+  grep -q '.github/agent/shared/context/AGENTS.md' "$BUILD_WORKSPACE"
+  grep -q '.github/agent/issue/context/AGENTS.md' "$BUILD_WORKSPACE"
+  grep -q 'agent-workspace/agent-context.json' "$BUILD_WORKSPACE"
 }
 
 @test "guarded executor validates issue-action-plan version and allowlist" {
-  grep -q "issue-action-plan/v1" "$WORKFLOW"
-  grep -q "Unknown issue agent skill" "$WORKFLOW"
-  grep -q "openci-agent-run" "$WORKFLOW"
+  grep -q "issue-action-plan/v1" "$EXECUTE_JS"
+  grep -q "Unknown issue agent skill" "$EXECUTE_JS"
+  grep -q "openci-agent-run" "$EXECUTE_JS"
 }
 
 @test "guarded executor implements external issue skills" {
-  grep -q "https://api.linear.app/graphql" "$WORKFLOW"
-  grep -q "openci-mcp-task" "$WORKFLOW"
-  grep -q "openci-followup" "$WORKFLOW"
-  grep -q "NOTIFY_WEBHOOK_URL" "$WORKFLOW"
+  grep -q "https://api.linear.app/graphql" "$EXECUTE_JS"
+  grep -q "openci-mcp-task" "$EXECUTE_JS"
+  grep -q "openci-followup" "$EXECUTE_JS"
+  grep -q "NOTIFY_WEBHOOK_URL" "$EXECUTE_JS"
 }

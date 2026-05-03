@@ -1,0 +1,30 @@
+name: PR Execute Plan
+description: >
+  Posts a sticky PR summary comment and executes the allowlisted actions from
+  a pr-action-plan/v1 produced by the agent stage.
+
+inputs:
+  action-plan:
+    description: JSON string of the pr-action-plan/v1 produced by the agent.
+    required: true
+  trusted:
+    description: Whether the PR author is a trusted actor (true/false).
+    required: false
+    default: 'false'
+  run-id:
+    description: GitHub run ID used as idempotency key in the sticky comment.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Post summary and execute plan
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+      env:
+        ACTION_PLAN: ${{ inputs.action-plan }}
+        TRUSTED:     ${{ inputs.trusted }}
+        RUN_ID:      ${{ inputs.run-id }}
+      with:
+        script: |
+          const { executePrPlan } = require('${{ github.action_path }}/execute.js');
+          await executePrPlan({ github, context, env: process.env });

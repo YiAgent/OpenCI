@@ -1,0 +1,30 @@
+name: API Key Gate
+description: >
+  Checks whether ANTHROPIC_API_KEY is configured and sets skip=true when
+  it is missing. Emits a workflow notice rather than failing the job.
+
+inputs:
+  api-key:
+    description: The Anthropic API key to test.
+    required: false
+    default: ''
+
+outputs:
+  skip:
+    description: '"true" when the key is absent, "false" when present.'
+    value: ${{ steps.gate.outputs.skip }}
+
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.api-key }}
+      run: |
+        if [ -z "$API_KEY" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Agent Skipped::ANTHROPIC_API_KEY is not configured"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi

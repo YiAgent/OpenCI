@@ -117,3 +117,22 @@ run_detect() {
   [[ "${output}" == *"language=python"* ]]
   rm -rf "${TMP}"
 }
+
+@test "OVERRIDE env var bypasses filesystem detection" {
+  TMP="$(mktemp -d)"
+  # go.mod is present but OVERRIDE wins
+  printf 'module x\n\ngo 1.22\n' > "${TMP}/go.mod"
+  run env OVERRIDE=rust bash "${SCRIPT}" "${TMP}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"language=rust"* ]]
+  [[ "${output}" == *"package-manager=unknown"* ]]
+  rm -rf "${TMP}"
+}
+
+@test "OVERRIDE writes to GITHUB_OUTPUT when set" {
+  out_file="$(mktemp)"
+  GITHUB_OUTPUT="$out_file" OVERRIDE=python bash "${SCRIPT}" /tmp >/dev/null
+  grep -q '^language=python$' "$out_file"
+  grep -q '^package-manager=unknown$' "$out_file"
+  rm -f "$out_file"
+}

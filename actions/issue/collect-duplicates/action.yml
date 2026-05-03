@@ -1,0 +1,36 @@
+name: Collect Duplicate Candidates
+description: >
+  Searches open issues for potential duplicates by extracting meaningful
+  keywords from the issue title and querying the GitHub search API.
+
+inputs:
+  issue-title:
+    description: Title of the current issue.
+    required: true
+  issue-number:
+    description: Number of the current issue (excluded from results).
+    required: true
+  repo:
+    description: Repository in owner/name format.
+    required: false
+    default: ${{ github.repository }}
+  gh-token:
+    description: GitHub token with issues:read permission.
+    required: true
+
+outputs:
+  candidates:
+    description: JSON array of potential duplicate issues (number, title, state, url).
+    value: ${{ steps.run.outputs.candidates }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        GH_TOKEN:    ${{ inputs.gh-token }}
+        REPO:        ${{ inputs.repo }}
+        ISSUE_NUM:   ${{ inputs.issue-number }}
+        ISSUE_TITLE: ${{ inputs.issue-title }}
+      run: bash ${{ github.action_path }}/collect-duplicates.sh

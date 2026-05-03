@@ -100,6 +100,9 @@ deps:
   release-drafter/release-drafter:        "3f0f87098bd6b5c5b9a36d49c41d998ea58f9e0b"  # v6.1.0
   softprops/action-gh-release:            "b4309332981a82ec1c5618f44dd2e27cc8bfbfda"  # v3.0.0
 
+  # ── Self (OpenCI vendoring itself via remote action reference) ──────────
+  YiAgent/OpenCI:                         "d280a64a392b7f1a3e906246286ca983e610f920"  # resolve-openci bootstrap
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Reusable workflow catalog (consumed via `uses: YiAgent/OpenCI/.github/workflows/<id>.yml@<ref>`)
 # Public surface = 9 unprefixed reusables under .github/workflows/.

@@ -1,0 +1,74 @@
+name: Pack Issue Ingest Payload
+description: >
+  Merges all ingest signals (event metadata, parsed form, labels applied,
+  duplicate candidates) into a normalised ingest.json file and writes
+  issue-number and plan-subject job outputs.
+
+inputs:
+  event-name:
+    required: true
+  event-action:
+    required: true
+  mode:
+    required: true
+  repo:
+    required: false
+    default: ${{ github.repository }}
+  issue-json:
+    description: github.event.issue serialised as JSON.
+    required: false
+    default: 'null'
+  comment-json:
+    description: github.event.comment serialised as JSON.
+    required: false
+    default: 'null'
+  client-payload-json:
+    description: github.event.client_payload serialised as JSON.
+    required: false
+    default: 'null'
+  form-json:
+    description: Parsed issue-form JSON string.
+    required: false
+    default: '{}'
+  area-labels:
+    description: JSON array of area labels applied.
+    required: false
+    default: '[]'
+  severity-labels:
+    description: JSON array of severity labels applied.
+    required: false
+    default: '[]'
+  duplicates-json:
+    description: JSON array of duplicate candidates.
+    required: false
+    default: '[]'
+
+outputs:
+  ingest-json:
+    description: Full ingest payload as a JSON string.
+    value: ${{ steps.run.outputs.ingest-json }}
+  issue-number:
+    description: Resolved GitHub issue number.
+    value: ${{ steps.run.outputs.issue-number }}
+  plan-subject:
+    description: Human-readable subject for the plan (issue title or fallback).
+    value: ${{ steps.run.outputs.plan-subject }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        EVENT_NAME:          ${{ inputs.event-name }}
+        EVENT_ACTION:        ${{ inputs.event-action }}
+        MODE:                ${{ inputs.mode }}
+        REPO:                ${{ inputs.repo }}
+        ISSUE_JSON:          ${{ inputs.issue-json }}
+        COMMENT_JSON:        ${{ inputs.comment-json }}
+        CLIENT_PAYLOAD_JSON: ${{ inputs.client-payload-json }}
+        FORM_JSON:           ${{ inputs.form-json }}
+        AREA_LABELS:         ${{ inputs.area-labels }}
+        SEVERITY_LABELS:     ${{ inputs.severity-labels }}
+        DUPLICATES_JSON:     ${{ inputs.duplicates-json }}
+      run: bash ${{ github.action_path }}/pack-ingest.sh
