@@ -1,0 +1,27 @@
+{
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "mode": "lifecycle"
+  },
+  "repo": { "name": "YiAgent/OpenCI" },
+  "issue": {
+    "number": 9002,
+    "title": "[test] Add support for GitLab CI as an alternative to GitHub Actions",
+    "body": "## Feature request\n\nIt would be great if OpenCI could integrate with GitLab CI/CD pipelines, not just GitHub Actions. Many teams use GitLab and would benefit from the AI-powered workflow capabilities.\n\n## Proposed solution\nAdd a GitLab CI template (`.gitlab-ci.yml`) that calls the same underlying Claude harness via a Docker runner.\n\n## Alternatives considered\n- Using GitHub Actions as a proxy (too complex)\n- Self-hosted runners with GitHub bridge (adds infrastructure overhead)\n\n## Additional context\nOur team migrates from GitLab to GitHub gradually, and interoperability would help bridge the transition.",
+    "labels": [],
+    "author_association": "CONTRIBUTOR",
+    "user": { "login": "test-contributor" },
+    "state": "open",
+    "created_at": "2026-05-03T11:00:00Z",
+    "updated_at": "2026-05-03T11:00:00Z"
+  },
+  "comment": null,
+  "client_payload": null,
+  "form": {},
+  "management": {
+    "labels_applied": [],
+    "duplicate_candidates": [],
+    "stale_action": null
+  }
+}

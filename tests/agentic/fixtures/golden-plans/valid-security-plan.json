@@ -1,0 +1,17 @@
+{
+  "version": "issue-action-plan/v1",
+  "reasoning": "Security concern from OWNER. High priority - secret exposure is a critical security risk. Escalate immediately.",
+  "actions": [
+    {
+      "skill": "add_label",
+      "params": { "labels": ["security", "priority:p0"] }
+    },
+    {
+      "skill": "escalate",
+      "params": {
+        "reason": "Potential secret exposure via workflow logs. Requires immediate review by maintainers."
+      }
+    }
+  ],
+  "skip_reason": null
+}

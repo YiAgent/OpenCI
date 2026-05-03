@@ -1,0 +1,18 @@
+diff --git a/actions/_common/api-key-gate/action.yml b/actions/_common/api-key-gate/action.yml
+index 1234567..abcdefg 100644
+--- a/actions/_common/api-key-gate/action.yml
++++ b/actions/_common/api-key-gate/action.yml
+@@ -15,6 +15,12 @@ runs:
+   steps:
+     - name: Check API key
+       id: check
++      shell: bash
+       run: |
+-        if [ -z "${{ inputs.api-key }}" ]; then
++        api_key="${{ inputs.api-key }}"
++        if [ -z "$api_key" ]; then
+           echo "skip=true" >> "$GITHUB_OUTPUT"
++          echo "::notice::ANTHROPIC_API_KEY not configured - skipping AI steps"
+         else
+           echo "skip=false" >> "$GITHUB_OUTPUT"
+         fi
