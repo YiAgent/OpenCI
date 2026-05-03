@@ -40,7 +40,9 @@ on:
         type: string
         default: ubuntu-latest
       mode:
-        description: Force a specific observer (canary-watch|terraform-drift|verify-fix)
+        description: >-
+          Observer mode: canary-watch | terraform-drift | verify-fix
+          | post-deploy | canary
         required: false
         type: string
         default: ""
@@ -49,8 +51,124 @@ on:
         required: false
         type: string
         default: infrastructure
+      # ── multi-observe inputs ───────────────────────────────────────────────
+      environment:
+        description: Target environment name (production, staging, …)
+        required: false
+        type: string
+        default: production
+      providers:
+        description: >-
+          Comma-separated list of monitoring providers to collect from.
+          Supported: sentry, posthog, axiom, datadog, langsmith
+        required: false
+        type: string
+        default: sentry
+      observe-window:
+        description: Look-back window for all adapters (30m, 1h, 6h, 24h)
+        required: false
+        type: string
+        default: 30m
+      image-tag:
+        description: Image/release tag that was just deployed (for correlation)
+        required: false
+        type: string
+        default: ""
+      thresholds-file:
+        description: >-
+          Path (relative to consumer repo) to a thresholds YAML file.
+          Defaults to the built-in default-thresholds.yml shipped with OpenCI.
+        required: false
+        type: string
+        default: ""
+      # ── per-provider config ────────────────────────────────────────────────
+      sentry-org:
+        required: false
+        type: string
+        default: ""
+      sentry-project:
+        required: false
+        type: string
+        default: ""
+      sentry-env:
+        required: false
+        type: string
+        default: production
+      posthog-project-id:
+        required: false
+        type: string
+        default: ""
+      posthog-host:
+        required: false
+        type: string
+        default: https://app.posthog.com
+      posthog-events:
+        description: Comma-separated PostHog event names to count
+        required: false
+        type: string
+        default: ""
+      posthog-funnel-id:
+        description: Saved PostHog funnel insight ID
+        required: false
+        type: string
+        default: ""
+      axiom-dataset:
+        required: false
+        type: string
+        default: ""
+      axiom-apl:
+        description: Custom APL query (overrides built-in log queries)
+        required: false
+        type: string
+        default: ""
+      datadog-site:
+        required: false
+        type: string
+        default: datadoghq.com
+      datadog-service:
+        required: false
+        type: string
+        default: ""
+      datadog-env:
+        required: false
+        type: string
+        default: production
+      datadog-queries:
+        description: JSON array of {name, query} for custom Datadog metrics
+        required: false
+        type: string
+        default: ""
+      langsmith-project:
+        required: false
+        type: string
+        default: ""
+      langsmith-run-type:
+        description: "Filter runs by type: llm | chain | tool | all"
+        required: false
+        type: string
+        default: all
+      langsmith-eval-dataset:
+        description: LangSmith dataset name for eval score collection
+        required: false
+        type: string
+        default: ""
     secrets:
       sentry-token:
+        required: false
+      # ── multi-observe secrets ──────────────────────────────────────────────
+      anthropic-api-key:
+        required: false
+      posthog-api-key:
+        required: false
+      axiom-token:
+        required: false
+      axiom-org-id:
+        required: false
+      datadog-api-key:
+        required: false
+      datadog-app-key:
+        required: false
+      langsmith-api-key:
         required: false
 
 permissions: {}
@@ -343,3 +461,446 @@ jobs:
           sentry-token: ${{ secrets.sentry-token }}
           sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+  # ── multi-observe (post-deploy | canary) ─────────────────────────────────
+  # Four-stage pipeline: Collect → Normalize → Agent → Execute.
+  # All stages run in one job so adapter outputs are shared via the filesystem.
+  # Each adapter step is continue-on-error so a single provider failure
+  # does not abort the pipeline — the normalize stage handles missing files.
+  multi-observe:
+    name: Multi-Provider Observe
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.mode == 'post-deploy' || inputs.mode == 'canary'))
+      || (github.event_name == 'workflow_call'  && (inputs.mode == 'post-deploy' || inputs.mode == 'canary'))
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Resolve OpenCI ref
+        id: openci-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OPENCI_REF_INPUT: ${{ inputs.openci-ref }}
+        run: |
+          if [ -n "${OPENCI_REF_INPUT:-}" ]; then
+            REF="$OPENCI_REF_INPUT"
+          else
+            REF="${WORKFLOW_REF##*@}"
+            REF="${REF#refs/heads/}"
+            REF="${REF#refs/tags/}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout OpenCI adapters
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: YiAgent/OpenCI
+          ref: ${{ steps.openci-ref.outputs.ref }}
+          path: .openci
+          persist-credentials: false
+
+      # ── Stage 1: Collect ─────────────────────────────────────────────────
+      # Each adapter writes raw-metrics-{provider}.json.
+      # continue-on-error: true per adapter — missing creds → empty output only.
+
+      - name: Collect — Sentry
+        id: collect-sentry
+        if: contains(inputs.providers, 'sentry')
+        continue-on-error: true
+        env:
+          SENTRY_TOKEN:   ${{ secrets.sentry-token }}
+          SENTRY_ORG:     ${{ inputs.sentry-org || vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ inputs.sentry-project || vars.SENTRY_PROJECT }}
+          SENTRY_ENV:     ${{ inputs.sentry-env }}
+          OBSERVE_WINDOW: ${{ inputs.observe-window }}
+        run: |
+          python3 .openci/.github/agent/observe/adapters/sentry.py
+          mv raw-metrics.json raw-metrics-sentry.json
+
+      - name: Collect — PostHog
+        id: collect-posthog
+        if: contains(inputs.providers, 'posthog')
+        continue-on-error: true
+        env:
+          POSTHOG_API_KEY:    ${{ secrets.posthog-api-key }}
+          POSTHOG_PROJECT_ID: ${{ inputs.posthog-project-id }}
+          POSTHOG_HOST:       ${{ inputs.posthog-host }}
+          POSTHOG_EVENTS:     ${{ inputs.posthog-events }}
+          POSTHOG_FUNNEL_ID:  ${{ inputs.posthog-funnel-id }}
+          OBSERVE_WINDOW:     ${{ inputs.observe-window }}
+        run: |
+          python3 .openci/.github/agent/observe/adapters/posthog.py
+          mv raw-metrics.json raw-metrics-posthog.json
+
+      - name: Collect — Axiom
+        id: collect-axiom
+        if: contains(inputs.providers, 'axiom')
+        continue-on-error: true
+        env:
+          AXIOM_TOKEN:    ${{ secrets.axiom-token }}
+          AXIOM_ORG_ID:   ${{ secrets.axiom-org-id }}
+          AXIOM_DATASET:  ${{ inputs.axiom-dataset }}
+          AXIOM_APL:      ${{ inputs.axiom-apl }}
+          OBSERVE_WINDOW: ${{ inputs.observe-window }}
+        run: |
+          python3 .openci/.github/agent/observe/adapters/axiom.py
+          mv raw-metrics.json raw-metrics-axiom.json
+
+      - name: Collect — Datadog
+        id: collect-datadog
+        if: contains(inputs.providers, 'datadog')
+        continue-on-error: true
+        env:
+          DD_API_KEY:     ${{ secrets.datadog-api-key }}
+          DD_APP_KEY:     ${{ secrets.datadog-app-key }}
+          DD_SITE:        ${{ inputs.datadog-site }}
+          DD_SERVICE:     ${{ inputs.datadog-service }}
+          DD_ENV:         ${{ inputs.datadog-env }}
+          DD_QUERIES:     ${{ inputs.datadog-queries }}
+          OBSERVE_WINDOW: ${{ inputs.observe-window }}
+        run: |
+          python3 .openci/.github/agent/observe/adapters/datadog.py
+          mv raw-metrics.json raw-metrics-datadog.json
+
+      - name: Collect — LangSmith
+        id: collect-langsmith
+        if: contains(inputs.providers, 'langsmith')
+        continue-on-error: true
+        env:
+          LANGSMITH_API_KEY:  ${{ secrets.langsmith-api-key }}
+          LANGSMITH_PROJECT:  ${{ inputs.langsmith-project }}
+          LS_RUN_TYPE:        ${{ inputs.langsmith-run-type }}
+          LS_EVAL_DATASET:    ${{ inputs.langsmith-eval-dataset }}
+          OBSERVE_WINDOW:     ${{ inputs.observe-window }}
+        run: |
+          python3 .openci/.github/agent/observe/adapters/langsmith.py
+          mv raw-metrics.json raw-metrics-langsmith.json
+
+      # ── Stage 2: Normalize ───────────────────────────────────────────────
+      # Merge all raw-metrics-*.json into one metrics.json.
+      # Evaluate thresholds and tag violations.
+
+      - name: Normalize — merge and evaluate thresholds
+        id: normalize
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_TAG:   ${{ inputs.image-tag }}
+          MODE:        ${{ inputs.mode }}
+          PROVIDERS:   ${{ inputs.providers }}
+          THRESH_FILE: ${{ inputs.thresholds-file }}
+        run: |
+          set -euo pipefail
+
+          # Pick thresholds file: caller-supplied → built-in default
+          BUILTIN=".openci/.github/agent/observe/default-thresholds.yml"
+          if [ -n "$THRESH_FILE" ] && [ -f "$THRESH_FILE" ]; then
+            ACTIVE_THRESH="$THRESH_FILE"
+          else
+            ACTIVE_THRESH="$BUILTIN"
+          fi
+          export ACTIVE_THRESH
+
+          python3 - << 'PYEOF'
+          import json, os, glob, sys
+          from datetime import datetime, timezone
+
+          env      = os.environ["ENVIRONMENT"]
+          image    = os.environ["IMAGE_TAG"]
+          mode     = os.environ["MODE"]
+          thresh_f = os.environ["ACTIVE_THRESH"]
+
+          # Merge all provider outputs
+          all_metrics = []
+          provider_summaries = {}
+          for path in sorted(glob.glob("raw-metrics-*.json")):
+              try:
+                  with open(path) as f:
+                      data = json.load(f)
+                  provider = data.get("provider", path)
+                  metrics  = data.get("metrics", [])
+                  all_metrics.extend(metrics)
+                  provider_summaries[provider] = f"{len(metrics)} metrics collected"
+              except Exception as e:
+                  print(f"::warning title=Normalize::skipping {path}: {e}", file=sys.stderr)
+
+          if not all_metrics:
+              print("::warning title=Normalize::no metrics collected — all providers failed", file=sys.stderr)
+
+          # Load thresholds (YAML → parse manually since PyYAML may not be installed)
+          thresholds = {}
+          try:
+              import yaml
+              with open(thresh_f) as f:
+                  thresholds = yaml.safe_load(f) or {}
+          except ImportError:
+              # Fallback: basic line parser for simple key: value YAML
+              import re
+              current_metric = None
+              with open(thresh_f) as f:
+                  for line in f:
+                      line = line.rstrip()
+                      if not line or line.startswith("#"):
+                          continue
+                      if re.match(r"^\w", line) and line.endswith(":"):
+                          current_metric = line[:-1]
+                          thresholds[current_metric] = {}
+                      elif current_metric and re.match(r"^\s+(warning|critical|direction):\s+", line):
+                          m = re.match(r"^\s+(warning|critical|direction):\s+(.+)", line)
+                          if m:
+                              key = m.group(1)
+                              val = m.group(2).strip()
+                              try:
+                                  thresholds[current_metric][key] = float(val)
+                              except ValueError:
+                                  thresholds[current_metric][key] = val
+          except Exception as e:
+              print(f"::warning title=Normalize::thresholds load error: {e}", file=sys.stderr)
+
+          # Evaluate violations
+          violations = []
+          for m in all_metrics:
+              name      = m["name"]
+              value     = m.get("value", 0)
+              thresh    = thresholds.get(name, {})
+              direction = thresh.get("direction", "high")
+              critical  = thresh.get("critical")
+              warning   = thresh.get("warning")
+
+              if direction == "low":
+                  if critical is not None and value < critical:
+                      violations.append({"metric": name, "severity": "critical",
+                                         "value": value, "threshold": critical,
+                                         "message": f"{name} {value} < critical {critical}"})
+                  elif warning is not None and value < warning:
+                      violations.append({"metric": name, "severity": "warning",
+                                         "value": value, "threshold": warning,
+                                         "message": f"{name} {value} < warning {warning}"})
+              else:
+                  if critical is not None and value > critical:
+                      violations.append({"metric": name, "severity": "critical",
+                                         "value": value, "threshold": critical,
+                                         "message": f"{name} {value} > critical {critical}"})
+                  elif warning is not None and value > warning:
+                      violations.append({"metric": name, "severity": "warning",
+                                         "value": value, "threshold": warning,
+                                         "message": f"{name} {value} > warning {warning}"})
+
+          max_sev = (
+              "critical" if any(v["severity"] == "critical" for v in violations)
+              else "warning" if violations else "none"
+          )
+
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          output = {
+              "meta": {
+                  "environment": env,
+                  "image_tag":   image,
+                  "mode":        mode,
+                  "observed_at": now,
+              },
+              "metrics":           all_metrics,
+              "provider_summaries": provider_summaries,
+              "violations":        violations,
+              "has_violations":    len(violations) > 0,
+              "max_severity":      max_sev,
+          }
+
+          with open("metrics.json", "w") as f:
+              json.dump(output, f, indent=2)
+
+          # Expose outputs
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"has_violations={'true' if violations else 'false'}\n")
+              out.write(f"max_severity={max_sev}\n")
+              out.write(f"violations_count={len(violations)}\n")
+
+          print(f"Normalize: {len(all_metrics)} metrics, {len(violations)} violations, max_severity={max_sev}")
+          PYEOF
+        shell: bash
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: observe-metrics-${{ github.run_id }}
+          path: metrics.json
+          retention-days: 30
+
+      # ── Stage 3: Agent ───────────────────────────────────────────────────
+      # Skip if no violations and not in canary mode (canary always assesses).
+
+      - name: Agent — assess and plan
+        id: agent
+        if: >-
+          steps.normalize.outputs.has_violations == 'true'
+          || inputs.mode == 'canary'
+        uses: ./.openci/actions/_common/claude-harness
+        with:
+          task: observe/incident-analyst
+          api-key: ${{ secrets.anthropic-api-key }}
+          github-token: ${{ github.token }}
+          use-sticky-comment: "false"
+          max-turns: "5"
+          session-timeout-ms: "120000"
+          context: >-
+            {
+              "environment": "${{ inputs.environment }}",
+              "mode":        "${{ inputs.mode }}",
+              "image_tag":   "${{ inputs.image-tag }}",
+              "providers":   "${{ inputs.providers }}"
+            }
+          prompt: |
+            Read the file `metrics.json` in the current directory.
+            It contains observability data from these providers: ${{ inputs.providers }}.
+
+            Also read `.openci/.github/agent/observe/context/rules.md` for decision rules
+            and `.openci/.github/agent/observe/context/providers.md` for signal interpretation.
+
+            Assess the current state and output your analysis as a JSON file named `plan.json`
+            with this exact schema:
+            {
+              "version": "observe-action-plan/v1",
+              "assessment": "healthy|degraded|critical",
+              "summary": "<one sentence>",
+              "provider_summaries": {},
+              "violations_analysis": [],
+              "actions": [
+                {"skill": "<skill>", "params": {}, "confidence": "high|medium|low"}
+              ],
+              "skip_reason": null
+            }
+
+            Allowed skills: trigger_rollback, create_incident, notify, extend_observe,
+                            promote_canary, escalate.
+            Only include actions with confidence=high.
+            Write ONLY plan.json — do not create or edit any other files.
+
+      - name: Read agent plan
+        id: read-plan
+        if: always()
+        run: |
+          if [ -f plan.json ]; then
+            PLAN=$(cat plan.json)
+            ASSESSMENT=$(echo "$PLAN" | jq -r '.assessment // "unknown"')
+            SUMMARY=$(echo "$PLAN"   | jq -r '.summary   // ""')
+          else
+            PLAN='{"assessment":"unknown","actions":[],"summary":"Agent did not run or produced no plan"}'
+            ASSESSMENT="unknown"
+            SUMMARY="No agent output"
+          fi
+          {
+            echo "assessment=$ASSESSMENT"
+            echo "summary=$SUMMARY"
+            echo "plan<<__OPENCI_PLAN_EOF__"
+            echo "$PLAN"
+            echo "__OPENCI_PLAN_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Stage 4: Execute ─────────────────────────────────────────────────
+
+      - name: Execute — act on plan
+        if: always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
+        env:
+          PLAN_JSON: ${{ steps.read-plan.outputs.plan }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_TAG:   ${{ inputs.image-tag }}
+        with:
+          script: |
+            const plan = JSON.parse(process.env.PLAN_JSON || '{"actions":[]}');
+            const env  = process.env.ENVIRONMENT;
+            const tag  = process.env.IMAGE_TAG;
+            const ALLOWED = new Set([
+              'trigger_rollback', 'create_incident', 'notify',
+              'extend_observe', 'promote_canary', 'escalate',
+            ]);
+
+            for (const action of (plan.actions || [])) {
+              if (!ALLOWED.has(action.skill)) continue;
+              if (action.confidence !== 'high') continue;
+
+              core.notice(`Execute: ${action.skill} — ${JSON.stringify(action.params)}`);
+
+              if (action.skill === 'trigger_rollback') {
+                await github.rest.actions.createWorkflowDispatch({
+                  ...context.repo,
+                  workflow_id: 'deploy.yml',
+                  ref: 'main',
+                  inputs: { environment: env, mode: 'rollback', reason: action.params.reason || plan.summary },
+                });
+              }
+
+              if (action.skill === 'create_incident') {
+                const body = [
+                  `## 🚨 Incident — ${env}`,
+                  `**Assessment**: ${plan.assessment}`,
+                  `**Summary**: ${plan.summary}`,
+                  `**Image**: ${tag || '(unknown)'}`,
+                  '',
+                  '## Violations',
+                  ...(plan.violations_analysis || []).map(v =>
+                    `- **${v.metric}**: ${v.analysis}\n  Likely cause: ${v.likely_cause || '(unknown)'}`
+                  ),
+                  '',
+                  `---\n*Auto-generated by OpenCI Observability · [Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})*`,
+                ].join('\n');
+
+                await github.rest.issues.create({
+                  ...context.repo,
+                  title: action.params.title || `Incident: ${plan.summary}`,
+                  body,
+                  labels: ['incident', `env:${env}`, `severity:${action.params.severity || 'p2'}`],
+                });
+              }
+
+              if (action.skill === 'promote_canary') {
+                await github.rest.actions.createWorkflowDispatch({
+                  ...context.repo,
+                  workflow_id: 'deploy.yml',
+                  ref: 'main',
+                  inputs: { environment: env, image_tag: tag, mode: 'full-rollout' },
+                });
+              }
+            }
+
+      # ── Summary ──────────────────────────────────────────────────────────
+
+      - name: Write step summary
+        if: always()
+        env:
+          ASSESSMENT:       ${{ steps.read-plan.outputs.assessment || 'unknown' }}
+          SUMMARY:          ${{ steps.read-plan.outputs.summary    || '' }}
+          MAX_SEVERITY:     ${{ steps.normalize.outputs.max_severity || 'none' }}
+          VIOLATIONS_COUNT: ${{ steps.normalize.outputs.violations_count || '0' }}
+          PROVIDERS:        ${{ inputs.providers }}
+          ENVIRONMENT:      ${{ inputs.environment }}
+          IMAGE_TAG:        ${{ inputs.image-tag }}
+          MODE:             ${{ inputs.mode }}
+        run: |
+          EMOJI="✅"
+          [ "$ASSESSMENT" = "degraded" ] && EMOJI="⚠️"
+          [ "$ASSESSMENT" = "critical" ] && EMOJI="🔴"
+
+          cat >> "$GITHUB_STEP_SUMMARY" << SUMMARY_EOF
+          ## ${EMOJI} Observability Report — ${ENVIRONMENT}
+
+          **Assessment**: ${ASSESSMENT}
+          **Mode**: ${MODE}
+          **Providers**: ${PROVIDERS}
+          **Image**: ${IMAGE_TAG:-—}
+
+          ${SUMMARY}
+
+          | Violations | Max Severity |
+          |------------|-------------|
+          | ${VIOLATIONS_COUNT} | ${MAX_SEVERITY} |
+          SUMMARY_EOF
