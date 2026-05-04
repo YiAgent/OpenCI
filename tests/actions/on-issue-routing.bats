@@ -88,6 +88,7 @@ setup() {
 }
 
 @test "manual job passes the dispatch input mode dynamically" {
+  # shellcheck disable=SC2016  # \$ is for grep BRE, not shell expansion
   grep -q 'mode: \${{ inputs.mode }}' "$ENTRY"
 }
 
@@ -97,7 +98,7 @@ setup() {
 
 @test "all four jobs call the same reusable workflow reusable/issue.yml" {
   local count
-  count=$(grep -c 'uses: \.\/\.github\/workflows\/reusable\/issue\.yml' "$ENTRY")
+  count=$(grep -c 'uses: YiAgent/OpenCI/.github/workflows/reusable/issue\.yml' "$ENTRY")
   [ "$count" -eq 4 ]
 }
 
