@@ -32,7 +32,7 @@ deps:
   actions/download-artifact:              "d3f86a106a0bac45b974a628896c90dbdf5c8093"  # v4.3.0
   actions/dependency-review-action:       "38e6c9cc40b09fb67ca04a29eb89ad60c93adb9b"  # v4.6.0
   actions/github-script:                  "60a0d83039c74a4aee543508d2ffcb1c3799cdea"  # v7.0.1
-  actions/labeler:                        "6570a1fa0235bf4a1e8a9f2f62d7e35e5cce0300"  # v5.0.0
+  actions/labeler:                        "8558fd74291d67161a8a78ce36a881fa63b766a9"  # v5.0.0
 
   # ── Docker (verified) ──────────────────────────────────────────────────
   docker/setup-buildx-action:             "b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2"  # v3.10.0
@@ -50,7 +50,7 @@ deps:
   ossf/scorecard-action:                  "f49aabe0b5af0936a0987cfb85d86b75b087d84f"  # v2.4.0
 
   # ── PR quality (verified) ──────────────────────────────────────────────
-  dorny/paths-filter:                     "de90cc6fb38fc0963ad72b210f1f284cd68cea1e"  # v3.0.2
+  dorny/paths-filter:                     "de90cc6fb38fc0963ad72b210f1f284cd68cea36"  # v3.0.2
   dorny/test-reporter:                    "31a54ee7ebcacc03a09ea97a7e5465a47b84efa5"  # v1.9.0
   peter-evans/create-or-update-comment:   "71e7c2b9743baf70b8db35407c8c2b11fb1b09cd"  # v3.0.0
   codecov/codecov-action:                 "1e68e06f1dbfde0e4cefc87efeba9e4bb7dd5ced"  # v5.4.0
