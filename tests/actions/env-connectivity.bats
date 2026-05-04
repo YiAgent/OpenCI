@@ -48,9 +48,10 @@ setup() {
 @test "SENTRY_AUTH_TOKEN is set and valid (Sentry API)" {
   [ -n "${SENTRY_AUTH_TOKEN:-}" ] || skip "SENTRY_AUTH_TOKEN not set"
   [ -n "${SENTRY_ORG:-}" ] || skip "SENTRY_ORG not set"
+  # org:ci scope can access releases but not org details
   run curl -sS -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
-    "https://sentry.io/api/0/organizations/${SENTRY_ORG}/"
+    "https://sentry.io/api/0/organizations/${SENTRY_ORG}/releases/"
   [ "$output" = "200" ]
 }
 
@@ -168,13 +169,13 @@ setup() {
     fi
   fi
 
-  # Sentry
+  # Sentry (org:ci scope can access releases)
   if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && [ -n "${SENTRY_ORG:-}" ]; then
     tested=$((tested + 1))
     local code
     code=$(curl -sS -o /dev/null -w "%{http_code}" \
       -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
-      "https://sentry.io/api/0/organizations/${SENTRY_ORG}/")
+      "https://sentry.io/api/0/organizations/${SENTRY_ORG}/releases/")
     [ "$code" = "200" ] && passed=$((passed + 1)) || failures+=("Sentry:$code")
   fi
 
