@@ -34,7 +34,7 @@ jobs:
         && github.event.workflow_run.name == 'ci'
         && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'stg')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-stg.yml@9f493fad64aa46e54da36b9fc5709bebbf529098
+    uses: YiAgent/OpenCI/.github/workflows/reusable-stg.yml@e731bee941a6290db5d0ba1d513c0e7d44260a0f
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
@@ -59,7 +59,7 @@ jobs:
         && github.event.workflow_run.name == 'release'
         && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prd')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-prd.yml@9f493fad64aa46e54da36b9fc5709bebbf529098
+    uses: YiAgent/OpenCI/.github/workflows/reusable-prd.yml@e731bee941a6290db5d0ba1d513c0e7d44260a0f
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
