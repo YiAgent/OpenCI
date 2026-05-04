@@ -72,3 +72,75 @@ get_output_var() {
   plan="$(get_output_var action-plan)"
   echo "$plan" | grep -q '"skill":"escalate"'
 }
+
+# ── JSONL transcript (claude-code-action@v1.x output format) ─────────────────
+
+@test "JSONL: plan embedded as nested object in transcript" {
+  # Mimic claude-code-action@v1: a JSONL stream of system/init then result/success
+  # records, with the action plan attached as a structured field.
+  local ef="${TMPDIR}/exec.jsonl"
+  cat >"$ef" <<'JSONL'
+{"type":"system","subtype":"init","message":"Claude Code initialized","model":"glm-5.1"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}
+{"type":"result","subtype":"success","plan":{"version":"issue-action-plan/v1","reasoning":"detected","actions":[],"skip_reason":null},"is_error":false}
+JSONL
+
+  run_extract "false" "$ef"
+  [ "$status" -eq 0 ]
+
+  local plan
+  plan="$(get_output_var action-plan)"
+  echo "$plan" | grep -q '"reasoning":"detected"'
+}
+
+@test "JSONL: plan embedded inside markdown json fence in assistant text" {
+  # Mimics the common case where the agent emits the plan as a fenced
+  # code block in its final assistant message.
+  local ef="${TMPDIR}/exec.jsonl"
+  cat >"$ef" <<'JSONL'
+{"type":"system","subtype":"init","message":"Claude Code initialized","model":"glm-5.1"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here is the plan:\n\n```json\n{\"version\":\"issue-action-plan/v1\",\"reasoning\":\"fenced\",\"actions\":[],\"skip_reason\":null}\n```\n"}]}}
+{"type":"result","subtype":"success","is_error":false}
+JSONL
+
+  run_extract "false" "$ef"
+  [ "$status" -eq 0 ]
+
+  local plan
+  plan="$(get_output_var action-plan)"
+  echo "$plan" | grep -q '"reasoning":"fenced"'
+}
+
+@test "JSONL: only system + result records (no plan) → escalate fallback" {
+  local ef="${TMPDIR}/exec.jsonl"
+  cat >"$ef" <<'JSONL'
+{"type":"system","subtype":"init","message":"Claude Code initialized","model":"glm-5.1"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":24311}
+JSONL
+
+  run_extract "false" "$ef"
+  [ "$status" -eq 0 ]
+
+  local plan
+  plan="$(get_output_var action-plan)"
+  echo "$plan" | grep -q '"skill":"escalate"'
+}
+
+@test "no crash when the second jq receives empty input (regression for #81)" {
+  # The original bug: extract returned an empty string and the canonicalize
+  # step `jq -c . <<<"$plan"` then crashed with 'Invalid numeric literal at
+  # line 2, column 0', taking the workflow exit to 5. This regression test
+  # forces every parse strategy to fail and confirms the script still exits
+  # 0 with the FAIL_PLAN.
+  local ef="${TMPDIR}/exec.jsonl"
+  # Multi-line non-JSON content that defeats every parse strategy.
+  printf 'not json at all\nstill not json\n12345 nope\n' > "$ef"
+
+  run_extract "false" "$ef"
+  [ "$status" -eq 0 ]
+
+  local plan
+  plan="$(get_output_var action-plan)"
+  [ -n "$plan" ]
+  echo "$plan" | grep -q '"skill":"escalate"'
+}
