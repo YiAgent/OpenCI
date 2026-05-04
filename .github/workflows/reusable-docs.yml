@@ -534,9 +534,9 @@ jobs:
             echo ""
             if [ "$NEEDS_UPDATE" = "true" ]; then
               echo "**Drift detected.**"
-              [ -n "$DOCS_PR_URL" ] && echo "Update PR: $DOCS_PR_URL"
+              if [ -n "$DOCS_PR_URL" ]; then echo "Update PR: $DOCS_PR_URL"; fi
             else
               echo "**No drift detected** — docs are up to date."
             fi
-            [ -n "$PAGES_URL" ] && echo "Pages deployed: $PAGES_URL"
+            if [ -n "$PAGES_URL" ]; then echo "Pages deployed: $PAGES_URL"; fi
           } >> "$GITHUB_STEP_SUMMARY"
