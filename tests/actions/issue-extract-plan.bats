@@ -126,6 +126,25 @@ JSONL
   echo "$plan" | grep -q '"skill":"escalate"'
 }
 
+@test "JSONL: plan with nested params objects is extracted (regression for #93)" {
+  # The (?R) recursive perl regex broke when action plan had nested {} objects,
+  # e.g. params:{"reason":"...","labels":["needs-human"]} inside an action entry.
+  local ef="${TMPDIR}/exec.jsonl"
+  cat >"$ef" <<'JSONL'
+{"type":"system","subtype":"init","message":"Claude Code initialized"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"```json\n{\"version\":\"issue-action-plan/v1\",\"reasoning\":\"nested\",\"actions\":[{\"id\":\"escalate\",\"skill\":\"escalate\",\"params\":{\"reason\":\"not parseable\",\"labels\":[\"needs-human\"]},\"risk\":\"low\"}],\"skip_reason\":null}\n```"}]}}
+{"type":"result","subtype":"success","is_error":false}
+JSONL
+
+  run_extract "false" "$ef"
+  [ "$status" -eq 0 ]
+
+  local plan
+  plan="$(get_output_var action-plan)"
+  echo "$plan" | grep -q '"reasoning":"nested"'
+  echo "$plan" | grep -q '"params"'
+}
+
 @test "no crash when the second jq receives empty input (regression for #81)" {
   # The original bug: extract returned an empty string and the canonicalize
   # step `jq -c . <<<"$plan"` then crashed with 'Invalid numeric literal at
