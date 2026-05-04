@@ -227,7 +227,7 @@ setup() {
 
 @test "issue-ops.yml calls reusable issue.yml" {
   local issue_entry="${PROJECT_ROOT}/.github/workflows/issue-ops.yml"
-  grep -q 'uses: \.\/\.github\/workflows\/reusable\/issue\.yml' "$issue_entry"
+  grep -qP 'uses:\s+YiAgent/OpenCI/\.github/workflows/reusable/issue\.yml@[0-9a-f]{40}' "$issue_entry"
 }
 
 @test "issue-ops.yml has lifecycle job" {
