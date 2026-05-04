@@ -17,6 +17,11 @@ on:
         type: choice
         default: lifecycle
         options: [lifecycle, maintenance, ingest]
+      model:
+        required: false
+        type: string
+        default: ""
+        description: "AI model override (e.g. glm-4-flash). Leave empty to use vars.AI_MODEL or the reusable default."
 
 permissions:
   contents: write
@@ -36,9 +41,10 @@ jobs:
     with:
       mode: lifecycle
       runner: blacksmith-32vcpu-ubuntu-2404
+      model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url: ${{ secrets.API_BASE_URL }}
+      api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
       sentry-token: ${{ secrets.SENTRY_TOKEN }}
       linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -50,9 +56,10 @@ jobs:
     with:
       mode: ingest
       runner: blacksmith-32vcpu-ubuntu-2404
+      model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url: ${{ secrets.API_BASE_URL }}
+      api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
       sentry-token: ${{ secrets.SENTRY_TOKEN }}
       linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -64,9 +71,10 @@ jobs:
     with:
       mode: maintenance
       runner: blacksmith-32vcpu-ubuntu-2404
+      model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url: ${{ secrets.API_BASE_URL }}
+      api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
       sentry-token: ${{ secrets.SENTRY_TOKEN }}
       linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -78,9 +86,10 @@ jobs:
     with:
       mode: ${{ inputs.mode }}
       runner: blacksmith-32vcpu-ubuntu-2404
+      model: ${{ inputs.model || vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url: ${{ secrets.API_BASE_URL }}
+      api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
       sentry-token: ${{ secrets.SENTRY_TOKEN }}
       linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -33,4 +33,7 @@ jobs:
       enable-ai-review: true
       enable-eval:      true
       runner:           blacksmith-32vcpu-ubuntu-2404
-    secrets: inherit
+      model:            ${{ vars.AI_MODEL || ''  }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
