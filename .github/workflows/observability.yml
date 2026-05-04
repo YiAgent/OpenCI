@@ -33,7 +33,7 @@ concurrency:
 jobs:
   observe-canary:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' }}
-    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@cd1b427370ebacb56cc9c0b418d6d8985c9be539
+    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@5c6affab1b052ff548ae85872b1c377d83cf2c0d
     with:
       mode:   canary-watch
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -45,7 +45,7 @@ jobs:
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
-    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@cd1b427370ebacb56cc9c0b418d6d8985c9be539
+    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@5c6affab1b052ff548ae85872b1c377d83cf2c0d
     with:
       mode:      terraform-drift
       infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
@@ -61,7 +61,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       || github.event_name == 'repository_dispatch'
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@cd1b427370ebacb56cc9c0b418d6d8985c9be539
+    uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@5c6affab1b052ff548ae85872b1c377d83cf2c0d
     with:
       mode:   verify-fix
       runner: blacksmith-2vcpu-ubuntu-2404
