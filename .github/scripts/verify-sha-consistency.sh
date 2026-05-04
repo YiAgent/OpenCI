@@ -31,7 +31,7 @@ PENDING="${PENDING:-$REPO_ROOT/manifest-pending.yml}"
 # Self-referencing entries that need structural validation beyond SHA consistency.
 # Each entry maps to the required path that must exist at the pinned SHA.
 declare -A SELF_REFS
-SELF_REFS["YiAgent/OpenCI"]=".github/workflows/reusable"
+SELF_REFS["YiAgent/OpenCI"]=".github/workflows"
 
 # SPEC Appendix B.2 — deprecated actions. Keep in sync with docs/SPEC.md.
 DEPRECATED_ACTIONS=(

@@ -16,7 +16,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$REPO_ROOT/manifest.yml"
-REQUIRED_PATH=".github/workflows/reusable"
+REQUIRED_PATH=".github/workflows"
 REMOTE="${REMOTE:-origin}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
 DRY_RUN=false
