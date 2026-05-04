@@ -15,6 +15,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/**"
+      - ".github/scripts/**"
       - "actions/**"
       - "manifest.yml"
       - "manifest-pending.yml"
@@ -24,6 +25,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
+      - ".github/scripts/**"
       - "actions/**"
       - "manifest.yml"
       - "manifest-pending.yml"

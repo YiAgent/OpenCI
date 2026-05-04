@@ -28,11 +28,13 @@ on:
       - "manifest.yml"
       - "actions/**/action.yml"
       - ".github/workflows/**.yml"
+      - ".github/scripts/**"
   pull_request:
     paths:
       - "manifest.yml"
       - "actions/**/action.yml"
       - ".github/workflows/**.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
     inputs:
       mode:
