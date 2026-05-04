@@ -89,45 +89,6 @@ setup() {
 }
 
 # ============================================================================
-# Secret/Input Mapping (deploy.yml critical)
-# ============================================================================
-
-@test "deploy.yml passes image-digest to stg job" {
-  run grep -A 20 'uses:.*reusable-stg' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"image-digest"* ]]
-}
-
-@test "deploy.yml passes image-digest to prd job" {
-  run grep -A 20 'uses:.*reusable-prd' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"image-digest"* ]]
-}
-
-@test "deploy.yml passes stg-image-digest to prd job" {
-  run grep -A 30 'uses:.*reusable-prd' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"stg-image-digest"* ]]
-}
-
-@test "deploy.yml passes stg-deploy-time to prd job" {
-  run grep -A 30 'uses:.*reusable-prd' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"stg-deploy-time"* ]]
-}
-
-@test "deploy.yml forwards ssh-key-stg secret" {
-  run grep -A 30 'uses:.*reusable-stg' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"ssh-key-stg"* ]]
-}
-
-@test "deploy.yml forwards ssh-key-prd secret" {
-  run grep -A 30 'uses:.*reusable-prd' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"ssh-key-prd"* ]]
-}
-
-@test "deploy.yml forwards kubeconfig-prd secret" {
-  run grep -A 30 'uses:.*reusable-prd' "$WORKFLOWS_DIR/deploy.yml"
-  [[ "$output" == *"kubeconfig-prd"* ]]
-}
-
-# ============================================================================
 # Permission Hygiene
 # ============================================================================
 

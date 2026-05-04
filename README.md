@@ -35,8 +35,8 @@ No fork required.
 
 OpenCI has two clear identities:
 
-1. **A normal project** that dogfoods its own workflows via 13 thin event-entry
-   files (`agent.yml`, `ci.yml`, `pull-request.yml`, `deploy.yml`, etc.)
+1. **A normal project** that dogfoods its own workflows via 12 thin event-entry
+   files (`agent.yml`, `ci.yml`, `pull-request.yml`, etc.)
 2. **A tool library** that exposes **12 public reusable workflows** (`reusable-*.yml`)
    for external consumption
 
@@ -191,7 +191,7 @@ External consumers call these via `uses:`:
 | [`reusable-deps.yml`](.github/workflows/reusable-deps.yml) | Renovate patch PR auto-merge | No |
 | [`reusable-self-test.yml`](.github/workflows/reusable-self-test.yml) | Workflow/action lint + security validation (actionlint, zizmor, bats) | No |
 
-### Event entry files (13)
+### Event entry files (12)
 
 OpenCI dogfoods its own reusables via these thin shims:
 
@@ -200,16 +200,15 @@ OpenCI dogfoods its own reusables via these thin shims:
 | `agent.yml` | `workflow_dispatch` | `reusable-agent.yml` |
 | `ci.yml` | `push` main, `workflow_dispatch` | `reusable-ci.yml` + bats harness test |
 | `pull-request.yml` | `pull_request`, `workflow_dispatch` | `reusable-pr.yml` |
-| `deploy.yml` | `workflow_run` (ci/release), `workflow_dispatch` | `reusable-stg.yml` / `reusable-prd.yml` + agent tests |
-| `issue-ops.yml` | `issues`, `issue_comment`, `schedule`, `repository_dispatch` | `reusable-issue.yml` |
+| `issue-ops.yml` | `issues`, `issue_comment`, `schedule` | `reusable-issue.yml` |
 | `release.yml` | `push` tags `v*`, `workflow_dispatch` | `reusable-release.yml` |
 | `docs.yml` | `pull_request`, `push` main, `schedule`, `release` | `reusable-docs.yml` |
-| `observability.yml` | `workflow_run`, `repository_dispatch`, `schedule` | `reusable-observability.yml` |
 | `on-maintenance.yml` | `schedule`, `push`/`pull_request` (manifest/actions paths) | `reusable-maintenance.yml` |
 | `auto-release.yml` | `push` main, `workflow_dispatch` | Standalone (conventional-commit version bump) |
 | `on-main-bump-sha.yml` | `push` main, `workflow_dispatch` | Standalone (SHA self-reference bump) |
 | `dependencies.yml` | `pull_request_target`, `workflow_dispatch` | `reusable-deps.yml` |
 | `ci-self-test.yml` | `push`/`pull_request` (workflows/actions paths) | `reusable-self-test.yml` |
+| `test.yml` | `workflow_dispatch` | Ad-hoc testing |
 
 ### Built-in AI skills (15)
 
@@ -224,7 +223,7 @@ Each skill has a `SKILL.md` prompt file under `skills/`:
 | `issue-triage` | Issue classification and prioritization | `reusable-agent.yml` (ad-hoc) |
 | `ci-failure-analyst` | CI failure analysis and remediation | `reusable-ci.yml` stage 3 |
 | `ci-smoke-eval` | Docker image smoke evaluation | `reusable-ci.yml` eval-smoke |
-| `stg-agent-test` | Autonomous staging tests (L1–L4) | `deploy.yml` stg-agent-test |
+| `stg-agent-test` | Autonomous staging tests (L1–L4) | `reusable-stg.yml` (consumer) |
 | `docs-sync-agent` | Documentation synchronization | `reusable-docs.yml` stage 3 |
 | `maintenance-analyst` | CVE/dependency correlation | `reusable-maintenance.yml` stage 4 |
 | `agents-ai-changelog` | Keep-a-Changelog release notes | `reusable-prd.yml` create-release |
@@ -272,7 +271,7 @@ manifest.yml                # verified third-party SHAs (191 references, single 
 
 - **191** third-party `uses:` references, **0** SHA-pinning violations
 - **129** bats unit tests, all green
-- **12** public reusable workflows, **13** event entry files
+- **12** public reusable workflows, **12** event entry files
 - **76** composite/atomic actions
 - **15** built-in AI skills
 - 4-stage agentic pipeline across PR, CI, Issue, Docs, Observability, Maintenance
