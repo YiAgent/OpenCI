@@ -120,7 +120,12 @@ on:
         description: Where the prompt came from — direct | slash-command | caller | builtin.
         value: ${{ jobs.ai-task.outputs.prompt-source }}
 
-permissions: {}
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
 
 concurrency:
   group: claude-harness-${{ github.run_id }}
@@ -131,8 +136,6 @@ jobs:
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -162,12 +165,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    permissions:
-      contents: write # Claude can git commit memory updates
-      pull-requests: write # Sticky comments on PRs
-      issues: write # Claude can create/update GitHub Issues
-      actions: read # Claude can query workflow runs & job logs (CI triage)
-      id-token: write
     outputs:
       execution-file: ${{ steps.harness.outputs.execution-file }}
       session-id: ${{ steps.harness.outputs.session-id }}

@@ -48,7 +48,8 @@ on:
         required: false
         default: true
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: self-test-reusable
@@ -61,8 +62,6 @@ jobs:
     name: Actionlint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -87,8 +86,6 @@ jobs:
     name: yamllint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -110,8 +107,6 @@ jobs:
     name: ShellCheck
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -138,8 +133,6 @@ jobs:
     if: inputs.enable-pyflakes == true
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -172,8 +165,6 @@ jobs:
     if: inputs.enable-zizmor == true
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -190,8 +181,6 @@ jobs:
     name: Verify SHA Consistency
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -223,8 +212,6 @@ jobs:
     name: Workflow Static Audit
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -243,8 +230,6 @@ jobs:
     name: BATS Tests
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -274,7 +259,6 @@ jobs:
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions: {}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
