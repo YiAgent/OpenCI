@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@91fd642295071618053e08eb6492888c1d499ce6
+    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
     secrets: inherit
     with:
       mode: ${{ inputs.mode || 'both' }}
