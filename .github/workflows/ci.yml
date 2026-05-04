@@ -16,6 +16,7 @@ permissions:
   actions: read
   security-events: write
   pull-requests: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: false
