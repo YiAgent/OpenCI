@@ -122,7 +122,10 @@ jobs:
       openci-ref: ${{ needs.resolve-mode.outputs.openci-ref }}
       image-ref:  ${{ vars.IMAGE_REF || '' }}
       runner:     blacksmith-2vcpu-ubuntu-2404
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}
 
   # ── SHA integrity check on push / PR ────────────────────────────────────────
   verify-sha:

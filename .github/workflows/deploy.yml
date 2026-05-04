@@ -47,7 +47,11 @@ jobs:
       deploy-mode:         ${{ vars.DEPLOY_MODE || 'compose' }}
       compose-file:        ${{ vars.COMPOSE_FILE || 'docker-compose.yml' }}
       compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DD_API_KEY }}
 
   prd:
     if: >-
@@ -68,7 +72,13 @@ jobs:
       deploy-mode:         ${{ vars.DEPLOY_MODE || 'compose' }}
       compose-file:        ${{ vars.COMPOSE_FILE || 'docker-compose.yml' }}
       compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      anthropic-api-key:  ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:       ${{ secrets.ANTHROPIC_BASE_URL }}
+      slack-webhook-url:  ${{ secrets.SLACK_WEBHOOK_URL }}
+      sentry-token:       ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:    ${{ secrets.DD_API_KEY }}
 
   # ──────────────────────────────────────────────────────────────────────
   # stg-agent-test — autonomous L1-L4 tests after stg deploy.
