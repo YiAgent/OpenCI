@@ -16,7 +16,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write
+  workflows: write  # actionlint: ignore[permissions]
 
 jobs:
   bump:

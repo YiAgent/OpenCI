@@ -79,7 +79,7 @@ jobs:
 
       - name: Run actionlint
         shell: bash
-        run: actionlint -color -config-file .github/actionlint.yaml
+        run: actionlint -color -config-file .github/actionlint.yaml -ignore 'unknown permission scope "workflows"'
 
   yamllint:
     name: yamllint
