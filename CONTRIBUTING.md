@@ -4,11 +4,11 @@
 
 ## TL;DR (English)
 
-OpenCI is a GitHub-Actions reusable workflow library. Contribute via pull
-request: fork → branch → PR. Every change must pass `bats tests/`,
-`bash .github/scripts/verify-sha-consistency.sh`, and the PR-level
-checklist (see `.github/PULL_REQUEST_TEMPLATE.md`). Prefer the smallest
-patch that solves the user-visible problem.
+OpenCI is a GitHub-Actions reusable workflow library with agentic AI
+pipelines. Contribute via pull request: fork → branch → PR. Every change
+must pass `bats tests/`, `bash .github/scripts/verify-sha-consistency.sh`,
+and the PR-level checklist (see `.github/PULL_REQUEST_TEMPLATE.md`). Prefer
+the smallest patch that solves the user-visible problem.
 
 ---
 
@@ -18,7 +18,6 @@ patch that solves the user-visible problem.
 
 - [`docs/SPEC.md`](docs/SPEC.md) — 全仓库的契约。SPEC 与代码必须一一对应,改契约要同步改 SPEC。
 - [`tasks/`](tasks/) — 实施计划与状态。每个任务自包含约束 + 验收标准,提交 PR 时同步更新对应任务的 Status。
-- [`tasks/README.md`](tasks/README.md) §"全局约束(GC)" — GC1..GC7 是所有 PR 必须满足的硬性规则。
 
 ## 1. 本地准备
 
@@ -72,9 +71,10 @@ Type 集合(与 lefthook commit-msg 校验保持一致):
 
 - **新增 shell action / 脚本** → 对应 `tests/{actions,scripts}/<name>.bats`,覆盖主路径 + 失败路径 + 边界。
 - **新增 workflow** → 在 `openCI-e2e` 测试仓库加 `test-<workflow>.yml`(若存在)。
+- **新增 AI skill** → 验证输出 schema 符合对应 `action-plan/v1` 规范。
 - 合并前 `bats tests/` 与 `verify-sha-consistency` 必须绿。
 
-## 4. SHA 单一来源(GC1)
+## 4. SHA 单一来源
 
 任何第三方 `uses:` 必须是 40 位 commit SHA,且与 `manifest.yml` 一致。
 违反会被 `verify-sha-consistency` 阻断。新增依赖流程:
@@ -85,20 +85,25 @@ Type 集合(与 lefthook commit-msg 校验保持一致):
    - 把条目从 `manifest-pending.yml` 移到 `manifest.yml`
    - 替换所有 workflow / action 文件中的占位符为真实 SHA
 
-## 5. 调用层级单向(GC2)
+## 5. 调用层级单向
 
 ```
-主工作流 (workflow_call)
-  └── Composite (job ≙ composite)
+Reusable Workflow (reusable-*.yml)
+  └── Composite Action (job ≙ composite, 一对一映射)
         └── 原子 Action (单一职责)
               └── 第三方 action (manifest.yml 中的 SHA)
+
+AI 调用链:
+  原子内 AI step → _common/claude-harness (composite)
+  独立 AI job   → reusable-agent.yml (reusable workflow)
 ```
 
 - Composite **不**调用 Composite。
 - 原子 **不**互相调用。
 - 主工作流 **不**直接调用原子(必须经 composite)。
+- AI 调用统一通过 `claude-harness`,不直接调用 Claude API。
 
-## 6. 安全 & 权限(GC3)
+## 6. 安全 & 权限
 
 - 每个 job 第一步 `step-security/harden-runner@<SHA>`,默认 `egress-policy: audit`。
 - 每个 workflow 顶层 `permissions: {}`,job 级精确授权。

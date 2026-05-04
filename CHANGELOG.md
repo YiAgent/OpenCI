@@ -6,39 +6,69 @@
 >
 > Pre-v1.7 history lives in [`docs/CHANGELOG-history.md`](docs/CHANGELOG-history.md).
 
-## Unreleased — v3 dual-identity refactor (BREAKING)
+## Unreleased — v3 agentic architecture (BREAKING)
 
-**Public reusable workflow paths moved to `reusable/` subdirectory.**
+**All workflows now use the `reusable-*.yml` naming convention. Event entries
+are thin shims that delegate to reusable workflows. The 4-stage agentic
+pipeline (Ingest → Enrich → Agent → Execute) is the standard pattern.**
+
+### Reusable workflows (external consumers call these)
+
+| Reusable workflow | Purpose |
+| --- | --- |
+| `reusable-pr.yml` | PR quality gate with AI review (4-stage) |
+| `reusable-ci.yml` | Merge-to-main build + sign + scan + AI failure analyst (4-stage) |
+| `reusable-issue.yml` | Issue orchestrator: lifecycle / maintenance / ingest (4-stage) |
+| `reusable-agent.yml` | The Claude harness — single AI primitive |
+| `reusable-stg.yml` | Staging deploy with auto-rollback |
+| `reusable-prd.yml` | Production deploy with environment gate |
+| `reusable-observability.yml` | Multi-provider observability → Claude incident analyst (4-stage) |
+| `reusable-release.yml` | Marketplace + Docker release with cosign |
+| `reusable-docs.yml` | Docs quality + sync agent (4-stage) |
+| `reusable-maintenance.yml` | Security sweeps + dependency intelligence (4-stage) |
+| `reusable-deps.yml` | Renovate patch PR auto-merge |
+| `reusable-self-test.yml` | Workflow/action lint + security validation |
+
+### Migration from v2
+
 External consumers MUST update `uses:` references:
 
 | Old (v2) | New (v3) |
 | --- | --- |
-| `YiAgent/OpenCI/.github/workflows/pr.yml@v2` | `YiAgent/OpenCI/.github/workflows/pr.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/ci.yml@v2` | `YiAgent/OpenCI/.github/workflows/ci.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/issue.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/release.yml@v2` | `YiAgent/OpenCI/.github/workflows/release.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/stg.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `environment: staging`) |
-| `YiAgent/OpenCI/.github/workflows/prd.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `environment: production`) |
-| `YiAgent/OpenCI/.github/workflows/prd-observe.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `mode: observe`) |
-| `YiAgent/OpenCI/.github/workflows/stg-agent-test.yml@v2` | `YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)` (with `mode: stg-test`) |
-| `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: full`) |
-| `YiAgent/OpenCI/.github/workflows/flag-audit.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: flag-audit`) |
-| `YiAgent/OpenCI/.github/workflows/docs.yml@v2` | `YiAgent/OpenCI/.github/workflows/docs.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/dep-auto-merge.yml@v2` | `YiAgent/OpenCI/.github/workflows/deps.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/claude-harness.yml@v2` | `YiAgent/OpenCI/.github/workflows/agent.yml@v3` |
-| `YiAgent/OpenCI/.github/workflows/health-report.yml@v2` | DROPPED — write your own data-collect job + call `agent.yml` with `task: health-digest`, `prompt-path: .openci/skills/observability/daily-health-report/SKILL.md` (see EvolveCI's `agent-daily.yml` for canonical pattern) |
-| `YiAgent/OpenCI/.github/workflows/community.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: welcome`) |
-| `YiAgent/OpenCI/.github/workflows/stale.yml@v2` | `YiAgent/OpenCI/.github/workflows/issue.yml@v3` (with `mode: stale`) |
-| `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | DROPPED — write your own thin event-driven workflow that calls `agent.yml` with the right `task` + `prompt-path` (e.g. `.openci/skills/pr-review/SKILL.md`); see EvolveCI's pattern |
-| `YiAgent/OpenCI/.github/workflows/verify-sha-consistency.yml@v2` | `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v3` (with `mode: verify-sha`) — also a job inside `reusable/ci.yml` |
+| `YiAgent/OpenCI/.github/workflows/pr.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-pr.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/ci.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-ci.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/issue.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-issue.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/release.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-release.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/stg.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-stg.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/prd.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-prd.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/prd-observe.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-observability.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/security-schedule.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-maintenance.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/docs.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-docs.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/dep-auto-merge.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-deps.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/claude-harness.yml@v2` | `YiAgent/OpenCI/.github/workflows/reusable-agent.yml@v3` |
+| `YiAgent/OpenCI/.github/workflows/stg-agent-test.yml@v2` | Integrated into `deploy.yml` event entry (L1–L4 agent tests) |
+| `YiAgent/OpenCI/.github/workflows/flag-audit.yml@v2` | Integrated into `on-maintenance.yml` event entry |
+| `YiAgent/OpenCI/.github/workflows/health-report.yml@v2` | DROPPED — compose your own data-collection + `reusable-agent.yml` |
+| `YiAgent/OpenCI/.github/workflows/community.yml@v2` | DROPPED — handled by `reusable-issue.yml` lifecycle mode |
+| `YiAgent/OpenCI/.github/workflows/stale.yml@v2` | DROPPED — handled by `reusable-issue.yml` maintenance mode |
+| `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | DROPPED — use `reusable-agent.yml` with `task: pr/review` |
 
 **Why:** OpenCI now has two clear identities — (1) a normal project that
-dogfoods its own workflows via 9 thin `on-*.yml` event entries at the
-top level, and (2) a tool library that exposes 9 public reusable
-workflows under `reusable/` for external consumption. The old layout
+dogfoods its own workflows via 13 thin event-entry files, and (2) a tool
+library that exposes 12 public `reusable-*.yml` workflows. The old layout
 mixed events and `workflow_call` triggers in the same files.
 
 **No deprecation grace period.** v2 paths return 404 starting v3.0.0.
+
+### Key v3 changes
+
+- **Agentic 4-stage pipeline** across PR, CI, Issue, Docs, Observability, Maintenance
+- **15 built-in AI skills** under `skills/` with `SKILL.md` prompt files
+- **Agent context system** under `.github/agent/` (shared, pr, issue, docs, observe domains)
+- **Multi-provider observability** with Claude as incident analyst
+- **Autonomous staging tests** (L1–L4 Playwright browser automation)
+- **Docs sync agent** with drift detection and auto-PR
+- **Maintenance analyst** with CVE/dependency correlation
 
 ## v1.7 (2026-04 — design)
 

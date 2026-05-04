@@ -6,10 +6,10 @@ Copy relevant sections into your deploy / on-observe workflow.
 ## Example A: Minimal — Sentry only (post-deploy canary watch)
 
 ```yaml
-uses: YiAgent/OpenCI/.github/workflows/reusable/observability.yml@main
+uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@v3
 with:
   environment: production
-  mode: post-deploy
+  mode: canary-watch
   providers: sentry
 secrets:
   SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
@@ -18,10 +18,10 @@ secrets:
 ## Example B: AI product — Sentry + PostHog + LangSmith
 
 ```yaml
-uses: YiAgent/OpenCI/.github/workflows/reusable/observability.yml@main
+uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@v3
 with:
   environment: production
-  mode: post-deploy
+  mode: multi-observe
   providers: sentry,posthog,langsmith
   posthog-events: purchase,ai_chat_started,ai_chat_completed
   posthog-funnel-id: "12345"
@@ -33,15 +33,16 @@ secrets:
   POSTHOG_API_KEY:     ${{ secrets.POSTHOG_API_KEY }}
   POSTHOG_PROJECT_ID:  ${{ secrets.POSTHOG_PROJECT_ID }}
   LANGSMITH_API_KEY:   ${{ secrets.LANGSMITH_API_KEY }}
+  anthropic-api-key:   ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ## Example C: Full stack — all 5 providers
 
 ```yaml
-uses: YiAgent/OpenCI/.github/workflows/reusable/observability.yml@main
+uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@v3
 with:
   environment: production
-  mode: post-deploy
+  mode: multi-observe
   observe-window: 30m
   providers: sentry,posthog,axiom,datadog,langsmith
 
@@ -73,6 +74,7 @@ secrets:
   DD_API_KEY:          ${{ secrets.DD_API_KEY }}
   DD_APP_KEY:          ${{ secrets.DD_APP_KEY }}
   LANGSMITH_API_KEY:   ${{ secrets.LANGSMITH_API_KEY }}
+  anthropic-api-key:   ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ## Example D: Custom PostHog HogQL for domain-specific business metrics
@@ -82,6 +84,7 @@ PostHog HogQL counts revenue events in the window.
 
 ```yaml
 with:
+  mode: multi-observe
   posthog-events: checkout_completed,checkout_failed,refund_initiated
   thresholds-file: .github/observe-thresholds.yml
 ```
@@ -106,6 +109,7 @@ use `axiom-apl` to get precise metrics instead of the built-in `log_error_rate`.
 
 ```yaml
 with:
+  mode: multi-observe
   axiom-apl: |
     ['production-logs']
     | where _time > ago(30m)
@@ -121,6 +125,15 @@ with:
       )
 ```
 
+## The 4-stage multi-observe pipeline
+
+When `mode: multi-observe`, the workflow runs a 4-stage agentic pipeline:
+
+1. **Collect** — Adapters pull metrics from each configured provider (Sentry, PostHog, Axiom, Datadog, LangSmith)
+2. **Normalize** — Merge metrics, evaluate against configurable thresholds
+3. **Agent** — Claude acts as incident-analyst, assessing state (healthy/degraded/critical) and planning actions
+4. **Execute** — Allowed actions: `trigger_rollback`, `create_incident`, `notify`, `extend_observe`, `promote_canary`, `escalate`
+
 ## Secrets Reference
 
 | Secret | Where to find it |
@@ -133,3 +146,4 @@ with:
 | `DD_API_KEY` | Datadog → Organization Settings → API Keys |
 | `DD_APP_KEY` | Datadog → Organization Settings → Application Keys |
 | `LANGSMITH_API_KEY` | LangSmith → Settings → API Keys |
+| `anthropic-api-key` | Required for `multi-observe` mode (Claude incident analyst) |

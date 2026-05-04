@@ -1,10 +1,9 @@
 # OpenCI
 
-> Reusable GitHub Actions workflow library for CI/CD, security, observability,
+> Agentic GitHub Actions workflow library for CI/CD, security, observability,
 > and AI-augmented development. Pin once, share everywhere.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-OpenCI-blue.svg)](https://github.com/marketplace/actions/openci)
-[![on-security](https://github.com/YiAgent/OpenCI/actions/workflows/on-security.yml/badge.svg)](https://github.com/YiAgent/OpenCI/actions/workflows/on-security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/conventional%20commits-1.0.0-fe5196.svg)](https://www.conventionalcommits.org)
 
@@ -14,35 +13,67 @@
 
 OpenCI is a curated set of GitHub Actions **reusable workflows** + supporting
 **composite / atomic actions** that together cover the day-one needs of any
-serious software project:
+serious software project — with AI agents built into every stage of the
+pipeline.
 
-- PR quality gate (lint / test / scan-deps / scan-secrets / build-check / AI review)
+**Core capabilities:**
+
+- PR quality gate (lint / test / scan-deps / scan-secrets / build-check / **AI review**)
 - Build, push, sign, scan Docker images
 - Deploy to staging and production with observation windows + auto-rollback
-- Incident-grade error rate gates, canary 3σ checks, fix verification
-- Agent-driven issue lifecycle automation
+- **Agent-driven issue lifecycle** (deterministic ingest → enrichment → Claude planning → guarded execution)
+- **Multi-provider observability** (Sentry / PostHog / Axiom / Datadog / LangSmith → Claude incident analyst)
 - Release engineering (cosign keyless, AI changelog, Pages docs deploy)
-- AI agent feedback, autonomous staging tests, docubot, Copilot review
+- **Autonomous staging tests** (L1–L4 Playwright browser automation)
+- **Docs sync agent** (drift detection → Claude action plan → auto-PR)
+- **Maintenance analyst** (CVE correlation → dependency intelligence → auto-issue)
 
-Consumers reference it via `uses: YiAgent/OpenCI/.github/workflows/<id>.yml@v3`.
+Consumers reference it via `uses: YiAgent/OpenCI/.github/workflows/reusable-<id>.yml@v3`.
 No fork required.
 
-External users only call the **9 unprefixed reusable workflows** under
-`.github/workflows/` — `ci.yml`, `pr.yml`, `issue.yml`,
-`release.yml`, `stg.yml`, `prd.yml`, `prd-observe.yml`, `security-schedule.yml`, `docs.yml`, `deps.yml`,
-`agent.yml`. The `_*.yml` siblings are private implementation files that
-the public reusables route to internally; do not depend on their names.
+## Architecture: dual-identity design
 
-OpenCI is **the generic CI/CD base layer**. It is consumed by domain-specific
-extensions — for example `EvolveCI` adds AI-Agent-specific workflow patterns
-on top of OpenCI without modifying it.
+OpenCI has two clear identities:
+
+1. **A normal project** that dogfoods its own workflows via 13 thin event-entry
+   files (`agent.yml`, `ci.yml`, `pull-request.yml`, `deploy.yml`, etc.)
+2. **A tool library** that exposes **12 public reusable workflows** (`reusable-*.yml`)
+   for external consumption
+
+External users only call the `reusable-*.yml` files. The unprefixed event
+entries are OpenCI's own dogfooding shims — write your own in your repo.
+
+### The 4-stage agentic pipeline
+
+Most reusable workflows follow a consistent 4-stage pattern:
+
+| Stage | Purpose | Example |
+| --- | --- | --- |
+| **1. Ingest / Detect** | Deterministic data collection | Parse issue forms, detect language, build Docker, run lint |
+| **2. Enrich** | Build agent workspace from stage 1 results | Merge gate results + live PR/issue data into context JSON |
+| **3. Agent** | Claude produces a structured action plan | `pr-action-plan/v1`, `issue-action-plan/v1`, `docs-action-plan/v1`, `observe-action-plan/v1` |
+| **4. Execute** | Guarded allowlisted execution of the plan | Post comments, create issues, trigger deploys, run rollbacks |
+
+This pattern appears in: `reusable-pr`, `reusable-issue`, `reusable-docs`,
+`reusable-observability`, and `reusable-ci` (failure-only agent stage).
+
+### The Claude harness
+
+All AI calls go through a single primitive: `actions/_common/claude-harness`.
+It wraps `anthropics/claude-code-action` with:
+
+- **Prompt resolution**: direct text → slash-command → caller-provided file → built-in `skills/<task>/SKILL.md`
+- **Mustache templating**: `{{repo}}`, `{{run_id}}`, `{{actor}}` + arbitrary `context` JSON keys
+- **Tool allowlist management**: baseline tools + caller-extensible `extra-allowed-tools`
+- **Multi-provider support**: Anthropic, AWS Bedrock, Google Vertex AI, Microsoft Foundry
+- **MCP server integration**: configurable via `mcp-config` input
 
 ## Five design principles
 
 1. **Change frequency decides location.** Stable atoms live deep; volatile
    prompts and orchestration live near the top.
-2. **Names mean something.** `pr.yml`, `ci.yml`, `stg.yml`, `prd.yml`,
-   `claude-harness.yml` — never abbreviated, never alias-dressed.
+2. **Names mean something.** `reusable-pr.yml`, `reusable-ci.yml` — never
+   abbreviated, never alias-dressed.
 3. **Calls flow one direction.** Workflow → composite → atom → third-party
    action. No upward calls, no peer-to-peer between atoms.
 4. **External over self-implementation.** We don't reinvent megalinter,
@@ -50,36 +81,34 @@ on top of OpenCI without modifying it.
 5. **Secure by default.** Every job runs `step-security/harden-runner`,
    every workflow declares `permissions: {}` then opts in per-job, every
    third-party action is pinned to a verified 40-char commit SHA enforced
-   by [`verify-sha-consistency.yml`](.github/workflows/security-schedule.yml).
+   by [`verify-sha-consistency.sh`](.github/scripts/verify-sha-consistency.sh).
 
 Full reasoning: [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Quick start
 
-Most consumers start with these four references in their own
-`.github/workflows/` (the file names below are conventions — pick anything):
+Most consumers start with these references in their own `.github/workflows/`:
 
 ```yaml
-# .github/workflows/on-pr.yml — runs on every PR
+# .github/workflows/on-pr.yml — PR quality gate with AI review
 name: on-pr
 on: { pull_request: }
 jobs:
   quality:
-    uses: YiAgent/OpenCI/.github/workflows/pr.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/reusable-pr.yml@v3
     with:
       enable-ai-review: true
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      codecov-token:     ${{ secrets.CODECOV_TOKEN }}
 ```
 
 ```yaml
-# .github/workflows/on-ci.yml — runs on push to main
+# .github/workflows/on-ci.yml — merge-to-main build + sign + scan
 name: on-ci
 on: { push: { branches: [main] } }
 jobs:
   build:
-    uses: YiAgent/OpenCI/.github/workflows/ci.yml@v3
+    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@v3
     with:
       image-name: my-app
     secrets:
@@ -87,193 +116,166 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/on-deploy.yml — your event entry (e.g. workflow_run on CI completion)
+# .github/workflows/on-deploy.yml — staging deploy
 name: on-deploy-stg
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [on-ci]
     types: [completed]
 jobs:
   deploy:
     if: github.event.workflow_run.conclusion == 'success'
-    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
+    uses: YiAgent/OpenCI/.github/workflows/reusable-stg.yml@v3
     with:
       image-digest: ${{ github.event.workflow_run.outputs.image-digest }}
-      image-name:   my-app
-      app-name:     my-app
-      health-url:   https://stg.example.com/health
+      image-name: my-app
+      app-name: my-app
+      health-url: https://stg.example.com/health
     secrets:
       kubeconfig-stg: ${{ secrets.KUBECONFIG_STG }}
 ```
 
 ```yaml
-# .github/workflows/on-deploy-prd.yml — fires from a tag or repository_dispatch
-name: on-deploy-prd
+# .github/workflows/on-issue.yml — agent-driven issue orchestration
+name: on-issue
 on:
-  push: { tags: ['v*'] }
-  repository_dispatch: { types: [observe-window-complete] }
+  issues: { types: [opened, reopened, edited, closed] }
+  issue_comment: { types: [created] }
+  schedule:
+    - cron: '0 2 * * *'   # daily stale sweep
 jobs:
-  deploy:
-    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
+  orchestrate:
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@v3
     with:
-      image-digest:     ${{ github.event.client_payload.image-digest || vars.LAST_CI_DIGEST }}
-      stg-image-digest: ${{ github.event.client_payload.stg-image-digest || vars.LAST_STG_DIGEST }}
-      stg-deploy-time:  ${{ github.event.client_payload.stg-deploy-time || vars.LAST_STG_TIME }}
-      image-name:       my-app
-      app-name:         my-app
-      health-url:       https://example.com/health
+      mode: lifecycle
     secrets:
-      kubeconfig-prd: ${{ secrets.KUBECONFIG_PRD }}
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+```yaml
+# .github/workflows/on-agent.yml — ad-hoc AI tasks
+name: on-agent
+on: { workflow_dispatch: }
+jobs:
+  task:
+    uses: YiAgent/OpenCI/.github/workflows/reusable-agent.yml@v3
+    with:
+      task: pr/review
+      prompt: "Review the latest changes and summarize risks"
+    secrets:
+      api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 > Replace `@v3` with whichever stable major suits you. Pre-release work
 > can pin a SHA from `main`; breaking changes are flagged in
 > [`CHANGELOG.md`](CHANGELOG.md).
 
-## AI-powered workflows
-
-OpenCI ships AI-powered workflows at the top level alongside infrastructure
-workflows. All call `claude-harness` under the hood with task-specific prompts.
-
-### Available AI workflows
-
-| Workflow | Description |
-| --- | --- |
-| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate with optional AI review (`enable-ai-review: true`) |
-| [`issue.yml`](.github/workflows/issue.yml) | Agent-driven issue orchestrator: deterministic ingest, enrichment, Claude planning, guarded execution |
-| [`ci.yml`](.github/workflows/ci.yml) | Build + sign + optional AI smoke eval (`enable-ai-smoke: true`) |
-| [`agent.yml`](.github/workflows/agent.yml) | The Claude harness — single AI primitive. Consumers compose data-collection + agent.yml invocations in their own scheduled / event-driven workflows (see EvolveCI for the canonical pattern). OpenCI does not ship task-specific AI workflows. |
-
-### Usage examples
-
-```yaml
-# PR Review (AI-powered)
-jobs:
-  quality:
-    uses: YiAgent/OpenCI/.github/workflows/pr.yml@v3
-    with:
-      enable-ai-review: true
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-```yaml
-# Issue Agent Orchestration
-jobs:
-  triage:
-    uses: YiAgent/OpenCI/.github/workflows/issue.yml@v3
-    with:
-      mode: lifecycle
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      linear-token: ${{ secrets.LINEAR_TOKEN }}
-      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}
-```
-
-```yaml
-# Staging Agent Tests (after deploy)
-jobs:
-  agent-test:
-    uses: YiAgent/OpenCI/.github/workflows/stg.yml@v3 (or prd.yml / prd-observe.yml)
-    with:
-      health-url: ${{ vars.STG_HEALTH_URL }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-### Marketplace Action (single entrypoint)
-
-For a unified single-step entrypoint, use the Marketplace action directly:
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: YiAgent/OpenCI@v3
-    with:
-      task: pr/review
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-### Direct composite action reference
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: YiAgent/OpenCI/actions/pr/review-ai@v3
-    with:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
 ## Workflow catalogue
 
-OpenCI exposes **9 public reusable workflows** under
-`.github/workflows/`. External users only call these; the
-`_*.yml` siblings in the same directory are private implementation
-files.
+### Public reusable workflows (12)
 
-| Public reusable | Purpose |
-| --- | --- |
-| [`ci.yml`](.github/workflows/ci.yml) | Merge-to-main build + scan + sign + AI smoke + SHA drift verification |
-| [`pr.yml`](.github/workflows/pr.yml) | PR quality gate (lint / test / scan / build / coverage) + opt-in AI review |
-| [`issue.yml`](.github/workflows/issue.yml) | Issue orchestrator with `lifecycle`, `maintenance`, and `ingest` modes |
-| [`release.yml`](.github/workflows/release.yml) | Marketplace tagging + Docker image release with cosign (mode-routed) |
-| [`deploy.yml`](.github/workflows/deploy.yml) | Unified deploy: staging / production / observe (canary, drift, verify-fix) / stg-agent-test (L1-L4) / poll-prd-dispatch |
-| [`security.yml`](.github/workflows/security-schedule.yml) | Weekly CodeQL / Trivy / SBOM / Scorecard / Snyk + flag-audit + manifest SHA drift check |
-| [`docs.yml`](.github/workflows/docs.yml) | Link-check on PR + optional build + Pages publish on main |
-| [`deps.yml`](.github/workflows/deps.yml) | Renovate patch PR auto-merge |
-| [`agent.yml`](.github/workflows/agent.yml) | Single Claude harness — generic ai-task + scheduled health-digest |
+External consumers call these via `uses:`:
 
-OpenCI also dogfoods these reusables via 9 thin `on-*.yml` event entries
-at the top level of `.github/workflows/`. External consumers write their
-own `on-*.yml` (any name) that `uses:` the reusables — see Quick start
-above.
+| Reusable workflow | Purpose | Agentic |
+| --- | --- | --- |
+| [`reusable-pr.yml`](.github/workflows/reusable-pr.yml) | PR quality gate: lint / test / scan / build / coverage + AI review (4-stage) | Yes |
+| [`reusable-ci.yml`](.github/workflows/reusable-ci.yml) | Merge-to-main: build + sign + scan + AI smoke eval + failure analyst (4-stage) | Yes |
+| [`reusable-issue.yml`](.github/workflows/reusable-issue.yml) | Issue orchestrator: `lifecycle` / `maintenance` / `ingest` modes (4-stage) | Yes |
+| [`reusable-agent.yml`](.github/workflows/reusable-agent.yml) | The Claude harness — single AI primitive for any task | Yes |
+| [`reusable-stg.yml`](.github/workflows/reusable-stg.yml) | Staging deploy: docker/k8s + migration + smoke + auto-rollback | No |
+| [`reusable-prd.yml`](.github/workflows/reusable-prd.yml) | Production deploy: environment gate + observation window + auto-rollback | Partial |
+| [`reusable-observability.yml`](.github/workflows/reusable-observability.yml) | Post-deploy: multi-provider metrics → Claude incident analyst (4-stage) | Yes |
+| [`reusable-release.yml`](.github/workflows/reusable-release.yml) | Marketplace + Docker release with cosign keyless signing | No |
+| [`reusable-docs.yml`](.github/workflows/reusable-docs.yml) | Docs quality: lint + drift detection → Claude sync agent (4-stage) | Yes |
+| [`reusable-maintenance.yml`](.github/workflows/reusable-maintenance.yml) | Security sweeps + dependency intelligence → Claude analyst (4-stage) | Yes |
+| [`reusable-deps.yml`](.github/workflows/reusable-deps.yml) | Renovate patch PR auto-merge | No |
+| [`reusable-self-test.yml`](.github/workflows/reusable-self-test.yml) | Workflow/action lint + security validation (actionlint, zizmor, bats) | No |
 
-Full inputs/outputs/secrets contracts live in [`manifest.yml`](manifest.yml).
+### Event entry files (13)
+
+OpenCI dogfoods its own reusables via these thin shims:
+
+| Event entry | Trigger | Delegates to |
+| --- | --- | --- |
+| `agent.yml` | `workflow_dispatch` | `reusable-agent.yml` |
+| `ci.yml` | `push` main, `workflow_dispatch` | `reusable-ci.yml` + bats harness test |
+| `pull-request.yml` | `pull_request`, `workflow_dispatch` | `reusable-pr.yml` |
+| `deploy.yml` | `workflow_run` (ci/release), `workflow_dispatch` | `reusable-stg.yml` / `reusable-prd.yml` + agent tests |
+| `issue-ops.yml` | `issues`, `issue_comment`, `schedule`, `repository_dispatch` | `reusable-issue.yml` |
+| `release.yml` | `push` tags `v*`, `workflow_dispatch` | `reusable-release.yml` |
+| `docs.yml` | `pull_request`, `push` main, `schedule`, `release` | `reusable-docs.yml` |
+| `observability.yml` | `workflow_run`, `repository_dispatch`, `schedule` | `reusable-observability.yml` |
+| `on-maintenance.yml` | `schedule`, `push`/`pull_request` (manifest/actions paths) | `reusable-maintenance.yml` |
+| `auto-release.yml` | `push` main, `workflow_dispatch` | Standalone (conventional-commit version bump) |
+| `on-main-bump-sha.yml` | `push` main, `workflow_dispatch` | Standalone (SHA self-reference bump) |
+| `dependencies.yml` | `pull_request_target`, `workflow_dispatch` | `reusable-deps.yml` |
+| `ci-self-test.yml` | `push`/`pull_request` (workflows/actions paths) | `reusable-self-test.yml` |
+
+### Built-in AI skills (15)
+
+Each skill has a `SKILL.md` prompt file under `skills/`:
+
+| Skill | Domain | Used by |
+| --- | --- | --- |
+| `pr-review-agent` | Structured PR review action planning | `reusable-pr.yml` stage 3 |
+| `pr-review` | PR code review | `reusable-agent.yml` (ad-hoc) |
+| `pr-test-gen` | Test scaffold generation | `reusable-agent.yml` (ad-hoc) |
+| `issue-orchestrate` | Issue lifecycle action planning | `reusable-issue.yml` stage 3 |
+| `issue-triage` | Issue classification and prioritization | `reusable-agent.yml` (ad-hoc) |
+| `ci-failure-analyst` | CI failure analysis and remediation | `reusable-ci.yml` stage 3 |
+| `ci-smoke-eval` | Docker image smoke evaluation | `reusable-ci.yml` eval-smoke |
+| `stg-agent-test` | Autonomous staging tests (L1–L4) | `deploy.yml` stg-agent-test |
+| `docs-sync-agent` | Documentation synchronization | `reusable-docs.yml` stage 3 |
+| `maintenance-analyst` | CVE/dependency correlation | `reusable-maintenance.yml` stage 4 |
+| `agents-ai-changelog` | Keep-a-Changelog release notes | `reusable-prd.yml` create-release |
+| `agents-docubot` | Repository documentation Q&A | `reusable-agent.yml` (ad-hoc) |
+| `ops-error-triage` | Sentry error deduplication | `reusable-observability.yml` |
+| `ops-flag-audit` | Feature flag hygiene | `on-maintenance.yml` flag-audit |
+| `ops-summarize-failure` | CI failure summarization | `reusable-agent.yml` (ad-hoc) |
 
 ## Integration points
 
 - **Container registry:** `ghcr.io` by default; override via `registry` input.
 - **AI provider:** Anthropic via `claude-code-action`. Set `ANTHROPIC_API_KEY`.
+  Also supports AWS Bedrock, Google Vertex AI, Microsoft Foundry.
 - **Observability:** Sentry / Datadog / PostHog / LangSmith / Axiom — all
   graceful-skip on missing tokens.
 - **Notifications:** Slack via webhook URL.
-- **Secrets:** GitHub Secrets is fine; for larger fleets see
-  [`docs/setup-doppler.md`](docs/setup-doppler.md).
 - **Issue tracker bridge:** Linear via webhook (see
   [`docs/setup-linear-webhook.md`](docs/setup-linear-webhook.md)).
 
 ## Repository layout
 
 ```
-.github/workflows/      # on-*.yml event entries + public reusable workflows
-.github/scripts/        # cross-workflow shell helpers
-.github/ISSUE_TEMPLATE/ # bug / feature / question / security templates
-.github/agent/          # shared + domain agent context and skill files
-actions/                # 66 composite + atomic actions
-  _common/              #   shared building blocks (claude-harness, notify-deployed, etc.)
-  pr/ ci/ stg/ prd/     #   stage-specific atoms
-  integrations/         #   SaaS-specific atoms (notify-deploy, slack-notify, etc.)
-  issue/                #   issue lifecycle atoms
-  security/             #   weekly scan atoms
-skills/                 # built-in Claude task prompts (consumer can override)
-tests/                  # bats suites + fixtures
-docs/                   # SPEC.md + setup guides
-tasks/                  # P0..P4 implementation plan with status
-manifest.yml            # verified third-party SHAs (single source of truth)
+.github/workflows/          # 13 event-entry shims + 12 reusable workflows
+.github/scripts/            # cross-workflow shell helpers (verify-sha, etc.)
+.github/ISSUE_TEMPLATE/     # bug / feature / question / security templates
+.github/agent/              # shared + domain agent context and skill files
+  shared/                   #   AGENTS.md + shared skills (add-comment, escalate, notify)
+  pr/                       #   PR agent context + 8 skills
+  issue/                    #   Issue agent context + 8 skills
+  docs/                     #   Docs agent context + rules
+  observe/                  #   Observability agent context + provider guides
+actions/                    # 76 composite + atomic actions
+  _common/                  #   shared building blocks (claude-harness, detect-language, etc.)
+  pr/ ci/ stg/ prd/         #   stage-specific atoms
+  integrations/             #   SaaS-specific atoms (sentry, datadog, posthog, etc.)
+  issue/ security/ docs/    #   domain-specific atoms
+  maintenance/ deploy/      #   ops atoms
+skills/                     # 15 built-in Claude task prompts (SKILL.md files)
+tests/                      # bats suites + fixtures + workflow reports
+docs/                       # SPEC.md + setup guides + design plans
+manifest.yml                # verified third-party SHAs (191 references, single source of truth)
 ```
 
 ## Status
 
-Implemented in this repo (see [`tasks/`](tasks) for per-task status):
-
 - **191** third-party `uses:` references, **0** SHA-pinning violations
 - **129** bats unit tests, all green
-- 4 phases shipped end-to-end (P0 foundation → P4 opt-in advanced features)
-
-Pending follow-ups are documented inline in each skeleton action with
-`STATUS: skeleton` headers and `TODO` blocks pointing at the exact
-manifest-pending SHA migration or live API call needed.
+- **12** public reusable workflows, **13** event entry files
+- **76** composite/atomic actions
+- **15** built-in AI skills
+- 4-stage agentic pipeline across PR, CI, Issue, Docs, Observability, Maintenance
 
 ## Contributing
 
@@ -291,8 +293,8 @@ gh pr create
 ```
 
 Every PR runs `verify-sha-consistency` + the full bats suite + lint via
-`pr.yml`. The CONTRIBUTING doc spells out the global constraints
-(`GC1..GC7`) every change must obey.
+`reusable-pr.yml`. The CONTRIBUTING doc spells out the global constraints
+every change must obey.
 
 ## Security
 
