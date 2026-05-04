@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   agent:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-agent.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-agent.yml@d4554769815b751804187b512bf804f5891e9b47
     with:
       task: ${{ inputs.task }}
       prompt: ${{ inputs.prompt }}
