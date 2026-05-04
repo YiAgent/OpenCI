@@ -38,6 +38,7 @@ jobs:
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      image-digest:        ${{ vars.STG_IMAGE_DIGEST }}
       health-url:          ${{ vars.STG_HEALTH_URL }}
       runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
@@ -49,6 +50,7 @@ jobs:
       compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
     # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
     secrets:
+      ssh-key-stg:       ${{ secrets.SSH_KEY_STG }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
       sentry-token:      ${{ secrets.SENTRY_TOKEN }}
       datadog-api-key:   ${{ secrets.DD_API_KEY }}
@@ -63,6 +65,9 @@ jobs:
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      image-digest:        ${{ vars.PRD_IMAGE_DIGEST }}
+      stg-image-digest:    ${{ vars.STG_IMAGE_DIGEST }}
+      stg-deploy-time:     ${{ vars.STG_DEPLOY_TIME }}
       health-url:          ${{ vars.PRD_HEALTH_URL }}
       runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
@@ -76,6 +81,8 @@ jobs:
     secrets:
       anthropic-api-key:  ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url:       ${{ secrets.ANTHROPIC_BASE_URL }}
+      kubeconfig-prd:     ${{ secrets.KUBECONFIG_PRD }}
+      ssh-key-prd:        ${{ secrets.SSH_KEY_PRD }}
       slack-webhook-url:  ${{ secrets.SLACK_WEBHOOK_URL }}
       sentry-token:       ${{ secrets.SENTRY_TOKEN }}
       datadog-api-key:    ${{ secrets.DD_API_KEY }}

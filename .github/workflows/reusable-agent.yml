@@ -106,13 +106,6 @@ on:
       slack-webhook:
         description: "Slack webhook URL available to Claude as SLACK_WEBHOOK_URL env var."
         required: false
-      sentry-token: { required: false }
-      datadog-api-key: { required: false }
-      datadog-app-key: { required: false }
-      posthog-api-key: { required: false }
-      langsmith-api-key: { required: false }
-      axiom-token: { required: false }
-      slack-webhook-url: { required: false }
     outputs:
       execution-file:
         description: Claude Code execution output file path.

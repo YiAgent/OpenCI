@@ -10,7 +10,7 @@
 #   └──────────────────────────────────────┴──────────────────────────────────┘
 #
 # When called as a reusable workflow you can scope to one side:
-#   uses: YiWang24/OpenCI/.github/workflows/reusable-release.yml@v3
+#   uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@v3
 #   with:
 #     mode:       docker        # marketplace | docker | both (default both)
 #     image-name: my-app        # required for docker mode
@@ -59,17 +59,14 @@ on:
 permissions: {}
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   # ── marketplace tagging + GitHub Release ────────────────────────────────
   marketplace:
     name: Marketplace Release
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
-      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'marketplace'))
+    if: inputs.mode == 'both' || inputs.mode == 'marketplace'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
@@ -172,10 +169,7 @@ jobs:
   # ── tag-driven Docker image release with cosign keyless ─────────────────
   docker:
     name: Release Docker
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'both' || inputs.mode == 'docker'))
-      || (github.event_name == 'workflow_call'     && (inputs.mode == 'both' || inputs.mode == 'docker'))
+    if: inputs.mode == 'both' || inputs.mode == 'docker'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     permissions:

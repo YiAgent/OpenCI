@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+concurrency:
+  group: bump-self-sha-${{ github.ref }}
+  cancel-in-progress: false
 # Pushing changes under .github/workflows/ requires the `workflow` OAuth
 # scope. The default GITHUB_TOKEN lacks it, so this workflow needs a PAT
 # stored as `RELEASE_PAT` (or any name you prefer; update both checkout
@@ -91,7 +95,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
-          git add manifest.yml .github/workflows/
+          git add manifest.yml .github/workflows/ actions/
           git commit -m "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}" \
             -m "Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
 

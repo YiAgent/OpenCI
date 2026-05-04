@@ -439,7 +439,7 @@ jobs:
             mkdir -p "$SITE_DIR"
             cp -R "${DOCS_DIR}/." "$SITE_DIR/" 2>/dev/null || true
           else
-            bash -c "$CMD"
+            bash -euo pipefail -c "$CMD"
           fi
           echo "site-dir=$SITE_DIR" >> "$GITHUB_OUTPUT"
 

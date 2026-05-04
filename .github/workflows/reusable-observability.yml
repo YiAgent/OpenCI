@@ -12,7 +12,7 @@
 #   └──────────────────────────────────────┴──────────────────────────────────┘
 #
 # Reusable invocation:
-#   uses: YiWang24/OpenCI/.github/workflows/reusable-observability.yml@v3
+#   uses: YiAgent/OpenCI/.github/workflows/reusable-observability.yml@v3
 #   with:
 #     mode:      canary-watch       # canary-watch | terraform-drift | verify-fix
 #     infra-dir: infrastructure     # only used by terraform-drift
@@ -82,6 +82,14 @@ on:
         type: string
         default: ""
       # ── per-provider config ────────────────────────────────────────────────
+      head-sha:
+        description: >-
+          Commit SHA to verify (for verify-fix mode). When invoked via
+          workflow_call the caller must pass this; workflow_run events
+          supply it automatically.
+        required: false
+        type: string
+        default: ""
       sentry-org:
         required: false
         type: string
@@ -189,10 +197,7 @@ jobs:
   # ── canary-watch (every 15 min after a recent prd deploy) ───────────────
   canary-watch:
     name: 3σ Canary Watch
-    if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')
-      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'canary-watch')
-      || (github.event_name == 'workflow_call'     && inputs.mode == 'canary-watch')
+    if: inputs.mode == 'canary-watch'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
@@ -338,10 +343,7 @@ jobs:
   # ── terraform-drift (daily at 04:00 UTC) ─────────────────────────────────
   terraform-drift:
     name: Terraform Drift
-    if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
-      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'terraform-drift')
-      || (github.event_name == 'workflow_call'     && inputs.mode == 'terraform-drift')
+    if: inputs.mode == 'terraform-drift'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
@@ -386,10 +388,7 @@ jobs:
   # ── verify-fix (after prd workflow succeeds) ────────────────────────────
   verify-fix:
     name: Verify Fix
-    if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'verify-fix')
-      || (github.event_name == 'workflow_call'     && inputs.mode == 'verify-fix')
+    if: inputs.mode == 'verify-fix'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
@@ -431,7 +430,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ inputs.head-sha || github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           if [ -z "$SHA" ]; then
@@ -469,9 +468,7 @@ jobs:
   # does not abort the pipeline — the normalize stage handles missing files.
   multi-observe:
     name: Multi-Provider Observe
-    if: >-
-      (github.event_name == 'workflow_dispatch' && (inputs.mode == 'post-deploy' || inputs.mode == 'canary'))
-      || (github.event_name == 'workflow_call'  && (inputs.mode == 'post-deploy' || inputs.mode == 'canary'))
+    if: inputs.mode == 'post-deploy' || inputs.mode == 'canary'
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:

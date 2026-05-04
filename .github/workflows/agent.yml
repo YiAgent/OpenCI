@@ -35,7 +35,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: agent-${{ inputs.task }}-${{ github.run_id }}
+  group: agent-${{ inputs.task }}
   cancel-in-progress: false
 
 jobs:
@@ -57,5 +57,3 @@ jobs:
       api-key:         ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url:    ${{ secrets.ANTHROPIC_BASE_URL }}
       slack-webhook:   ${{ secrets.SLACK_WEBHOOK_URL }}
-      sentry-token:    ${{ secrets.SENTRY_TOKEN }}
-      datadog-api-key: ${{ secrets.DD_API_KEY }}

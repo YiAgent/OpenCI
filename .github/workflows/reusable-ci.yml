@@ -568,7 +568,7 @@ jobs:
           SCAN_RESULT:   ${{ needs.scan-image.result }}
           SIGN_RESULT:   ${{ needs.sign-image.result }}
           VERIFY_RESULT: ${{ needs.verify-sha.result }}
-          MIGN_RESULT:   ${{ needs.check-migration.result }}
+          MIGRATION_RESULT:   ${{ needs.check-migration.result }}
           SMOKE_RESULT:  ${{ needs.eval-smoke.result }}
           CRITICAL_CVE:  ${{ needs.scan-image.outputs.critical-count }}
           HIGH_CVE:      ${{ needs.scan-image.outputs.high-count }}
@@ -592,7 +592,7 @@ jobs:
             printf "| Verify | scan-image | %s (CRITICAL: %s, HIGH: %s) |\n" "$(s "$SCAN_RESULT")" "$CRITICAL" "$HIGH"
             printf "| Verify | sign-image | %s |\n" "$(s "$SIGN_RESULT")"
             printf "| Verify | verify-sha | %s |\n" "$(s "$VERIFY_RESULT")"
-            printf "| Verify | check-migration | %s |\n" "$(s "$MIGN_RESULT")"
+            printf "| Verify | check-migration | %s |\n" "$(s "$MIGRATION_RESULT")"
             printf "| Verify | eval-smoke | %s |\n" "$(s "$SMOKE_RESULT")"
             printf "\n**Image digest:** \`%s\`\n" "$IMAGE_DIGEST"
             printf "**Deploy ready:** \`%s\`\n" "$DEPLOY_READY"

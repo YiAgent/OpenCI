@@ -34,8 +34,9 @@ on:
         type: string
         default: ubuntu-latest
       image-digest:
+        description: Container image digest (required for deploy).
         type: string
-        required: false
+        required: true
       image-name:
         type: string
         required: false

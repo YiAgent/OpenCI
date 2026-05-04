@@ -112,4 +112,4 @@ done < <(find "$REPO_ROOT/.github/workflows" "$REPO_ROOT/actions" \
 
 echo ""
 echo "Done. Updated manifest.yml + $updated workflow file(s) to $new_sha"
-echo "Stage and commit: git add manifest.yml .github/workflows && git commit -m 'chore(manifest): bump YiAgent/OpenCI SHA to $new_sha'"
+echo "Stage and commit: git add manifest.yml .github/workflows actions/ && git commit -m 'chore(manifest): bump YiAgent/OpenCI SHA to $new_sha'"
