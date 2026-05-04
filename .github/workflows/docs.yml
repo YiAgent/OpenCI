@@ -22,13 +22,14 @@ concurrency:
 
 jobs:
   docs:
-    uses: YiAgent/OpenCI/.github/workflows/reusable/docs.yml@ebe8fca3260dce68d34d51b74703169e776bc72d
+    uses: YiAgent/OpenCI/.github/workflows/reusable/docs.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       build-cmd:    ${{ vars.DOCS_BUILD_CMD || '' }}
       docs-path:    ${{ vars.DOCS_DIR || 'docs' }}
       site-dir:     ${{ vars.DOCS_SITE_DIR || 'site' }}
       enable-agent: true
       runner:       blacksmith-32vcpu-ubuntu-2404
+      model:        ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url:      ${{ secrets.ANTHROPIC_BASE_URL }}

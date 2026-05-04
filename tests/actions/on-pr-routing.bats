@@ -56,8 +56,8 @@ setup() {
   grep -q 'runner:.*blacksmith-32vcpu-ubuntu-2404' "$ENTRY"
 }
 
-@test "checks job inherits secrets" {
-  grep -q 'secrets: inherit' "$ENTRY"
+@test "checks job passes anthropic-api-key secret" {
+  grep -q 'anthropic-api-key:' "$ENTRY"
 }
 
 # ---------------------------------------------------------------------------
