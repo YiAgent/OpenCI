@@ -1,0 +1,10 @@
+name: test-minimal-reusable
+
+on:
+  workflow_call:
+
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hello from OpenCI"
