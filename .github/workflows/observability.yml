@@ -37,7 +37,11 @@ jobs:
     with:
       mode:   canary-watch
       runner: blacksmith-2vcpu-ubuntu-2404
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DD_API_KEY }}
 
   observe-drift:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 4 * * *' }}
@@ -46,7 +50,11 @@ jobs:
       mode:      terraform-drift
       infra-dir: ${{ vars.INFRA_DIR || 'infrastructure' }}
       runner:    blacksmith-2vcpu-ubuntu-2404
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DD_API_KEY }}
 
   verify-fix:
     if: >-
@@ -57,4 +65,8 @@ jobs:
     with:
       mode:   verify-fix
       runner: blacksmith-2vcpu-ubuntu-2404
-    secrets: inherit
+    # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      sentry-token:      ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key:   ${{ secrets.DD_API_KEY }}
