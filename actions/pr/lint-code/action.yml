@@ -16,6 +16,10 @@ inputs:
 runs:
   using: composite
   steps:
+    # GitHub Actions does NOT allow expression interpolation in `uses:` refs,
+    # so we cannot do `uses: .../flavors/${{ steps.flavor.outputs.flavor }}@SHA`.
+    # Instead, pick-flavor.sh emits the flavor and we dispatch one fixed-path
+    # step per flavor, gated on the value.
     - name: Pick MegaLinter flavor
       id: flavor
       shell: bash
@@ -23,7 +27,32 @@ runs:
         LANGUAGE: ${{ inputs.language }}
       run: bash "${{ github.action_path }}/pick-flavor.sh"
 
-    - uses: oxsecurity/megalinter/flavors/${{ steps.flavor.outputs.flavor }}@8fbdead70d1409964ab3d5afa885e18ee85388bb
+    - if: steps.flavor.outputs.flavor == 'javascript'
+      uses: oxsecurity/megalinter/flavors/javascript@8fbdead70d1409964ab3d5afa885e18ee85388bb
+      env:
+        VALIDATE_ALL_CODEBASE: "false"
+        APPLY_FIXES: "none"
+
+    - if: steps.flavor.outputs.flavor == 'python'
+      uses: oxsecurity/megalinter/flavors/python@8fbdead70d1409964ab3d5afa885e18ee85388bb
+      env:
+        VALIDATE_ALL_CODEBASE: "false"
+        APPLY_FIXES: "none"
+
+    - if: steps.flavor.outputs.flavor == 'go'
+      uses: oxsecurity/megalinter/flavors/go@8fbdead70d1409964ab3d5afa885e18ee85388bb
+      env:
+        VALIDATE_ALL_CODEBASE: "false"
+        APPLY_FIXES: "none"
+
+    - if: steps.flavor.outputs.flavor == 'java'
+      uses: oxsecurity/megalinter/flavors/java@8fbdead70d1409964ab3d5afa885e18ee85388bb
+      env:
+        VALIDATE_ALL_CODEBASE: "false"
+        APPLY_FIXES: "none"
+
+    - if: steps.flavor.outputs.flavor == 'ci_light'
+      uses: oxsecurity/megalinter/flavors/ci_light@8fbdead70d1409964ab3d5afa885e18ee85388bb
       env:
         VALIDATE_ALL_CODEBASE: "false"
         APPLY_FIXES: "none"
