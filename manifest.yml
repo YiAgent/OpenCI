@@ -101,7 +101,7 @@ deps:
   softprops/action-gh-release:            "b4309332981a82ec1c5618f44dd2e27cc8bfbfda"  # v3.0.0
 
   # ── Self (OpenCI vendoring itself via remote action reference) ──────────
-  YiAgent/OpenCI:                         "7394bc9a6a4aeba5cd738e726cf1fce9c0f22043"  # resolve-openci bootstrap
+  YiAgent/OpenCI:                         "b4de059cdaaf19a883ca372cf25a009ad75b7cc8"  # resolve-openci bootstrap
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Reusable workflow catalog (consumed via `uses: YiAgent/OpenCI/.github/workflows/<id>.yml@<ref>`)
