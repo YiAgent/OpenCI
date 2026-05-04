@@ -30,6 +30,10 @@ on:
         description: "Run self-bootstrapping live E2E test (creates a real issue)"
         type: boolean
         default: false
+      run-pr-e2e:
+        description: "Run live PR quality gate E2E test (creates a real PR)"
+        type: boolean
+        default: false
       eval-model:
         description: "Claude model for agentic eval (default: claude-haiku-4-5)"
         type: string
@@ -183,6 +187,44 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_MODEL: ${{ inputs.eval-model || 'claude-haiku-4-5-20251001' }}
         run: node --test tests/agentic/pr-review-eval.test.js
+
+  live-pr-e2e:
+    name: "E2E › PR Quality Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [agentic-offline, integration-contract]
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run-pr-e2e == true)
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+
+      - name: Check required secrets
+        id: pr-e2e-gate
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping PR E2E"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run PR E2E test
+        if: steps.pr-e2e-gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAX_WAIT_SEC: "600"
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          MODE: pr
+        run: bash tests/e2e/live-e2e-verify.sh --mode=pr
 
   live-e2e:
     name: "E2E › Self-Bootstrapping Issue Workflow"

@@ -66,7 +66,12 @@
       "Bash(sed -n '1,15p' /Users/wy/projects/yiagent/OpenCI/tests/actions/api-key-gate.bats)",
       "Bash(sed -n '195,202p' /Users/wy/projects/yiagent/OpenCI/.github/workflows/ci.yml)",
       "Bash(sed -i '' 's|uses: YiWang24/OpenCI/.github/workflows/docs.yml@v2|uses: YiWang24/OpenCI/.github/workflows/reusable/docs.yml@v3|' .github/workflows/reusable/docs.yml)",
-      "Bash(sed -i '' 's|uses: YiWang24/OpenCI/.github/workflows/release.yml@v2|uses: YiWang24/OpenCI/.github/workflows/reusable/release.yml@v3|' .github/workflows/reusable/release.yml)"
+      "Bash(sed -i '' 's|uses: YiWang24/OpenCI/.github/workflows/release.yml@v2|uses: YiWang24/OpenCI/.github/workflows/reusable/release.yml@v3|' .github/workflows/reusable/release.yml)",
+      "Bash(grep -E '\\\\.\\(yaml|yml|json|toml\\)$|^\\\\.actionlint')",
+      "Bash(doppler environments *)",
+      "Bash(doppler configs *)",
+      "Bash(xargs -I{} basename {} .bats)",
+      "Bash(chmod +x *)"
     ]
   }
 }

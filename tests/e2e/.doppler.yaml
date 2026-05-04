@@ -1,0 +1,3 @@
+setup:
+  project: openci-test
+  config: prd
