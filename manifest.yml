@@ -254,7 +254,7 @@ workflows:
       slack-webhook-url:   { required: false }
 
   - id: dep-auto-merge
-    path: .github/workflows/deps.yml
+    path: .github/workflows/reusable-deps.yml
     description: Auto-merge Renovate patch-labelled dependency PRs.
     secrets: {}
 

@@ -49,8 +49,6 @@ on:
         required: false
       api-base-url:
         required: false
-      snyk-token:
-        required: false
 
 permissions: {}
 
