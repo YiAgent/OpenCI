@@ -115,7 +115,7 @@ jobs:
     if: |
       !contains(fromJSON('["pr-review","flag-audit"]'),
         needs.resolve-mode.outputs.mode)
-    uses: YiAgent/OpenCI/.github/workflows/maintenance.yml@03fafa87e392822a5a920901e06bd42028a61c3b
+    uses: YiAgent/OpenCI/.github/workflows/maintenance.yml@82512decf54fb293d228645c833dbebe15a0e420
     with:
       mode:       ${{ needs.resolve-mode.outputs.mode }}
       openci-ref: ${{ needs.resolve-mode.outputs.openci-ref }}
