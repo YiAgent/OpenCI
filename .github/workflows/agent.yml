@@ -45,7 +45,11 @@ jobs:
       task: ${{ inputs.task }}
       prompt: ${{ inputs.prompt }}
       prompt-path: ${{ inputs.prompt-path }}
-      model: ${{ inputs.model }}
+      # Fallback to repo-level vars.AI_MODEL when dispatch input is empty.
+      # Other entries already use this pattern; without it the reusable
+      # default 'claude-sonnet-4-5-20250929' is sent to GLM gateways which
+      # reject it with "模型不存在".
+      model: ${{ inputs.model || vars.AI_MODEL || '' }}
       runner: blacksmith-2vcpu-ubuntu-2404
     # Repo secrets are UPPER_SNAKE_CASE; the reusable declares kebab-case
     # secret inputs, so `secrets: inherit` does not match. Explicit map.
