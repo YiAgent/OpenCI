@@ -44,7 +44,7 @@ runs:
 
     - name: Run promptfoo
       if: inputs.should-run == 'true'
-      uses: promptfoo/promptfoo-action@8e12b04e93d24ea43d7694d8f27dd86e7abd5a72  # v1.0.0
+      uses: promptfoo/promptfoo-action@831a73deccc6a4a0ce91e671a511a6e70fa52349  # v1.0.0
       env:
         ANTHROPIC_API_KEY:  ${{ inputs.anthropic-api-key }}
         ANTHROPIC_BASE_URL: ${{ inputs.api-base-url }}

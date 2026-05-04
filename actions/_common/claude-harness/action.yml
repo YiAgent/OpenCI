@@ -280,7 +280,7 @@ runs:
     # does Claude get" diff is one shell script, not YAML scattered here.
     - name: Run claude-code-action
       id: invoke
-      uses: anthropics/claude-code-action@12310e4417c3473095c957cb311b3cf59a38d659  # v1.0.99
+      uses: anthropics/claude-code-action@c3d45e8e941e1b2ad7b278c57482d9c5bf1f35b3  # v1.0.99
       env:
         ANTHROPIC_BASE_URL: ${{ inputs.api-base-url }}
       with:

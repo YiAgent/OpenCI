@@ -22,7 +22,7 @@ runs:
   using: composite
   steps:
     - name: Dependency Review
-      uses: actions/dependency-review-action@38e6c9cc40b09fb67ca04a29eb89ad60c93adb9b  # v4.6.0
+      uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5b8a807627bf8  # v4.6.0
       with:
         fail-on-severity:      ${{ inputs.fail-on-severity }}
         comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
