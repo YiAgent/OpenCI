@@ -1,0 +1,307 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# reusable/self-test.yml — Workflow & action self-test pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+# Validates the project's own workflows, actions, and automation rules
+# whenever they change. Fills the gap identified in SPEC.md §18.1–18.3.
+#
+# Stage 1 · Lint (parallel)
+#   - actionlint   — GitHub Actions workflow syntax + embedded shell/python
+#   - yamllint     — YAML syntax and style
+#   - shellcheck   — Standalone .sh files
+#   - pyflakes     — Python scripts in .github/agent/ and actions/
+# Stage 2 · Security (parallel)
+#   - zizmor       — GHA security anti-patterns
+#   - verify-sha   — SHA pin consistency vs manifest.yml
+#   - bats-tests   — Full bats test suite including structural tests
+# Stage 3 · Summary
+#   - aggregate results, write GITHUB_STEP_SUMMARY
+#
+# Job dependency graph:
+#   actionlint ───┐
+#   yamllint ─────┤
+#   shellcheck ───┤
+#   pyflakes ─────┼──→ summary
+#   zizmor ───────┤
+#   verify-sha ───┤
+#   bats-tests ───┘
+# ─────────────────────────────────────────────────────────────────────────────
+name: self-test (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for all jobs.
+        required: false
+        type: string
+        default: ubuntu-latest
+      enable-zizmor:
+        description: Run zizmor security scan.
+        type: boolean
+        required: false
+        default: true
+      enable-pyflakes:
+        description: Run pyflakes on Python scripts.
+        type: boolean
+        required: false
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: self-test-reusable
+  cancel-in-progress: false
+
+jobs:
+  # ── Stage 1: Lint (parallel) ────────────────────────────────────────────────
+
+  actionlint:
+    name: Actionlint
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Install actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Run actionlint
+        shell: bash
+        run: actionlint -color -config-file .github/actionlint.yaml
+
+  yamllint:
+    name: yamllint
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Install yamllint
+        shell: bash
+        run: pip install yamllint
+
+      - name: Run yamllint
+        shell: bash
+        run: yamllint .
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Run shellcheck on .sh files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(find . -name '*.sh' -not -path './.git/*' -not -path './tests/*' -not -path './.openci/*')"
+          if [ -z "$files" ]; then
+            echo "::notice::No .sh files found"
+            exit 0
+          fi
+          # shellcheck disable=SC2086
+          shellcheck $files
+
+  pyflakes:
+    name: pyflakes
+    if: inputs.enable-pyflakes == true
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Install pyflakes
+        shell: bash
+        run: pip install pyflakes
+
+      - name: Run pyflakes
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(find . -name '*.py' -not -path './.git/*' -not -path './.openci/*' -not -path './tests/*')"
+          if [ -z "$files" ]; then
+            echo "::notice::No .py files found"
+            exit 0
+          fi
+          # shellcheck disable=SC2086
+          pyflakes $files
+
+  # ── Stage 2: Security (parallel) ────────────────────────────────────────────
+
+  zizmor:
+    name: zizmor
+    if: inputs.enable-zizmor == true
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Run zizmor scan
+        uses: ./actions/_common/scan-zizmor
+
+  verify-sha:
+    name: Verify SHA Consistency
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Install yq
+        shell: bash
+        env:
+          YQ_VERSION: "4.44.6"
+        run: |
+          set -euo pipefail
+          if command -v yq >/dev/null 2>&1; then yq --version; exit 0; fi
+          sudo wget -qO /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Verify SHA consistency
+        shell: bash
+        run: bash .github/scripts/verify-sha-consistency.sh
+
+  bats-tests:
+    name: BATS Tests
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with: { persist-credentials: false }
+
+      - name: Install bats
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v bats >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y bats
+          fi
+
+      - name: Run BATS test suite
+        shell: bash
+        run: bats tests/ --recursive
+
+  # ── Stage 3: Summary ────────────────────────────────────────────────────────
+
+  summary:
+    name: Self-Test Summary
+    needs: [actionlint, yamllint, shellcheck, pyflakes, zizmor, verify-sha, bats-tests]
+    if: always()
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Write summary
+        shell: bash
+        env:
+          ACTIONLINT:  ${{ needs.actionlint.result }}
+          YAMLLINT:    ${{ needs.yamllint.result }}
+          SHELLCHECK:  ${{ needs.shellcheck.result }}
+          PYFLAKES:    ${{ needs.pyflakes.result }}
+          ZIZMOR:      ${{ needs.zizmor.result }}
+          VERIFY_SHA:  ${{ needs.verify-sha.result }}
+          BATS:        ${{ needs.bats-tests.result }}
+        run: |
+          set -euo pipefail
+          s() {
+            case "$1" in
+              success)  echo ":white_check_mark:" ;;
+              skipped)  echo ":white_circle:" ;;
+              *)        echo ":x:" ;;
+            esac
+          }
+          {
+            echo "## Workflow Self-Test Summary"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| actionlint  | $(s "$ACTIONLINT") |"
+            echo "| yamllint    | $(s "$YAMLLINT") |"
+            echo "| shellcheck  | $(s "$SHELLCHECK") |"
+            echo "| pyflakes    | $(s "$PYFLAKES") |"
+            echo "| zizmor      | $(s "$ZIZMOR") |"
+            echo "| verify-sha  | $(s "$VERIFY_SHA") |"
+            echo "| bats tests  | $(s "$BATS") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any check failed
+        shell: bash
+        env:
+          ACTIONLINT:  ${{ needs.actionlint.result }}
+          YAMLLINT:    ${{ needs.yamllint.result }}
+          SHELLCHECK:  ${{ needs.shellcheck.result }}
+          PYFLAKES:    ${{ needs.pyflakes.result }}
+          ZIZMOR:      ${{ needs.zizmor.result }}
+          VERIFY_SHA:  ${{ needs.verify-sha.result }}
+          BATS:        ${{ needs.bats-tests.result }}
+        run: |
+          set -euo pipefail
+          for r in "$ACTIONLINT" "$YAMLLINT" "$SHELLCHECK" "$PYFLAKES" \
+                   "$ZIZMOR" "$VERIFY_SHA" "$BATS"; do
+            [ "$r" = "success" ] || [ "$r" = "skipped" ] || exit 1
+          done

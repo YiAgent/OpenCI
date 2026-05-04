@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ci-self-test.yml — Workflow & action self-test entry.
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers on changes to workflows, actions, and linting config. Validates
+# syntax (actionlint, yamllint, shellcheck, pyflakes), security (zizmor,
+# SHA consistency), and structural contracts (bats tests).
+#
+# This is dogfooding: OpenCI tests its own workflow catalog using the same
+# CI patterns it ships to consumers.
+# ─────────────────────────────────────────────────────────────────────────────
+name: ci-self-test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "actions/**"
+      - "manifest.yml"
+      - "manifest-pending.yml"
+      - ".github/actionlint.yaml"
+      - ".yamllint"
+      - "lefthook.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "actions/**"
+      - "manifest.yml"
+      - "manifest-pending.yml"
+      - ".github/actionlint.yaml"
+      - ".yamllint"
+      - "lefthook.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ci-self-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-test:
+    uses: ./.github/workflows/reusable/self-test.yml
+    with:
+      runner: ubuntu-latest
+    secrets: inherit
