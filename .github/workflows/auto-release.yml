@@ -73,7 +73,7 @@ jobs:
             fi
 
             # Extract commit message (after SHA)
-            MESSAGE=$(echo "$commit" | sed 's/^[a-f0-9]* //')
+            MESSAGE="${commit#* }"
 
             # Check for breaking changes
             if echo "$MESSAGE" | grep -qiE '!:' || echo "$MESSAGE" | grep -qiE 'BREAKING CHANGE'; then
@@ -113,10 +113,12 @@ jobs:
             BUMP="none"
           fi
 
-          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
-          echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
-          echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
-          echo "fixes=$FIXES" >> "$GITHUB_OUTPUT"
+          {
+            echo "bump=$BUMP"
+            echo "breaking=$BREAKING"
+            echo "features=$FEATURES"
+            echo "fixes=$FIXES"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Calculate new version
         if: steps.analyze.outputs.bump != 'none'
@@ -168,7 +170,7 @@ jobs:
           echo "Creating tag: $NEW_TAG"
           # Use GitHub API to create tag (triggers workflows)
           SHA=$(git rev-parse HEAD)
-          gh api repos/${GITHUB_REPOSITORY}/git/refs -X POST -f ref="refs/tags/$NEW_TAG" -f sha="$SHA"
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" -X POST -f ref="refs/tags/$NEW_TAG" -f sha="$SHA"
           echo "Tag $NEW_TAG created successfully via GitHub API"
 
       - name: Summary
@@ -180,20 +182,24 @@ jobs:
           FEATURES: ${{ steps.analyze.outputs.features }}
           FIXES: ${{ steps.analyze.outputs.fixes }}
         run: |
-          echo "## Auto Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **New Tag:** $NEW_TAG" >> $GITHUB_STEP_SUMMARY
-          echo "- **Bump Type:** $BUMP" >> $GITHUB_STEP_SUMMARY
-          echo "- **Breaking Changes:** $BREAKING" >> $GITHUB_STEP_SUMMARY
-          echo "- **Features:** $FEATURES" >> $GITHUB_STEP_SUMMARY
-          echo "- **Fixes:** $FIXES" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Release workflow will be triggered automatically." >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Auto Release Summary"
+            echo ""
+            echo "- **New Tag:** $NEW_TAG"
+            echo "- **Bump Type:** $BUMP"
+            echo "- **Breaking Changes:** $BREAKING"
+            echo "- **Features:** $FEATURES"
+            echo "- **Fixes:** $FIXES"
+            echo ""
+            echo "Release workflow will be triggered automatically."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: No release needed
         if: steps.analyze.outputs.bump == 'none'
         run: |
-          echo "## No Release Needed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "No conventional commits (feat:, fix:, BREAKING CHANGE) found since last tag." >> $GITHUB_STEP_SUMMARY
-          echo "Skipping release." >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## No Release Needed"
+            echo ""
+            echo "No conventional commits (feat:, fix:, BREAKING CHANGE) found since last tag."
+            echo "Skipping release."
+          } >> "$GITHUB_STEP_SUMMARY"

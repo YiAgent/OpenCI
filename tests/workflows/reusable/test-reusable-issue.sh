@@ -658,7 +658,7 @@ else
     info "Created bug issue #${BUG_ISSUE}"
 
     # Wait for workflow
-    local run_id
+    run_id""
     if run_id=$(wait_for_workflow "issue-ops.yml"); then
       info "Workflow run: ${run_id}"
 
@@ -670,7 +670,7 @@ else
       fi
 
       # Wait for agent comment
-      local agent_body
+      agent_body
       if agent_body=$(wait_for_agent_comment "$BUG_ISSUE" "openci-agent-run"); then
         if validate_issue_plan "$(extract_plan_from_comment "$agent_body")" "bug-issue-plan"; then
           pass "Bug issue: valid issue-action-plan/v1 found"
@@ -696,11 +696,11 @@ else
     _CURRENT_ISSUE="$FEATURE_ISSUE"
     info "Created feature request issue #${FEATURE_ISSUE}"
 
-    local run_id2
+    run_id2
     if run_id2=$(wait_for_workflow "issue-ops.yml"); then
-      local agent_body2
+      agent_body2
       if agent_body2=$(wait_for_agent_comment "$FEATURE_ISSUE" "openci-agent-run"); then
-        local plan2
+        plan2
         plan2=$(extract_plan_from_comment "$agent_body2")
         if validate_issue_plan "$plan2" "feature-plan"; then
           # Check for enhancement label in plan

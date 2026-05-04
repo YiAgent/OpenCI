@@ -120,7 +120,10 @@ pre-commit:
       glob: "*.sh"
       run: |
         if command -v shellcheck >/dev/null 2>&1; then
-          shellcheck {staged_files}
+          # --severity=error: SC2034 (warning) is a false positive in library
+          # files sourced by other scripts; pre-push shellcheck-full uses the
+          # same threshold for consistency.
+          shellcheck --severity=error {staged_files}
         else
           echo "::notice::shellcheck not installed; skipping shell lint"
         fi
@@ -312,7 +315,10 @@ pre-push:
           exit 0
         fi
         # shellcheck disable=SC2086
-        shellcheck $files
+        # Use --severity=error: SC2034 (warning) produces false positives in
+        # library files sourced by other scripts (variables appear unused to
+        # shellcheck but are consumed by the sourcing scripts).
+        shellcheck --severity=error $files
 
     yamllint-full:
       tags: lint
