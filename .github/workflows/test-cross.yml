@@ -1,0 +1,8 @@
+name: test-cross
+
+on:
+  workflow_dispatch:
+
+jobs:
+  call-openci:
+    uses: YiAgent/OpenCI/.github/workflows/test-minimal-reusable.yml@b015ea6c072744869e74e06c1c35f2b376ec11c2
