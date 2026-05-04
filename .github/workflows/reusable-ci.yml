@@ -325,7 +325,9 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
       - name: Install yq
         shell: bash
         run: |

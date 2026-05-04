@@ -10,20 +10,22 @@
 #   - shellcheck   — Standalone .sh files
 #   - pyflakes     — Python scripts in .github/agent/ and actions/
 # Stage 2 · Security (parallel)
-#   - zizmor       — GHA security anti-patterns
-#   - verify-sha   — SHA pin consistency vs manifest.yml
-#   - bats-tests   — Full bats test suite including structural tests
+#   - zizmor          — GHA security anti-patterns
+#   - verify-sha      — SHA pin consistency vs manifest.yml
+#   - workflow-audit  — Cascade-bug regression rules (#40-#68 lessons)
+#   - bats-tests      — Full bats test suite including structural tests
 # Stage 3 · Summary
 #   - aggregate results, write GITHUB_STEP_SUMMARY
 #
 # Job dependency graph:
-#   actionlint ───┐
-#   yamllint ─────┤
-#   shellcheck ───┤
-#   pyflakes ─────┼──→ summary
-#   zizmor ───────┤
-#   verify-sha ───┤
-#   bats-tests ───┘
+#   actionlint ───────┐
+#   yamllint ─────────┤
+#   shellcheck ───────┤
+#   pyflakes ─────────┼──→ summary
+#   zizmor ───────────┤
+#   verify-sha ───────┤
+#   workflow-audit ───┤
+#   bats-tests ───────┘
 # ─────────────────────────────────────────────────────────────────────────────
 name: self-test (reusable)
 
@@ -217,6 +219,26 @@ jobs:
         shell: bash
         run: bash .github/scripts/verify-sha-consistency.sh
 
+  workflow-audit:
+    name: Workflow Static Audit
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run workflow auditor
+        shell: bash
+        run: bash .github/scripts/workflow-audit.sh
+
   bats-tests:
     name: BATS Tests
     runs-on: ${{ inputs.runner }}
@@ -248,7 +270,7 @@ jobs:
 
   summary:
     name: Self-Test Summary
-    needs: [actionlint, yamllint, shellcheck, pyflakes, zizmor, verify-sha, bats-tests]
+    needs: [actionlint, yamllint, shellcheck, pyflakes, zizmor, verify-sha, workflow-audit, bats-tests]
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -267,6 +289,7 @@ jobs:
           PYFLAKES:    ${{ needs.pyflakes.result }}
           ZIZMOR:      ${{ needs.zizmor.result }}
           VERIFY_SHA:  ${{ needs.verify-sha.result }}
+          AUDIT:       ${{ needs.workflow-audit.result }}
           BATS:        ${{ needs.bats-tests.result }}
         run: |
           set -euo pipefail
@@ -288,6 +311,7 @@ jobs:
             echo "| pyflakes    | $(s "$PYFLAKES") |"
             echo "| zizmor      | $(s "$ZIZMOR") |"
             echo "| verify-sha  | $(s "$VERIFY_SHA") |"
+            echo "| workflow-audit | $(s "$AUDIT") |"
             echo "| bats tests  | $(s "$BATS") |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -300,10 +324,11 @@ jobs:
           PYFLAKES:    ${{ needs.pyflakes.result }}
           ZIZMOR:      ${{ needs.zizmor.result }}
           VERIFY_SHA:  ${{ needs.verify-sha.result }}
+          AUDIT:       ${{ needs.workflow-audit.result }}
           BATS:        ${{ needs.bats-tests.result }}
         run: |
           set -euo pipefail
           for r in "$ACTIONLINT" "$YAMLLINT" "$SHELLCHECK" "$PYFLAKES" \
-                   "$ZIZMOR" "$VERIFY_SHA" "$BATS"; do
+                   "$ZIZMOR" "$VERIFY_SHA" "$AUDIT" "$BATS"; do
             [ "$r" = "success" ] || [ "$r" = "skipped" ] || exit 1
           done
