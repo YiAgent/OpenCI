@@ -28,6 +28,11 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 MANIFEST="${MANIFEST:-$REPO_ROOT/manifest.yml}"
 PENDING="${PENDING:-$REPO_ROOT/manifest-pending.yml}"
 
+# Self-referencing entries that need structural validation beyond SHA consistency.
+# Each entry maps to the required path that must exist at the pinned SHA.
+declare -A SELF_REFS
+SELF_REFS["YiAgent/OpenCI"]=".github/workflows/reusable"
+
 # SPEC Appendix B.2 — deprecated actions. Keep in sync with docs/SPEC.md.
 DEPRECATED_ACTIONS=(
   "semgrep/semgrep-action"
@@ -204,6 +209,24 @@ main() {
       continue
     fi
   done < <(collect_uses)
+
+  # ── Structural validation for self-referencing entries ──────────────────────
+  # Checks that the pinned SHA actually contains the required directory.
+  # Catches the "SHA predates reusable/ reorganization" class of failures
+  # before they reach CI (where they manifest as silent "workflow file issue").
+  local self_name self_required_path self_sha tree_output
+  for self_name in "${!SELF_REFS[@]}"; do
+    self_required_path="${SELF_REFS[$self_name]}"
+    self_sha="$(echo "$manifest_map" | awk -F'\t' -v key="$self_name" '$1 == key { print $2; exit }')"
+    [ -z "$self_sha" ] && continue
+
+    # git ls-tree returns non-empty output when the path exists at that SHA.
+    tree_output="$(git ls-tree "$self_sha" "$self_required_path/" 2>/dev/null || true)"
+    if [ -z "$tree_output" ]; then
+      emit_error "SHA Missing Structure" \
+        "manifest.yml: $self_name SHA $self_sha has no '$self_required_path/' directory. Run scripts/bump-self-sha.sh to update to a valid commit."
+    fi
+  done
 
   emit_notice "verify-sha-consistency" "Checked $checked uses, $errors error(s)."
 
