@@ -1,6 +1,14 @@
 # deploy.yml — event entries for the deploy domain.
 # Routes CI/release completions to stg.yml and prd.yml.
 # Observability triggers live in observability.yml.
+#
+# image-digest plumbing:
+#   - workflow_dispatch: caller passes inputs.image-digest (and stg-* for prd)
+#   - workflow_run:      ci.yml / release.yml are expected to write the digest
+#                        into vars.LAST_CI_IMAGE_DIGEST (etc.) before completing
+#                        so downstream deploys can read it; until that wiring
+#                        lands, workflow_run dispatches read the same vars.*
+#                        with sensible empty fallbacks.
 name: deploy
 
 on:
@@ -13,6 +21,21 @@ on:
         required: false
         type: string
         default: stg
+      image-digest:
+        description: "sha256:... digest of the image to deploy. Required for stg/prd."
+        required: false
+        type: string
+        default: ""
+      stg-image-digest:
+        description: "Staging image digest (prd only — used for the safety gate)."
+        required: false
+        type: string
+        default: ""
+      stg-deploy-time:
+        description: "Staging deploy timestamp ISO 8601 (prd only — observation window start)."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -38,6 +61,11 @@ jobs:
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      # image-digest must reach the reusable so deploy steps build a real
+      # registry/owner/name@sha256:... reference. dispatch supplies it via
+      # inputs; workflow_run paths read vars.LAST_CI_IMAGE_DIGEST written
+      # by the upstream ci.yml on success.
+      image-digest:        ${{ inputs.image-digest || vars.LAST_CI_IMAGE_DIGEST || '' }}
       health-url:          ${{ vars.STG_HEALTH_URL }}
       runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
@@ -48,7 +76,10 @@ jobs:
       compose-file:        ${{ vars.COMPOSE_FILE || 'docker-compose.yml' }}
       compose-project-dir: ${{ vars.COMPOSE_PROJECT_DIR || '~' }}
     # secrets:inherit name-mismatches kebab-case → UPPER_SNAKE; map explicit.
+    # Forward every secret the reusable declares so SSH/k8s preflight passes.
     secrets:
+      kubeconfig-stg:    ${{ secrets.KUBECONFIG_STG }}
+      ssh-key-stg:       ${{ secrets.SSH_KEY_STG }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
       sentry-token:      ${{ secrets.SENTRY_TOKEN }}
       datadog-api-key:   ${{ secrets.DD_API_KEY }}
@@ -63,6 +94,13 @@ jobs:
     with:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
+      # The 3 prd-specific safety-gate inputs MUST be set or the
+      # observation-window check is skipped silently. Source order:
+      #   1. workflow_dispatch input (manual override)
+      #   2. vars.* recorded by the upstream stg deploy on success
+      image-digest:        ${{ inputs.image-digest     || vars.LAST_RELEASE_IMAGE_DIGEST || '' }}
+      stg-image-digest:    ${{ inputs.stg-image-digest || vars.LAST_STG_IMAGE_DIGEST     || '' }}
+      stg-deploy-time:     ${{ inputs.stg-deploy-time  || vars.LAST_STG_DEPLOY_TIME      || '' }}
       health-url:          ${{ vars.PRD_HEALTH_URL }}
       runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
@@ -76,6 +114,8 @@ jobs:
     secrets:
       anthropic-api-key:  ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url:       ${{ secrets.ANTHROPIC_BASE_URL }}
+      kubeconfig-prd:     ${{ secrets.KUBECONFIG_PRD }}
+      ssh-key-prd:        ${{ secrets.SSH_KEY_PRD }}
       slack-webhook-url:  ${{ secrets.SLACK_WEBHOOK_URL }}
       sentry-token:       ${{ secrets.SENTRY_TOKEN }}
       datadog-api-key:    ${{ secrets.DD_API_KEY }}
