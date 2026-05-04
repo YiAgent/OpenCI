@@ -15,6 +15,6 @@ concurrency:
 
 jobs:
   deps:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-deps.yml@5c6affab1b052ff548ae85872b1c377d83cf2c0d
+    uses: YiAgent/OpenCI/.github/workflows/reusable-deps.yml@f9c2c23543336c47b39addd8386e5bafcebf7e2a
     with:
       runner: blacksmith-2vcpu-ubuntu-2404
