@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   self-test:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-self-test.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-self-test.yml@337a2c9b7af274d4e67f1eeaaf71fb31908c2378
     with:
       runner: ubuntu-latest
     secrets: inherit
