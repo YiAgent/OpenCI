@@ -178,10 +178,10 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
       - name: Checkout caller repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Checkout OpenCI for defaults
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ inputs.openci-ref }}
@@ -264,10 +264,10 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
       - name: Checkout caller repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Checkout OpenCI for defaults
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ inputs.openci-ref }}
@@ -317,10 +317,10 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
       - name: Checkout caller repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Checkout OpenCI for harness
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ inputs.openci-ref }}
@@ -379,7 +379,7 @@ jobs:
           name: ${{ needs.enrich.outputs.workspace-artifact }}
           path: agent-workspace
       - name: Checkout OpenCI for execute action
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ inputs.openci-ref }}

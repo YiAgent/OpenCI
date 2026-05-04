@@ -24,7 +24,7 @@ version: "1.7"
 
 deps:
   # ── GitHub official (verified) ─────────────────────────────────────────
-  actions/checkout:                       "11bd71901bbe5b1630ceea73d27597364c9af683"  # v4.2.2
+  actions/checkout:                       "ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493"  # v5.0.0 (Node 24)
   actions/setup-python:                   "a26af69be951a213d495a4c3e4e4022e16d87065"  # v5.6.0
   actions/setup-go:                       "d35c59abb061a4a6fb18e82ac0862c26744d6ab5"  # v5.5.0
   actions/cache:                          "d4323d4df104b026a6aa633fdb11d772146be0bf"  # v4.2.2

@@ -76,7 +76,13 @@
       "Bash(gh workflow *)",
       "Bash(doppler run *)",
       "Bash(curl *)",
-      "Bash(xargs -I{} basename {})"
+      "Bash(xargs -I{} basename {})",
+      "Bash(bash .github/scripts/verify-sha-consistency.sh)",
+      "Bash(bash .github/scripts/workflow-audit.sh)",
+      "Bash(bash *)",
+      "Bash(gh issue *)",
+      "Bash(/tmp/doppler run *)",
+      "Bash(gh --version)"
     ]
   }
 }

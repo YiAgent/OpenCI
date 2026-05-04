@@ -46,6 +46,19 @@ extract_plan_from_file() {
     fi
   fi
 
+	  # Strategy D — model output contained a JSON-like object but maybe without
+	  # the exact version field. Find the last complete JSON object with
+	  # "summary" or "actions" keys and canonically add the version.
+	  found="$(jq -sc '
+	    [.. | objects? | select(has("summary") or has("actions"))] | last // empty
+	  ' "$file" 2>/dev/null)"
+	  if [ -n "$found" ] && [ "$found" != "null" ]; then
+	    found="$(printf '%s' "$found" | jq -c '. + {"version": "'"$PLAN_VERSION"'"}' 2>/dev/null || true)"
+	    if [ -n "$found" ]; then
+	      printf '%s' "$found"; return 0
+	    fi
+	  fi
+
   return 1
 }
 

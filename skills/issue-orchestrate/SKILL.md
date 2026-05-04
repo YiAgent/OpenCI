@@ -15,17 +15,35 @@ Read the prepared issue-agent workspace before deciding:
 - runtime JSON under `agent-workspace/runtime/`
 - merged context at `agent-workspace/agent-context.json`
 
-Return exactly one JSON object with no prose:
+## Output Format (CRITICAL)
+
+Return **ONLY** a single JSON object. No markdown fences, no prose, no
+explanation outside the JSON. The parser expects a bare JSON object as the
+entire response.
 
 ```json
 {
   "version": "issue-action-plan/v1",
   "reasoning": "short audit explanation",
-  "actions": [],
+  "actions": [
+    {"id": "add-label-bug", "skill": "add_label", "params": {"labels": ["bug"]}, "risk": "low"}
+  ],
   "skip_reason": null
 }
 ```
 
-Use only declared skills. If the safe action is unclear, return an
-`escalate` action or an empty plan with `skip_reason`.
+Available skills (14): `add_label`, `remove_label`, `set_priority`,
+`assign_issue`, `add_comment`, `close_issue`, `reopen_issue`,
+`mark_duplicate`, `create_branch`, `link_linear`, `dispatch_mcp_task`,
+`schedule_followup`, `notify`, `escalate`.
+
+Each action object requires: `id` (string), `skill` (one of the 14 above),
+`params` (object), `risk` ("low" or "high").
+
+High-risk skills (`close_issue`, `reopen_issue`, `create_branch`,
+`dispatch_mcp_task`) require trusted actor association and will be
+silently skipped for untrusted contributors.
+
+If the safe action is unclear, return an `escalate` action with
+`needs-human` label or an empty plan with `skip_reason`.
 

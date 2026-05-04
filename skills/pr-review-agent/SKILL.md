@@ -23,10 +23,16 @@ Read ALL of these files before producing output:
 | `agent-workspace/context.md` | Behavior rules (merged shared + pr-specific AGENTS.md) |
 | `agent-workspace/skills/*.md` | Available action skill definitions |
 
-## Output Contract
+## Output Contract (CRITICAL)
 
-Return exactly ONE JSON object. Schema version: `pr-action-plan/v1`.
-No surrounding prose. No markdown fences.
+Return ONLY a single JSON object — no markdown fences, no prose, no other
+text. The parser expects bare JSON as the entire response.
+
+Available skills (7): `add_label`, `remove_label`, `add_reviewer`,
+`request_changes`, `block_merge`, `escalate`, `assign_issue`.
+
+High-risk skills (`request_changes`, `block_merge`, `escalate`) require
+`confidence: "high"` to execute. Untrusted actors cannot use them.
 
 ```json
 {

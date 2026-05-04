@@ -20,15 +20,26 @@ Decision rules:
 - Use `schedule_followup` when the right next action is to wait for missing
   information or re-check after a concrete date.
 
-Required output:
+Required output (CRITICAL):
 
-Return exactly one JSON object matching `issue-action-plan/v1`.
+Return ONLY a single JSON object — no markdown fences, no prose, no other text.
+The parser expects bare JSON.
 
 ```json
 {
   "version": "issue-action-plan/v1",
   "reasoning": "short audit explanation",
-  "actions": [],
+  "actions": [
+    {"id": "add-label-bug", "skill": "add_label", "params": {"labels": ["bug"]}, "risk": "low"}
+  ],
   "skip_reason": null
 }
 ```
+
+Available skills (14): add_label, remove_label, set_priority,
+assign_issue, add_comment, close_issue, reopen_issue,
+mark_duplicate, create_branch, link_linear, dispatch_mcp_task,
+schedule_followup, notify, escalate.
+
+High-risk skills (close_issue, reopen_issue, create_branch,
+dispatch_mcp_task) require trusted actor.

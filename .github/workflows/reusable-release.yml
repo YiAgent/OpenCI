@@ -75,7 +75,7 @@ jobs:
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -97,7 +97,7 @@ jobs:
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ steps.openci-ref.outputs.ref }}
@@ -180,7 +180,7 @@ jobs:
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI workflow ref
         id: openci-ref
@@ -200,7 +200,7 @@ jobs:
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
       - name: Checkout OpenCI for local actions
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           repository: YiAgent/OpenCI
           ref: ${{ steps.openci-ref.outputs.ref }}
