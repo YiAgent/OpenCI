@@ -134,7 +134,6 @@ if should_run "2"; then
   if command -v node &>/dev/null; then
     for test_file in "${PROJECT_ROOT}"/tests/actions/*.test.js; do
       [ -f "$test_file" ] || continue
-      local name
       name="$(basename "$test_file" .test.js)"
       log "Running ${name}..."
       if node --test "$test_file" 2>&1 | tail -1; then
@@ -156,7 +155,6 @@ if should_run "3"; then
   if command -v bats &>/dev/null; then
     for test_file in "${PROJECT_ROOT}"/tests/integration/*.bats; do
       [ -f "$test_file" ] || continue
-      local name
       name="$(basename "$test_file" .bats)"
       log "Running ${name}..."
       if bats --tap "$test_file" 2>&1 | tail -1; then
@@ -168,7 +166,6 @@ if should_run "3"; then
 
     for test_file in "${PROJECT_ROOT}"/tests/integration/*.test.js; do
       [ -f "$test_file" ] || continue
-      local name
       name="$(basename "$test_file" .test.js)"
       log "Running ${name}..."
       if node --test "$test_file" 2>&1 | tail -1; then
@@ -200,7 +197,6 @@ if should_run "4"; then
 
     for test_file in "${PROJECT_ROOT}"/tests/agentic/*.test.js; do
       [ -f "$test_file" ] || continue
-      local name
       name="$(basename "$test_file" .test.js)"
       log "Running ${name}..."
       if node --test "$test_file" 2>&1 | tail -5; then

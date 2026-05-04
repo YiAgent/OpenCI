@@ -21,6 +21,7 @@ permissions:
   pull-requests: write
   deployments: write
   actions: write
+  issues: write
 
 concurrency:
   group: deploy-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}

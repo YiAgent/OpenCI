@@ -52,7 +52,8 @@ permissions:
   packages: read
   id-token: write
   issues: write
-  actions: read
+  actions: write          # reusable-maintenance.summary writes scheduled-changes
+  pull-requests: read     # reusable-maintenance.check-updates lists PRs
 
 concurrency:
   group: maintenance-${{ github.event_name }}-${{ github.ref }}
@@ -137,7 +138,9 @@ jobs:
         with: { egress-policy: audit }
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { persist-credentials: false }
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
 
       - name: Install yq
         shell: bash

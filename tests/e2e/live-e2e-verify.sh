@@ -83,12 +83,11 @@ ALLOWED_SKILLS=(
 
 validate_issue_plan() {
   local json="$1" label="$2"
-  local version reasoning actions skip_reason
+  local version reasoning actions
 
   version="$(echo "$json" | jq -r '.version // ""')"
   reasoning="$(echo "$json" | jq -r '.reasoning // ""')"
   actions="$(echo "$json" | jq -r '.actions // null')"
-  skip_reason="$(echo "$json" | jq -r '.skip_reason // "null"')"
 
   if [ "$version" != "issue-action-plan/v1" ]; then
     fail "${label}: wrong version '${version}' (expected issue-action-plan/v1)"
@@ -129,6 +128,7 @@ extract_plan_from_comment() {
   local body="$1"
   # Try to find JSON in code blocks first, then raw JSON
   local json
+  # shellcheck disable=SC2016 # Single-quoted regex pattern is intentional for grep -P.
   json="$(echo "$body" | grep -oP '```json\s*\K[\s\S]*?(?=```)' | head -1)"
   if [ -z "$json" ]; then
     json="$(echo "$body" | grep -oP '\{[^{}]*"version"\s*:\s*"issue-action-plan/v1"[^{}]*\}')"
@@ -361,7 +361,9 @@ EOF
       > /dev/null 2>&1
 
     # Create a trivial commit on the test branch
-    local test_file_content="# OpenCI E2E PR Test\n\nRun ID: ${RUN_ID}\nTimestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)\n"
+    local timestamp test_file_content
+    timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    test_file_content="# OpenCI E2E PR Test\n\nRun ID: ${RUN_ID}\nTimestamp: ${timestamp}\n"
     local encoded_content
     encoded_content="$(echo -e "$test_file_content" | base64 -w0 2>/dev/null || echo -e "$test_file_content" | base64)"
 
@@ -501,7 +503,6 @@ EOF
 
 ISSUE_PASS=true
 PR_PASS=true
-OVERALL_REPORT=""
 
 case "$MODE" in
   issue)
