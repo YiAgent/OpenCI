@@ -32,7 +32,8 @@ jobs:
       build-cmd:    ${{ vars.DOCS_BUILD_CMD || '' }}
       docs-path:    ${{ vars.DOCS_DIR || 'docs' }}
       site-dir:     ${{ vars.DOCS_SITE_DIR || 'site' }}
-      enable-agent: true
+      enable-agent: ${{ github.event_name != 'push' }}
+      deploy-docs:  false
       runner:       blacksmith-2vcpu-ubuntu-2404
       model:        ${{ vars.AI_MODEL || '' }}
     secrets:
