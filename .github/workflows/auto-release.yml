@@ -161,11 +161,13 @@ jobs:
         if: steps.analyze.outputs.bump != 'none'
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           set -euo pipefail
           echo "Creating tag: $NEW_TAG"
           git tag "$NEW_TAG"
-          git push origin "$NEW_TAG"
+          # Use GH_TOKEN to trigger other workflows
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$NEW_TAG"
           echo "Tag $NEW_TAG created and pushed successfully"
 
       - name: Summary
