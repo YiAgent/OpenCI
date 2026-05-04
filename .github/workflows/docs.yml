@@ -28,7 +28,7 @@ jobs:
       docs-path:    ${{ vars.DOCS_DIR || 'docs' }}
       site-dir:     ${{ vars.DOCS_SITE_DIR || 'site' }}
       enable-agent: true
-      runner:       blacksmith-32vcpu-ubuntu-2404
+      runner:       blacksmith-2vcpu-ubuntu-2404
       model:        ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

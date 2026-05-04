@@ -62,7 +62,7 @@ jobs:
   # ── Mode resolution ─────────────────────────────────────────────────────────
   resolve-mode:
     name: Resolve Mode
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 2
     outputs:
       mode:       ${{ steps.resolve.outputs.mode }}
@@ -120,7 +120,7 @@ jobs:
       mode:       ${{ needs.resolve-mode.outputs.mode }}
       openci-ref: ${{ needs.resolve-mode.outputs.openci-ref }}
       image-ref:  ${{ vars.IMAGE_REF || '' }}
-      runner:     blacksmith-32vcpu-ubuntu-2404
+      runner:     blacksmith-2vcpu-ubuntu-2404
     secrets: inherit
 
   # ── SHA integrity check on push / PR ────────────────────────────────────────
@@ -128,7 +128,7 @@ jobs:
     name: Verify SHA Consistency
     needs: resolve-mode
     if: needs.resolve-mode.outputs.mode == 'pr-review'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read
@@ -160,7 +160,7 @@ jobs:
     name: Flag Audit
     needs: resolve-mode
     if: needs.resolve-mode.outputs.mode == 'flag-audit'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read

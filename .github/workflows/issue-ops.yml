@@ -40,7 +40,7 @@ jobs:
     uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       mode: lifecycle
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
       model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -55,7 +55,7 @@ jobs:
     uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       mode: ingest
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
       model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -70,7 +70,7 @@ jobs:
     uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       mode: maintenance
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
       model: ${{ vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -85,7 +85,7 @@ jobs:
     uses: YiAgent/OpenCI/.github/workflows/reusable/issue.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       mode: ${{ inputs.mode }}
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
       model: ${{ inputs.model || vars.AI_MODEL || '' }}
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

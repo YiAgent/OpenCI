@@ -38,7 +38,7 @@ jobs:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:          ${{ vars.STG_HEALTH_URL }}
-      runner:              blacksmith-32vcpu-ubuntu-2404
+      runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
       ssh-host:            ${{ vars.STG_SSH_HOST }}
       ssh-user:            ${{ vars.STG_SSH_USER || 'deploy' }}
@@ -59,7 +59,7 @@ jobs:
       app-name:            ${{ vars.APP_NAME || github.event.repository.name }}
       image-name:          ${{ vars.IMAGE_NAME || github.event.repository.name }}
       health-url:          ${{ vars.PRD_HEALTH_URL }}
-      runner:              blacksmith-32vcpu-ubuntu-2404
+      runner:              blacksmith-2vcpu-ubuntu-2404
       deploy-type:         ${{ vars.DEPLOY_TYPE || 'docker' }}
       ssh-host:            ${{ vars.PRD_SSH_HOST }}
       ssh-user:            ${{ vars.PRD_SSH_USER || 'deploy' }}
@@ -79,7 +79,7 @@ jobs:
         && github.event.workflow_run.conclusion == 'success'
     needs: stg
     name: Staging Agent Test L${{ matrix.level }}
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
@@ -124,7 +124,7 @@ jobs:
   poll:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'poll' }}
     name: Poll PRD Dispatch
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       contents: read

@@ -71,7 +71,9 @@
       "Bash(doppler environments *)",
       "Bash(doppler configs *)",
       "Bash(xargs -I{} basename {} .bats)",
-      "Bash(chmod +x *)"
+      "Bash(chmod +x *)",
+      "Bash(gh run *)",
+      "Bash(gh workflow *)"
     ]
   }
 }

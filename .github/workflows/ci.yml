@@ -28,12 +28,12 @@ jobs:
       registry:        ghcr.io
       image-name:      ${{ vars.IMAGE_NAME || github.event.repository.name }}
       enable-ai-smoke: true
-      runner:          blacksmith-32vcpu-ubuntu-2404
+      runner:          blacksmith-2vcpu-ubuntu-2404
     secrets: inherit
 
   harness-test:
     name: Harness Tests (BATS)
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: read

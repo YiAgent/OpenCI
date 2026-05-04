@@ -28,4 +28,4 @@ jobs:
       mode: ${{ inputs.mode || 'both' }}
       image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}
       registry: ghcr.io
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
