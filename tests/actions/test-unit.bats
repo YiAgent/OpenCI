@@ -78,7 +78,10 @@ setup() {
   [[ "${output}" == *"go test"* ]]
 }
 
-@test "unsupported language emits error annotation" {
-  run grep 'Unsupported Language' "${ACTION}"
+@test "unsupported language emits skip notice (not an error)" {
+  # Previously errored with title=Unsupported Language; that broke PR checks
+  # on repos with no recognized single-language unit test target. Now emits
+  # a notice and exits 0 so multi-language / doc-only repos stay green.
+  run grep 'title=Test Skipped' "${ACTION}"
   [ "${status}" -eq 0 ]
 }

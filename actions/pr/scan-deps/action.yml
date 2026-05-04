@@ -21,7 +21,33 @@ inputs:
 runs:
   using: composite
   steps:
+    # GitHub Dependency Review requires the dependency graph + Advanced
+    # Security on private repos. Probe first; if the feature isn't enabled,
+    # surface a notice and exit cleanly rather than failing the PR.
+    - name: Detect Dependency Review availability
+      id: probe
+      shell: bash
+      env:
+        REPO:     ${{ github.repository }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        # /repos/{owner}/{repo}/dependency-graph/snapshots OR the dep-review
+        # endpoint at the SDK call time both return 403/404 when disabled.
+        # Cheapest: query repo features.
+        avail=$(gh api "/repos/${REPO}" --jq '.security_and_analysis.dependency_graph.status // "unknown"' 2>/dev/null || echo "unknown")
+        case "$avail" in
+          enabled)
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Scan Deps Skipped::Dependency graph / Advanced Security not enabled on this repository (status=$avail). Enable in Settings > Code security to activate this check."
+            ;;
+        esac
+
     - name: Dependency Review
+      if: steps.probe.outputs.available == 'true'
       uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5b8a807627bf8  # v4.6.0
       with:
         fail-on-severity:      ${{ inputs.fail-on-severity }}
