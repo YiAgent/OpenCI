@@ -1,0 +1,31 @@
+# .actrc — defaults for `act` local workflow testing.
+#
+# Usage:
+#   act -j actionlint          # run a single self-test job
+#   act -j yamllint            # run yamllint only
+#   act -j shellcheck          # run shellcheck only
+#   act pull_request           # simulate a PR event
+#   act -l                     # list available jobs
+#   act push --secret-file .act.env  # with secrets
+#
+# Caveats (per SPEC.md §18.2):
+#   - act CANNOT simulate: reusable workflow calls (workflow_call),
+#     repository_dispatch, environment secrets, concurrency groups,
+#     permissions model, or step-security/harden-runner egress auditing.
+#   - act CAN simulate: single-job linting (actionlint, yamllint, shellcheck),
+#     simple shell logic, checkout + script execution.
+#   - For full integration testing, use the e2e test repository.
+#
+# Recommended local workflow:
+#   1. Run `act -j actionlint` to validate workflow syntax
+#   2. Run `act -j yamllint` to validate YAML style
+#   3. Run `act -j shellcheck` to lint shell scripts
+#   4. For zizmor/verify-sha/bats, run tools directly:
+#      zizmor --format plain .
+#      bash .github/scripts/verify-sha-consistency.sh
+#      bats tests/ --recursive
+#
+--container-architecture linux/amd64
+--detect-event
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+--env-file .act.env

@@ -323,6 +323,15 @@ pre-push:
         fi
         yamllint .
 
+    zizmor:
+      tags: security
+      run: |
+        if command -v zizmor >/dev/null 2>&1; then
+          zizmor --format plain . || true  # advisory, not blocking
+        else
+          echo "::notice::zizmor not installed; skipping local scan (CI still runs)"
+        fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # post-merge — friendly nudges, never blocking.
 # ─────────────────────────────────────────────────────────────────────────────

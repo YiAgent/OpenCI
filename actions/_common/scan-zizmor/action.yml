@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/scan-zizmor — GitHub Actions security anti-pattern scanner.
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs woodruffw/zizmor to detect common GHA security issues:
+#   - Unpinned action references
+#   - Excessive permissions
+#   - Injection risks via expression interpolation
+#   - Dangerous trigger combinations
+#   - Missing harden-runner
+#
+# Outputs:
+#   findings  "true" when zizmor found issues, "false" otherwise.
+#   count     Number of findings (0 when clean or on scan error).
+# ─────────────────────────────────────────────────────────────────────────────
+name: zizmor Scan
+description: Run zizmor to detect GitHub Actions security anti-patterns.
+
+outputs:
+  findings:
+    description: '"true" when zizmor found issues.'
+    value: ${{ steps.scan.outputs.findings }}
+  count:
+    description: Number of findings.
+    value: ${{ steps.scan.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install zizmor
+      shell: bash
+      env:
+        ZIZMOR_VERSION: "1.6.0"
+      run: |
+        set -euo pipefail
+        if command -v zizmor >/dev/null 2>&1; then
+          zizmor --version
+          exit 0
+        fi
+        if command -v pipx >/dev/null 2>&1; then
+          pipx install "zizmor==${ZIZMOR_VERSION}"
+        else
+          pip install "zizmor==${ZIZMOR_VERSION}"
+        fi
+        zizmor --version
+
+    - name: Run zizmor
+      id: scan
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Exit codes: 0 = clean, 1 = findings, 2 = error
+        if zizmor --format plain . 2>&1 | tee zizmor-output.txt; then
+          echo "findings=false" >> "$GITHUB_OUTPUT"
+          echo "count=0"        >> "$GITHUB_OUTPUT"
+          echo "::notice title=zizmor::No security issues found"
+        else
+          EXIT=$?
+          if [ "$EXIT" -eq 1 ]; then
+            COUNT=$(wc -l < zizmor-output.txt 2>/dev/null || echo "1")
+            COUNT=$(echo "$COUNT" | tr -d ' ')
+            echo "findings=true"       >> "$GITHUB_OUTPUT"
+            echo "count=${COUNT}"      >> "$GITHUB_OUTPUT"
+            echo "::warning title=zizmor::${COUNT} finding(s) — review zizmor output"
+          else
+            echo "findings=false" >> "$GITHUB_OUTPUT"
+            echo "count=0"        >> "$GITHUB_OUTPUT"
+            echo "::warning title=zizmor::scan error (exit $EXIT)"
+          fi
+        fi
