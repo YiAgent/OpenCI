@@ -497,7 +497,7 @@ jobs:
             ].filter(Boolean).join('\n');
 
             // Find and update existing sticky comment, or create new one.
-            const { data: comments } = await github.rest.repos.listCommitComments({
+            const { data: comments } = await github.rest.repos.listCommentsForCommit({
               owner: context.repo.owner,
               repo:  context.repo.repo,
               commit_sha: context.sha,
