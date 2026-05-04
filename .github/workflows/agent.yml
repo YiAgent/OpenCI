@@ -47,4 +47,11 @@ jobs:
       prompt-path: ${{ inputs.prompt-path }}
       model: ${{ inputs.model }}
       runner: blacksmith-2vcpu-ubuntu-2404
-    secrets: inherit
+    # Repo secrets are UPPER_SNAKE_CASE; the reusable declares kebab-case
+    # secret inputs, so `secrets: inherit` does not match. Explicit map.
+    secrets:
+      api-key:         ${{ secrets.ANTHROPIC_API_KEY }}
+      api-base-url:    ${{ secrets.ANTHROPIC_BASE_URL }}
+      slack-webhook:   ${{ secrets.SLACK_WEBHOOK_URL }}
+      sentry-token:    ${{ secrets.SENTRY_TOKEN }}
+      datadog-api-key: ${{ secrets.DD_API_KEY }}
