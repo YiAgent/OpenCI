@@ -12,7 +12,8 @@ permissions:
   contents: read
   packages: write
   id-token: write
-  actions: read
+  actions: write
+  issues: write
   security-events: write
   pull-requests: write
 

@@ -40,8 +40,9 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
   actions: read
 
 concurrency:
@@ -177,14 +178,16 @@ jobs:
       - name: Run live issue triage eval
         if: steps.gate.outputs.skip != 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           EVAL_MODEL: ${{ inputs.eval-model || 'claude-haiku-4-5-20251001' }}
         run: node --test tests/agentic/issue-triage-eval.test.js
 
       - name: Run live PR review eval
         if: steps.gate.outputs.skip != 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           EVAL_MODEL: ${{ inputs.eval-model || 'claude-haiku-4-5-20251001' }}
         run: node --test tests/agentic/pr-review-eval.test.js
 
