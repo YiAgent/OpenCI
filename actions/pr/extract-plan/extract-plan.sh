@@ -36,9 +36,27 @@ extract_plan_from_file() {
     found="$(printf '%s' "$concatenated" \
               | PLAN_VERSION="$PLAN_VERSION" perl -0777 -ne '
                   my $v = quotemeta $ENV{PLAN_VERSION};
-                  while (m{ \{ (?: [^{}] | (?R) )* "version" \s* : \s* "$v" (?: [^{}] | (?R) )* \} }gsx) {
-                    print "$&\n"
+                  my $t = $_; my @found; my $pos = 0;
+                  while ($pos < length $t) {
+                    if (substr($t,$pos,1) eq "{") {
+                      my ($d,$i,$s,$e) = (1,$pos+1,0,0);
+                      while ($i < length($t) && $d > 0) {
+                        my $c = substr($t,$i,1);
+                        if ($e) { $e=0 }
+                        elsif ($s) { if ($c eq "\\") { $e=1 } elsif ($c eq "\"") { $s=0 } }
+                        elsif ($c eq "\"") { $s=1 }
+                        elsif ($c eq "{")  { $d++ }
+                        elsif ($c eq "}")  { $d-- }
+                        $i++;
+                      }
+                      if ($d == 0) {
+                        my $cand = substr($t,$pos,$i-$pos);
+                        push @found, $cand if $cand =~ /"version"\s*:\s*"$v"/;
+                      }
+                    }
+                    $pos++;
                   }
+                  print "$found[-1]\n" if @found;
                 ' \
               | tail -n1)"
     if [ -n "$found" ] && jq -e . <<<"$found" >/dev/null 2>&1; then
