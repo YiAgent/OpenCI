@@ -7,7 +7,7 @@ bats_require_minimum_version 1.5.0
 setup() {
   PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   ENTRY="${PROJECT_ROOT}/.github/workflows/ci-self-test.yml"
-  REUSABLE="${PROJECT_ROOT}/.github/workflows/self-test.yml"
+  REUSABLE="${PROJECT_ROOT}/.github/workflows/reusable-self-test.yml"
 }
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ setup() {
 # ---------------------------------------------------------------------------
 
 @test "single self-test job calls reusable workflow" {
-  grep -q 'uses: YiAgent/OpenCI/.github/workflows/self-test\.yml@' "$ENTRY"
+  grep -q 'uses: YiAgent/OpenCI/.github/workflows/reusable-self-test\.yml@' "$ENTRY"
 }
 
 @test "self-test job inherits secrets" {
@@ -225,9 +225,9 @@ setup() {
   grep -q 'repository_dispatch:' "$issue_entry"
 }
 
-@test "issue-ops.yml calls reusable issue.yml" {
+@test "issue-ops.yml calls reusable reusable-issue.yml" {
   local issue_entry="${PROJECT_ROOT}/.github/workflows/issue-ops.yml"
-  grep -qE 'uses:[[:space:]]+YiAgent/OpenCI/\.github/workflows/issue\.yml@[0-9a-f]{40}' "$issue_entry"
+  grep -qE 'uses:[[:space:]]+YiAgent/OpenCI/\.github/workflows/reusable-issue\.yml@[0-9a-f]{40}' "$issue_entry"
 }
 
 @test "issue-ops.yml has lifecycle job" {

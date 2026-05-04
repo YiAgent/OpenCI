@@ -98,7 +98,7 @@ setup() {
 
 @test "all four jobs call the same reusable workflow issue.yml" {
   local count
-  count=$(grep -c 'uses: YiAgent/OpenCI/.github/workflows/issue\.yml' "$ENTRY")
+  count=$(grep -c 'uses: YiAgent/OpenCI/.github/workflows/reusable-issue\.yml' "$ENTRY")
   [ "$count" -eq 4 ]
 }
 
