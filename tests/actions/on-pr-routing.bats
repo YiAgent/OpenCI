@@ -41,7 +41,7 @@ setup() {
 # ---------------------------------------------------------------------------
 
 @test "single checks job calls reusable pr.yml workflow" {
-  grep -q 'uses: YiAgent/OpenCI/.github/workflows/reusable/pr\.yml' "$ENTRY"
+  grep -q 'uses: YiAgent/OpenCI/.github/workflows/pr\.yml' "$ENTRY"
 }
 
 @test "checks job enables AI review" {

@@ -10,7 +10,7 @@
 #   └──────────────────────────────────────┴──────────────────────────────────┘
 #
 # When called as a reusable workflow you can scope to one side:
-#   uses: YiWang24/OpenCI/.github/workflows/reusable/release.yml@v3
+#   uses: YiWang24/OpenCI/.github/workflows/reusable-release.yml@v3
 #   with:
 #     mode:       docker        # marketplace | docker | both (default both)
 #     image-name: my-app        # required for docker mode

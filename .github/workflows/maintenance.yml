@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# reusable/maintenance.yml — 4-stage maintenance pipeline.
+# maintenance.yml — 4-stage maintenance pipeline.
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 · Scan    — parallel CVE (Trivy), secrets (gitleaks), SAST (CodeQL)
 # Stage 2 · Update  — query pending Renovate/Dependabot PRs by semver label

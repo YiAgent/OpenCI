@@ -49,7 +49,7 @@ jobs:
             exit 0
           fi
 
-          tree_out="$(git ls-tree "$current_sha" .github/workflows/reusable/ 2>/dev/null || true)"
+          tree_out="$(git ls-tree "$current_sha" .github/workflows/ 2>/dev/null || true)"
           if [ -n "$tree_out" ] && [ "$current_sha" = "$head_sha" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice::SHA $current_sha is current and valid — nothing to do"

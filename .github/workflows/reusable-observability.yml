@@ -12,7 +12,7 @@
 #   └──────────────────────────────────────┴──────────────────────────────────┘
 #
 # Reusable invocation:
-#   uses: YiWang24/OpenCI/.github/workflows/reusable/observability.yml@v3
+#   uses: YiWang24/OpenCI/.github/workflows/reusable-observability.yml@v3
 #   with:
 #     mode:      canary-watch       # canary-watch | terraform-drift | verify-fix
 #     infra-dir: infrastructure     # only used by terraform-drift

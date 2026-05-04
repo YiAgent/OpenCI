@@ -1,6 +1,6 @@
 # ci.yml — event entry that fires the CI pipeline on every merge to main.
-# Forwards all inputs/secrets to reusable/ci.yml. External users should
-# write their own ci.yml against `uses: YiAgent/OpenCI/.github/workflows/reusable/ci.yml@v3`.
+# Forwards all inputs/secrets to reusable-ci.yml. External users should
+# write their own ci.yml against `uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@v3`.
 name: ci
 
 on:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: YiAgent/OpenCI/.github/workflows/reusable/ci.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
+    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@be43e4efd2f14f2a3da7d5264356a9e6774c8ef1
     with:
       openci-ref:      ${{ github.sha }}
       registry:        ghcr.io

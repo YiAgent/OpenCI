@@ -9,7 +9,7 @@ bats_require_minimum_version 1.5.0
 setup() {
   PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   COMPOSITE="${PROJECT_ROOT}/actions/_common/claude-harness/action.yml"
-  WORKFLOW="${PROJECT_ROOT}/.github/workflows/reusable/agent.yml"
+  WORKFLOW="${PROJECT_ROOT}/.github/workflows/reusable-agent.yml"
 }
 
 # Helpers

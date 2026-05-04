@@ -73,7 +73,10 @@
       "Bash(xargs -I{} basename {} .bats)",
       "Bash(chmod +x *)",
       "Bash(gh run *)",
-      "Bash(gh workflow *)"
+      "Bash(gh workflow *)",
+      "Bash(doppler run *)",
+      "Bash(curl *)",
+      "Bash(xargs -I{} basename {})"
     ]
   }
 }
