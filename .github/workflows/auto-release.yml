@@ -1,0 +1,196 @@
+# auto-release.yml — automatic version bump and release on main push.
+# Analyzes commits since last tag, determines version bump type using
+# conventional commits, creates a new tag, and triggers release.yml.
+name: auto-release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  auto-release:
+    name: Auto Release
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Get latest tag
+        id: latest-tag
+        run: |
+          set -euo pipefail
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "tag=v0.0.0" >> "$GITHUB_OUTPUT"
+            echo "No existing tag found, starting from v0.0.0"
+          else
+            echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+            echo "Latest tag: $LATEST_TAG"
+          fi
+
+      - name: Analyze commits since last tag
+        id: analyze
+        env:
+          LATEST_TAG: ${{ steps.latest-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Get commits since last tag
+          if [ "$LATEST_TAG" = "v0.0.0" ]; then
+            COMMITS=$(git log --oneline HEAD)
+          else
+            COMMITS=$(git log --oneline "${LATEST_TAG}..HEAD")
+          fi
+
+          echo "Commits since last tag:"
+          echo "$COMMITS"
+          echo ""
+
+          # Count commit types
+          BREAKING=0
+          FEATURES=0
+          FIXES=0
+          OTHER=0
+
+          while IFS= read -r commit; do
+            if [ -z "$commit" ]; then
+              continue
+            fi
+
+            # Extract commit message (after SHA)
+            MESSAGE=$(echo "$commit" | sed 's/^[a-f0-9]* //')
+
+            # Check for breaking changes
+            if echo "$MESSAGE" | grep -qiE '!:' || echo "$MESSAGE" | grep -qiE 'BREAKING CHANGE'; then
+              BREAKING=$((BREAKING + 1))
+              continue
+            fi
+
+            # Check for features
+            if echo "$MESSAGE" | grep -qE '^feat(\(|:)' ; then
+              FEATURES=$((FEATURES + 1))
+              continue
+            fi
+
+            # Check for fixes
+            if echo "$MESSAGE" | grep -qE '^fix(\(|:)' ; then
+              FIXES=$((FIXES + 1))
+              continue
+            fi
+
+            # Other commits (chore, docs, style, refactor, perf, test, ci, build, revert)
+            OTHER=$((OTHER + 1))
+          done <<< "$COMMITS"
+
+          echo "Breaking: $BREAKING"
+          echo "Features: $FEATURES"
+          echo "Fixes: $FIXES"
+          echo "Other: $OTHER"
+
+          # Determine bump type
+          if [ "$BREAKING" -gt 0 ]; then
+            BUMP="major"
+          elif [ "$FEATURES" -gt 0 ]; then
+            BUMP="minor"
+          elif [ "$FIXES" -gt 0 ]; then
+            BUMP="patch"
+          else
+            BUMP="none"
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
+          echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
+          echo "fixes=$FIXES" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate new version
+        if: steps.analyze.outputs.bump != 'none'
+        id: version
+        env:
+          LATEST_TAG: ${{ steps.latest-tag.outputs.tag }}
+          BUMP: ${{ steps.analyze.outputs.bump }}
+        run: |
+          set -euo pipefail
+
+          # Parse current version
+          VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Calculate new version
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          NEW_TAG="v${NEW_VERSION}"
+
+          echo "Current version: $VERSION"
+          echo "Bump type: $BUMP"
+          echo "New version: $NEW_VERSION"
+          echo "New tag: $NEW_TAG"
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.analyze.outputs.bump != 'none'
+        env:
+          NEW_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Creating tag: $NEW_TAG"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
+          echo "Tag $NEW_TAG created and pushed successfully"
+
+      - name: Summary
+        if: steps.analyze.outputs.bump != 'none'
+        env:
+          NEW_TAG: ${{ steps.version.outputs.tag }}
+          BUMP: ${{ steps.analyze.outputs.bump }}
+          BREAKING: ${{ steps.analyze.outputs.breaking }}
+          FEATURES: ${{ steps.analyze.outputs.features }}
+          FIXES: ${{ steps.analyze.outputs.fixes }}
+        run: |
+          echo "## Auto Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Tag:** $NEW_TAG" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bump Type:** $BUMP" >> $GITHUB_STEP_SUMMARY
+          echo "- **Breaking Changes:** $BREAKING" >> $GITHUB_STEP_SUMMARY
+          echo "- **Features:** $FEATURES" >> $GITHUB_STEP_SUMMARY
+          echo "- **Fixes:** $FIXES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release workflow will be triggered automatically." >> $GITHUB_STEP_SUMMARY
+
+      - name: No release needed
+        if: steps.analyze.outputs.bump == 'none'
+        run: |
+          echo "## No Release Needed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No conventional commits (feat:, fix:, BREAKING CHANGE) found since last tag." >> $GITHUB_STEP_SUMMARY
+          echo "Skipping release." >> $GITHUB_STEP_SUMMARY

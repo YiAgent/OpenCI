@@ -77,8 +77,11 @@ setup() {
     | grep -oP '\.openci/actions/[\w\-/]+' \
     | sort -u); do
     # These are resolved at runtime from the pinned SHA, so we check the local actions/ dir
-    local local_path="${action_path/.openci/actions}"
-    if [ ! -f "$REPO_ROOT/$local_path/action.yml" ] && [ ! -f "$REPO_ROOT/$local_path/action.yaml" ]; then
+    local local_path="${action_path#.openci/}"
+    # Check for action.yml, action.yaml, or .sh script
+    if [ ! -f "$REPO_ROOT/$local_path/action.yml" ] && \
+       [ ! -f "$REPO_ROOT/$local_path/action.yaml" ] && \
+       [ ! -f "$REPO_ROOT/$local_path.sh" ]; then
       missing="$missing $action_path"
     fi
   done
