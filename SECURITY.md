@@ -13,7 +13,7 @@ publicly only after a fix is available.
 发现 OpenCI 的安全问题时,请**不要**开 public issue。我们提供两条优先级递减的渠道:
 
 1. **首选** — GitHub 私有漏洞报告
-   通过 https://github.com/YiWang24/OpenCI/security/advisories/new 提交。
+   通过 [GitHub Security Advisory](https://github.com/YiWang24/OpenCI/security/advisories/new) 提交。
    GitHub 会创建一条仅维护者可见的 advisory,跟进过程在那条 thread 完成。
 
 2. **备选** — 安全邮箱

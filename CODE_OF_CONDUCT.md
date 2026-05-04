@@ -74,4 +74,4 @@
 
 执行准则灵感来自 [Mozilla 的行为准则执行阶梯](https://github.com/mozilla/diversity)。
 
-更多常见问题见 https://www.contributor-covenant.org/faq。其他语言版本见 https://www.contributor-covenant.org/translations。
+更多常见问题见 [FAQ](https://www.contributor-covenant.org/faq)。其他语言版本见 [translations](https://www.contributor-covenant.org/translations)。

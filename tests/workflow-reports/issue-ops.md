@@ -176,7 +176,7 @@ All four jobs specify `runner: blacksmith-2vcpu-ubuntu-2404`. This is a custom B
 
 ## Issues Found
 
-### No CRITICAL or HIGH issues.
+### No CRITICAL or HIGH issues
 
 ### MEDIUM
 
