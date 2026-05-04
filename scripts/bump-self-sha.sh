@@ -95,7 +95,7 @@ if [ -z "$old_sha" ]; then
   die "YiAgent/OpenCI not found in manifest.yml .deps — add it manually first."
 fi
 
-sed -i'' -e "s|${old_sha}|${new_sha}|g" "$MANIFEST"
+perl -pi -e "s|\Q${old_sha}\E|${new_sha}|g" "$MANIFEST"
 info "Updated manifest.yml"
 
 # ── 5. Update all workflow files that reference the old SHA ──────────────────
@@ -103,7 +103,7 @@ info "Updated manifest.yml"
 updated=0
 while IFS= read -r -d '' f; do
   if grep -q "$old_sha" "$f" 2>/dev/null; then
-    sed -i'' -e "s|${old_sha}|${new_sha}|g" "$f"
+    perl -pi -e "s|\Q${old_sha}\E|${new_sha}|g" "$f"
     info "Updated $f"
     updated=$((updated + 1))
   fi

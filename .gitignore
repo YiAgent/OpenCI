@@ -39,4 +39,5 @@ gate-context/
 .history
 
 # act local testing
-.act.env
+.act.env*.yml-e
+*.yaml-e
