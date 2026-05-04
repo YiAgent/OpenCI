@@ -9,7 +9,7 @@
 # Inputs / secrets / outputs MUST stay byte-identical to the composite — a
 # caller can swap one for the other without changing wiring.
 # ─────────────────────────────────────────────────────────────────────────────
-name: claude-harness
+name: reusable-agent
 
 on:
   workflow_call:

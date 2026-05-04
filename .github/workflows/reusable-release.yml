@@ -58,9 +58,10 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+# Reusable workflows must NOT redeclare the caller's concurrency group —
+# GitHub's deadlock-detection cancels the inner run when both share it
+# (see workflow-audit rule W03 / issue #68). Concurrency is owned by the
+# caller (release.yml) instead.
 
 jobs:
   # ── marketplace tagging + GitHub Release ────────────────────────────────
