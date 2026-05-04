@@ -36,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write  # bats `self-test-routing` test asserts this is present
 
 concurrency:
   group: ci-self-test-${{ github.event.pull_request.number || github.ref }}

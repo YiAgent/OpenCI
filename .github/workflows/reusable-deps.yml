@@ -17,7 +17,7 @@
 # Security: we only call `gh pr merge --auto` (gated on branch protection
 # rules); PR fields are not interpolated into shell commands.
 # ─────────────────────────────────────────────────────────────────────────────
-name: dep-auto-merge
+name: reusable-deps
 
 on:
   workflow_call:

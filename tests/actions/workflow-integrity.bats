@@ -44,6 +44,7 @@ setup() {
 
 @test "all reusable workflows referenced by top-level workflows exist" {
   local missing=""
+  # shellcheck disable=SC2013  # word-splitting on sorted unique refs is intentional
   for ref in $(grep -h 'uses:.*\.github/workflows/' "$WORKFLOWS_DIR"/*.yml \
     | grep -v '#' \
     | sed 's/.*\.github\/workflows\///' \
@@ -58,6 +59,7 @@ setup() {
 
 @test "all referenced scripts exist" {
   local missing=""
+  # shellcheck disable=SC2013  # word-splitting on sorted unique paths is intentional
   for script in $(grep -rh '\.github/scripts/' "$WORKFLOWS_DIR"/*.yml \
     | grep -oP '\.github/scripts/[\w\-\.]+' \
     | sort -u); do
@@ -70,6 +72,7 @@ setup() {
 
 @test "all referenced local actions exist" {
   local missing=""
+  # shellcheck disable=SC2013  # word-splitting on sorted unique paths is intentional
   for action_path in $(grep -rh '\./\.openci/actions/' "$WORKFLOWS_DIR"/*.yml \
     | grep -oP '\.openci/actions/[\w\-/]+' \
     | sort -u); do
