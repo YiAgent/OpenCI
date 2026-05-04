@@ -1,0 +1,20 @@
+name: test-k
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+permissions: {}
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 3
+    if: |
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      contains(github.event.pull_request.labels.*.name, 'patch')
+    steps:
+      - run: echo "test-k passed"
