@@ -107,15 +107,17 @@ inputs:
     default: ""
   bot-id:
     description: |
-      GitHub App bot ID for custom Claude Code GitHub Apps. Leave empty to use
-      the default claude[bot] identity.
+      GitHub App bot ID. Default is the well-known github-actions[bot] id;
+      claude-code-action otherwise calls /user with the supplied token and
+      crashes when the response .login is empty (see #78).
     required: false
-    default: ""
+    default: "41898282"
   bot-name:
     description: |
-      GitHub App bot display name. Leave empty to use the default "claude".
+      GitHub App bot display name. Default is github-actions[bot]; needed so
+      `git config user.name` always receives a non-empty value (see #78).
     required: false
-    default: ""
+    default: "github-actions[bot]"
   base-branch:
     description: |
       Base branch for new branches created by Claude. Leave empty to let the
