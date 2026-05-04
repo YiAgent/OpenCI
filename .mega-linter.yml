@@ -1,0 +1,21 @@
+# MegaLinter project config — see https://megalinter.io/configuration/
+# This repo runs MegaLinter via actions/pr/lint-code (PR Lint job).
+
+# .openci/ is a runtime checkout of YiAgent/OpenCI itself (vendored by the
+# resolve-openci action). Linting it duplicates work and triggers jscpd
+# false positives because every source file appears twice (once at its real
+# path, once under .openci/). Likewise tests/ and node_modules/.
+EXCLUDED_DIRECTORIES:
+  - ".openci"
+  - "node_modules"
+  - ".git"
+  - "megalinter-reports"
+
+# jscpd flags trivial duplicates by default (threshold: 0%). Soften to 5%
+# so cross-cutting fixtures and parallel rule definitions aren't flagged.
+COPYPASTE_JSCPD_ARGUMENTS: "--threshold=5"
+
+# Disable noisy/irrelevant linters for this repo's mix.
+DISABLE:
+  - SPELL          # spelling false-positives are noisy in code-only repos
+  - REPOSITORY     # repo metadata linters duplicate other CI checks
