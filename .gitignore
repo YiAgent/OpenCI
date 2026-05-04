@@ -41,3 +41,10 @@ gate-context/
 # act local testing
 .act.env*.yml-e
 *.yaml-e
+
+# Claude Code runtime artifacts (per-developer, not project state)
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/agents/
+.claude/projects/
+.claude/todos/
