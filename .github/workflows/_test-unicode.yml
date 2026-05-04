@@ -1,0 +1,11 @@
+name: test-unicode
+# ────────────────────────────────────────────────────
+# This comment uses unicode box-drawing characters ──
+# ────────────────────────────────────────────────────
+on:
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "test-unicode passed"
