@@ -109,9 +109,8 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: false
+# Caller (ci.yml) owns concurrency; redeclaring it here causes a deadlock
+# detection between the top-level workflow and this reusable. See #68.
 
 jobs:
   # ── Stage 1: Build ──────────────────────────────────────────────────────────
