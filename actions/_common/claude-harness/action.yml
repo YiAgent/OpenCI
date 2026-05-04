@@ -164,6 +164,15 @@ inputs:
       Newline-separated list of custom marketplace URLs used to resolve plugins.
     required: false
     default: ""
+  allowed-bots:
+    description: |
+      Comma-separated list of bot logins permitted to trigger this action,
+      or "*" to allow all bots. Default allows the common automation bots
+      that legitimately fire issue_comment / pull_request events
+      (sonarqubecloud, dependabot, renovate, github-actions, codecov).
+      Pass an empty string to disable bot triggers entirely.
+    required: false
+    default: "sonarqubecloud,dependabot,renovate,github-actions,codecov,sonarcloud"
   use-sticky-comment:
     description: Use a single sticky comment for PR/Issue dedup ("true" / "false").
     required: false
@@ -300,6 +309,7 @@ runs:
         plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
         use_commit_signing: ${{ inputs.use-commit-signing }}
         ssh_signing_key:    ${{ inputs.ssh-signing-key }}
+        allowed_bots: ${{ inputs.allowed-bots }}
         bot_id:      ${{ inputs.bot-id }}
         bot_name:    ${{ inputs.bot-name }}
         base_branch: ${{ inputs.base-branch }}
