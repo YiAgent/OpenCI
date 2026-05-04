@@ -76,7 +76,10 @@ on:
         description: "PAT used to request Copilot review (required when enable-copilot-review: true)."
         required: false
 
-permissions: {}
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
 
 concurrency:
   group: pr-${{ github.event.pull_request.number || github.ref }}
@@ -87,8 +90,6 @@ jobs:
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -114,8 +115,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     outputs:
       language:        ${{ steps.detect.outputs.language }}
       package-manager: ${{ steps.detect.outputs.package-manager }}
@@ -148,9 +147,6 @@ jobs:
     if: github.event.pull_request != null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -190,9 +186,6 @@ jobs:
     if: github.event.pull_request != null && github.event.pull_request.requested_reviewers[0] == null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -230,8 +223,6 @@ jobs:
     if: github.event.pull_request != null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -266,8 +257,6 @@ jobs:
     if: github.event.pull_request != null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -305,9 +294,6 @@ jobs:
     if: github.event.pull_request != null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -341,8 +327,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -379,8 +363,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -416,8 +398,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -441,8 +421,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
 
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -482,8 +460,6 @@ jobs:
     needs: detect-language
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
     outputs:
       coverage-file: ${{ steps.run.outputs.coverage-file }}
     steps:
@@ -526,8 +502,6 @@ jobs:
     needs: test
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -573,8 +547,6 @@ jobs:
     needs: detect-language
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -621,10 +593,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     if: inputs.enable-ai-review == true
-    permissions:
-      contents: read
-      pull-requests: write
-      id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -667,9 +635,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     if: always() && inputs.enable-eval == true
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -716,9 +681,6 @@ jobs:
     if: inputs.enable-copilot-review == true && github.event.pull_request != null
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -771,9 +733,6 @@ jobs:
       needs.verify-sha.result == 'success'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
       workspace-artifact: pr-agent-workspace-${{ github.run_id }}
     steps:
@@ -821,10 +780,6 @@ jobs:
     if: inputs.enable-ai-review == true
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: write
-      id-token: write
     outputs:
       plan:        ${{ steps.extract.outputs.plan }}
       skip-reason: ${{ steps.extract.outputs.skip-reason }}
@@ -896,10 +851,6 @@ jobs:
     if: always() && needs.agent.result == 'success'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      pull-requests: write
-      issues: write
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }

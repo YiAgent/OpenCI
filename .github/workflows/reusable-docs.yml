@@ -93,7 +93,12 @@ on:
         description: Custom Anthropic-compatible base URL.
         required: false
 
-permissions: {}
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  pages: write
+  id-token: write
 
 # Caller (docs.yml) owns concurrency; same group here triggers a deadlock
 # detection between the top-level workflow and this reusable. See #68.
@@ -107,8 +112,6 @@ jobs:
     name: Stage 1 · Lint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
@@ -219,9 +222,6 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
       needs-update:       ${{ steps.detect.outputs.needs-update }}
       workspace-artifact: docs-detect-${{ github.run_id }}
@@ -280,10 +280,6 @@ jobs:
       needs.detect.outputs.needs-update == 'true'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: read
-      id-token: write
     outputs:
       plan:        ${{ steps.extract.outputs.plan }}
       skip-reason: ${{ steps.extract.outputs.skip-reason }}
@@ -370,12 +366,6 @@ jobs:
     timeout-minutes: 15
     environment:
       name: github-pages
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      pages: write
-      id-token: write
     outputs:
       docs-pr-url:    ${{ steps.apply.outputs.pr-url }}
       docs-pr-number: ${{ steps.apply.outputs.pr-number }}

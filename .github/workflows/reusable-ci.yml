@@ -107,7 +107,14 @@ on:
         description: "'true' when the build passed all gates and is safe to deploy."
         value: ${{ jobs.execute.outputs.deploy-ready }}
 
-permissions: {}
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  security-events: write
+  pull-requests: write
+  actions: read
+  issues: write
 
 # Caller (ci.yml) owns concurrency; redeclaring it here causes a deadlock
 # detection between the top-level workflow and this reusable. See #68.
@@ -118,8 +125,6 @@ jobs:
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -143,8 +148,6 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     outputs:
       language: ${{ steps.detect.outputs.language }}
       package-manager: ${{ steps.detect.outputs.package-manager }}
@@ -168,10 +171,6 @@ jobs:
     needs: detect-language
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     outputs:
       image-digest: ${{ steps.build.outputs.image-digest }}
       image-tag-sha: ${{ steps.build.outputs.image-tag-sha }}
@@ -198,9 +197,6 @@ jobs:
     needs: build-docker
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
-      security-events: write
     outputs:
       vulnerabilities-found: ${{ steps.scan.outputs.vulnerabilities-found }}
       critical-count:        ${{ steps.scan.outputs.critical-count }}
@@ -224,10 +220,6 @@ jobs:
     needs: build-docker
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -251,8 +243,6 @@ jobs:
     needs: build-docker
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     outputs:
       sbom-ref: ${{ steps.ref.outputs.sbom-ref }}
     steps:
@@ -273,8 +263,6 @@ jobs:
     if: inputs.run-migration == true
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -294,10 +282,6 @@ jobs:
     if: inputs.enable-ai-smoke == true
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: write
-      id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -319,8 +303,6 @@ jobs:
     needs: build-docker
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -356,9 +338,6 @@ jobs:
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
     outputs:
       has-failures:   ${{ steps.summarize.outputs.has-failures }}
       deploy-blocked: ${{ steps.summarize.outputs.deploy-blocked }}
@@ -476,10 +455,6 @@ jobs:
       needs.enrich.outputs.has-failures == 'true'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
-      issues: write
-      actions: read
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -520,9 +495,6 @@ jobs:
     if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
     outputs:
       deploy-ready: ${{ steps.gate.outputs.deploy-ready }}
     steps:

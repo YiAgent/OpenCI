@@ -50,7 +50,13 @@ on:
       api-base-url:
         required: false
 
-permissions: {}
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  pull-requests: read
+  issues: write
+  id-token: write
 
 concurrency:
   group: maintenance-reusable
@@ -63,8 +69,6 @@ jobs:
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions:
-      contents: read
     outputs:
       language: ${{ steps.detect.outputs.language }}
     steps:
@@ -106,10 +110,6 @@ jobs:
       needs.detect-language.outputs.language != 'unknown'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
     outputs:
       found: ${{ steps.result.outputs.found }}
     steps:
@@ -147,8 +147,6 @@ jobs:
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
     outputs:
       found: ${{ steps.scan.outputs.found }}
       count: ${{ steps.scan.outputs.count }}
@@ -189,9 +187,6 @@ jobs:
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
-    permissions:
-      contents: read
-      security-events: write
     outputs:
       critical: ${{ steps.count.outputs.critical }}
       high:     ${{ steps.count.outputs.high }}
@@ -248,9 +243,6 @@ jobs:
     if: inputs.mode == 'full' || inputs.mode == 'deps-only'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
       has_updates:  ${{ steps.check.outputs.has_updates }}
       major_count:  ${{ steps.check.outputs.major_count }}
@@ -291,8 +283,6 @@ jobs:
     if: always() && (inputs.mode == 'full' || inputs.mode == 'scan-only' || inputs.mode == 'deps-only')
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
-    permissions:
-      contents: read
     outputs:
       has_issues:     ${{ steps.enrich.outputs.has_issues }}
       overall_health: ${{ steps.enrich.outputs.overall_health }}
@@ -344,10 +334,6 @@ jobs:
       needs.enrich.result != 'failure'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
-    permissions:
-      contents: read
-      issues: write
-      id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -386,7 +372,6 @@ jobs:
     if: always() && needs.enrich.result != 'skipped'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
-    permissions: {}
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
