@@ -92,13 +92,10 @@ Required reading:
 - agent-workspace/runtime/ingest.json
 - agent-workspace/runtime/mcp-tasks.json
 
-Return exactly one JSON object and no surrounding prose:
-{
-  "version": "issue-action-plan/v1",
-  "reasoning": "short audit explanation",
-  "actions": [],
-  "skip_reason": null
-}
+CRITICAL: Return ONLY a single JSON object — no markdown fences, no
+prose, no other text. The parser expects bare JSON. Example:
+
+{"version":"issue-action-plan/v1","reasoning":"...","actions":[],"skip_reason":null}
 
 Only use skills present in agent-workspace/skills/. If no action is
 needed, return an empty actions array with a skip_reason.

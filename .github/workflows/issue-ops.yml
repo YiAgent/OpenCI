@@ -36,7 +36,11 @@ concurrency:
 
 jobs:
   lifecycle:
-    if: github.event_name == 'issues' || github.event_name == 'issue_comment'
+    if: >-
+      github.event_name == 'issues'
+      || (github.event_name == 'issue_comment'
+          && github.event.comment.user.login != 'github-actions[bot]'
+          && github.event.comment.user.login != 'openci-agent[bot]')
     uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@f9c2c23543336c47b39addd8386e5bafcebf7e2a
     with:
       mode: lifecycle

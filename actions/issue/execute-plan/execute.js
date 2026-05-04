@@ -297,7 +297,7 @@ async function executeIssuePlan({ github, context, env, fetchFn }) {
   }
 
   if (issueNumber && audit.length) {
-    const marker = `<!-- openci-agent-run: ${context.runId}:${env.PLAN_HASH} -->`;
+    const marker = `<!-- openci-agent-run: ${env.PLAN_HASH} -->`;
     const existing = await github.paginate(github.rest.issues.listComments, {
       ...context.repo, issue_number: issueNumber, per_page: 100,
     });

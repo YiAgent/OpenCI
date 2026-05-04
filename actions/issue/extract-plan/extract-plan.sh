@@ -35,6 +35,33 @@ extract_plan_from_file() {
     printf '%s' "$found"; return 0
   fi
 
+  # Strategy B2 — claude-code-action v1.x JSONL: extract text from assistant
+  # message content blocks and try to parse JSON from them. The plan may be
+  # embedded as a content_block with type "text" inside an assistant message.
+  # Each JSONL line is a separate JSON object; we look for lines containing
+  # assistant role messages and extract their text content.
+  found="$(
+    while IFS= read -r line; do
+      # Look for assistant messages or content blocks containing the version
+      if printf '%s' "$line" | grep -q "$PLAN_VERSION" 2>/dev/null; then
+        # Extract all text content from this JSONL entry
+        printf '%s' "$line" | jq -r '
+          [.. | strings? | select(test("'"$PLAN_VERSION"'"))] | last // empty
+        ' 2>/dev/null
+      fi
+    done < "$file" \
+    | PLAN_VERSION="$PLAN_VERSION" perl -0777 -ne '
+        my $v = quotemeta $ENV{PLAN_VERSION};
+        while (m{ \{ (?: [^{}] | (?R) )* "version" \s* : \s* "$v" (?: [^{}] | (?R) )* \} }gsx) {
+          print "$&\n"
+        }
+      ' \
+    | tail -n1
+  )"
+  if [ -n "$found" ] && jq -e . <<<"$found" >/dev/null 2>&1; then
+    printf '%s' "$found"; return 0
+  fi
+
   # Strategy C — plan was emitted inside a markdown ```json fence in an
   # assistant message's text content. Concatenate every string value and
   # extract any {...} block whose body contains the version literal.
@@ -59,19 +86,41 @@ extract_plan_from_file() {
     fi
   fi
 
-	  # Strategy D — model output contained a JSON-like object but maybe without
-	  # the exact version field. Find the last complete JSON object with
-	  # "reasoning" or "actions" keys and canonically add the version.
-	  found="$(jq -sc '
-	    [.. | objects? | select(has("reasoning") or has("actions"))] | last // empty
-	  ' "$file" 2>/dev/null)"
-	  if [ -n "$found" ] && [ "$found" != "null" ]; then
-	    # Inject version if missing or wrong
-	    found="$(printf '%s' "$found" | jq -c '. + {"version": "'"$PLAN_VERSION"'"}' 2>/dev/null || true)"
-	    if [ -n "$found" ]; then
-	      printf '%s' "$found"; return 0
-	    fi
-	  fi
+  # Strategy D — model output contained a JSON-like object but maybe without
+  # the exact version field. Find the last complete JSON object with
+  # "reasoning" or "actions" keys and canonically add the version.
+  found="$(jq -sc '
+    [.. | objects? | select(has("reasoning") or has("actions"))] | last // empty
+  ' "$file" 2>/dev/null)"
+  if [ -n "$found" ] && [ "$found" != "null" ]; then
+    # Inject version if missing or wrong
+    found="$(printf '%s' "$found" | jq -c '. + {"version": "'"$PLAN_VERSION"'"}' 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+      printf '%s' "$found"; return 0
+    fi
+  fi
+
+  # Strategy E — last resort: scan for any valid JSON object containing
+  # "actions" array (the agent may have emitted the plan without the exact
+  # version string but with the correct structure).
+  if [ -n "${concatenated:-}" ]; then
+    found="$(printf '%s' "$concatenated" \
+              | perl -0777 -ne '
+                  while (m{ \{ (?: [^{}] | (?R) )* "actions" \s* : \s* \[ (?: [^\[\]] | (?R) )* \] (?: [^{}] | (?R) )* \} }gsx) {
+                    print "$&\n"
+                  }
+                ' \
+              | while IFS= read -r candidate; do
+                  if printf '%s' "$candidate" | jq -e '.version == "'"$PLAN_VERSION"'" and (.actions | type) == "array"' >/dev/null 2>&1; then
+                    printf '%s' "$candidate"
+                    break
+                  fi
+                done
+    )"
+    if [ -n "$found" ] && jq -e . <<<"$found" >/dev/null 2>&1; then
+      printf '%s' "$found"; return 0
+    fi
+  fi
 
   return 1
 }
