@@ -82,7 +82,7 @@ inputs:
   ssh-signing-key:
     description: |
       SSH private key for signing commits when use-commit-signing is "ssh".
-      Pass as a secret: ${{ secrets.CLAUDE_SSH_SIGNING_KEY }}.
+      Pass as a secret named CLAUDE_SSH_SIGNING_KEY.
     required: false
     default: ""
   api-base-url:
