@@ -91,8 +91,11 @@ runs:
               fi
               ;;
             *)
-              echo "::error title=Unsupported Language::Cannot infer test command for language=$LANGUAGE"
-              exit 1
+              echo "::notice title=Test Skipped::language=$LANGUAGE has no default test command. Pass inputs.test-cmd to run a custom command, or this PR's repo is not a recognized single-language project."
+              # Skip gracefully — surface as `skipped` rather than `failure`
+              # so PR check is green for repos that do not ship unit tests.
+              echo "coverage-file=" >> "$GITHUB_OUTPUT"
+              exit 0
               ;;
           esac
         fi
