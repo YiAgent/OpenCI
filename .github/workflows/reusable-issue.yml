@@ -352,6 +352,7 @@ jobs:
           max-turns: "8"
           github-token: ${{ github.token }}
           use-sticky-comment: "false"
+          show-full-output: "true"
           extra-disallowed-tools: "Bash(gh issue edit),Bash(gh issue close),Bash(gh issue reopen),Bash(gh api repos/*/git/refs)"
 
       - name: Extract action plan

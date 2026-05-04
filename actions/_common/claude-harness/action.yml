@@ -155,6 +155,12 @@ inputs:
       for inline overrides.
     required: false
     default: ""
+  show-full-output:
+    description: |
+      Set to "true" to show the full Claude Code output in the action logs.
+      Useful for debugging non-Claude models or extraction issues.
+    required: false
+    default: "false"
   plugins:
     description: |
       Newline-separated list of Claude Code plugin identifiers to install before
@@ -318,3 +324,4 @@ runs:
         use_sticky_comment:      ${{ inputs.use-sticky-comment }}
         classify_inline_comments:  ${{ inputs.classify-inline-comments }}
         include_fix_links:         ${{ inputs.include-fix-links }}
+        show_full_output:          ${{ inputs.show-full-output }}
