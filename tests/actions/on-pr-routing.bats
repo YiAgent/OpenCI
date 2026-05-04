@@ -53,7 +53,7 @@ setup() {
 }
 
 @test "checks job specifies runner" {
-  grep -q 'runner:.*blacksmith-32vcpu-ubuntu-2404' "$ENTRY"
+  grep -q 'runner:.*blacksmith-2vcpu-ubuntu-2404' "$ENTRY"
 }
 
 @test "checks job passes anthropic-api-key secret" {

@@ -192,6 +192,6 @@ setup() {
 
 @test "all jobs specify the same runner" {
   local count
-  count=$(grep -c 'runner: blacksmith-32vcpu-ubuntu-2404' "$ENTRY")
+  count=$(grep -c 'runner: blacksmith-2vcpu-ubuntu-2404' "$ENTRY")
   [ "$count" -eq 4 ]
 }
