@@ -348,10 +348,33 @@ jobs:
         with:
           sonar-token: ${{ secrets.sonar-token }}
 
+  verify-sha:
+    name: Verify SHA Consistency
+    needs: preflight
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Install yq
+        run: |
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+      - name: Run verify-sha-consistency.sh
+        run: bash .github/scripts/verify-sha-consistency.sh
+
   lint:
     name: Lint
     needs: detect-language
     runs-on: ${{ inputs.runner }}
+
     timeout-minutes: 10
     permissions:
       contents: read
@@ -672,14 +695,15 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   enrich:
     name: Stage 2 · Enrich
-    needs: [lint, test, validate-pr-title, scan-deps, scan-secrets]
+    needs: [lint, test, validate-pr-title, scan-deps, scan-secrets, verify-sha]
     if: >-
       always() &&
       github.event.pull_request != null &&
       needs.lint.result == 'success' &&
       needs.test.result == 'success' &&
       needs.validate-pr-title.result == 'success' &&
-      needs.scan-deps.result == 'success'
+      needs.scan-deps.result == 'success' &&
+      needs.verify-sha.result == 'success'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
     permissions:
