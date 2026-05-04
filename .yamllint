@@ -5,6 +5,9 @@
 #   2. Aligned multi-line `with:` blocks for readability
 extends: default
 
+ignore: |
+  .claude/worktrees/
+
 rules:
   line-length: disable
   document-start: disable   # --- header is optional in this project
