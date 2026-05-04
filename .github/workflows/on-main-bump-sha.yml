@@ -16,7 +16,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write  # actionlint: ignore[permissions]
+# NOTE: pushing changes to .github/workflows/*.yml requires the `workflow`
+# OAuth scope, which the default GITHUB_TOKEN lacks. See issue #47 for the
+# follow-up to wire a PAT (e.g. RELEASE_PAT) into the checkout/push steps.
 
 jobs:
   bump:
