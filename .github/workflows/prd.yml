@@ -489,7 +489,7 @@ jobs:
           path="${RUNNER_TEMP:-/tmp}/kubeconfig"
           echo "$KCONF" | base64 -d > "$path"
           chmod 600 "$path"
-          echo "::add-mask::$(cat "$path" | tr -d '\n')"
+          echo "::add-mask::$(tr -d '\n' < "$path")"
           echo "KUBECONFIG=$path" >> "$GITHUB_ENV"
       - uses: ./.openci/actions/prd/auto-rollback
         with:

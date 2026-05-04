@@ -17,13 +17,13 @@ copy_if_exists() {
 # OpenCI defaults first, then caller overrides (caller wins on conflict)
 copy_if_exists ".openci/.github/agent/shared/context/AGENTS.md" "agent-workspace/context/shared/AGENTS.md"
 copy_if_exists ".openci/.github/agent/issue/context/AGENTS.md"  "agent-workspace/context/issue/AGENTS.md"
-[ -d ".openci/.github/agent/shared/skills" ] && cp .openci/.github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true
-[ -d ".openci/.github/agent/issue/skills"  ] && cp .openci/.github/agent/issue/skills/*.md  agent-workspace/skills/issue/  2>/dev/null || true
+if [ -d ".openci/.github/agent/shared/skills" ]; then cp .openci/.github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true; fi
+if [ -d ".openci/.github/agent/issue/skills" ]; then cp .openci/.github/agent/issue/skills/*.md agent-workspace/skills/issue/ 2>/dev/null || true; fi
 
 copy_if_exists ".github/agent/shared/context/AGENTS.md" "agent-workspace/context/shared/AGENTS.md"
 copy_if_exists ".github/agent/issue/context/AGENTS.md"  "agent-workspace/context/issue/AGENTS.md"
-[ -d ".github/agent/shared/skills" ] && cp .github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true
-[ -d ".github/agent/issue/skills"  ] && cp .github/agent/issue/skills/*.md  agent-workspace/skills/issue/  2>/dev/null || true
+if [ -d ".github/agent/shared/skills" ]; then cp .github/agent/shared/skills/*.md agent-workspace/skills/shared/ 2>/dev/null || true; fi
+if [ -d ".github/agent/issue/skills" ]; then cp .github/agent/issue/skills/*.md agent-workspace/skills/issue/ 2>/dev/null || true; fi
 
 # Runtime files
 cp .github/CODEOWNERS agent-workspace/runtime/CODEOWNERS 2>/dev/null || true
