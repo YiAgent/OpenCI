@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   release:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@82512decf54fb293d228645c833dbebe15a0e420
+    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@9ece821ce8ba9b377ad95c68f25f67c7d2e6cc9c
     with:
       mode: ${{ inputs.mode || 'both' }}
       image-name: ${{ vars.IMAGE_NAME || github.event.repository.name }}
