@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@cb07e47538eca2ea64dd379fed175912d72cc6f9
     with:
       openci-ref:      ${{ github.sha }}
       registry:        ghcr.io
