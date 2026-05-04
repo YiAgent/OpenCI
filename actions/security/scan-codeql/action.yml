@@ -21,15 +21,15 @@ runs:
   using: composite
   steps:
     - name: Init
-      uses: github/codeql-action/init@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      uses: github/codeql-action/init@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.28.0
       with:
         languages: ${{ inputs.language }}
         config-file: ${{ inputs.config-file }}
 
     - name: Autobuild
-      uses: github/codeql-action/autobuild@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      uses: github/codeql-action/autobuild@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.28.0
 
     - name: Analyze
-      uses: github/codeql-action/analyze@23dab4bc6e7e24150d9e35e3b3260f29ea78e5c0  # v3.28.0
+      uses: github/codeql-action/analyze@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.28.0
       with:
         category: "/language:${{ inputs.language }}"

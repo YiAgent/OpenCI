@@ -21,7 +21,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/labeler@6570a1fa0235bf4a1e8a9f2f62d7e35e5cce0300  # v5.0.0
+    - uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9  # v5.0.0
       with:
         configuration-path: ${{ inputs.configuration-path }}
         sync-labels:        ${{ inputs.sync-labels }}

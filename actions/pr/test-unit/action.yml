@@ -112,7 +112,7 @@ runs:
 
     - name: Publish test results
       if: always() && hashFiles(steps.run.outputs.junit-file) != ''
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84efa5  # v1.9.0
+      uses: dorny/test-reporter@c40d89d5e987cd80f3a32b3c233556e22bdca958  # v1.9.0
       with:
         name:           Unit Tests
         path:           ${{ steps.run.outputs.junit-file }}
