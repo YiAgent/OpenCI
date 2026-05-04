@@ -33,7 +33,8 @@ jobs:
         id: latest-tag
         run: |
           set -euo pipefail
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Get all tags matching v* pattern, sort by version, get the latest one
+          LATEST_TAG=$(git tag -l "v*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           if [ -z "$LATEST_TAG" ]; then
             echo "tag=v0.0.0" >> "$GITHUB_OUTPUT"
             echo "No existing tag found, starting from v0.0.0"
