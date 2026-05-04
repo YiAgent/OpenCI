@@ -16,9 +16,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
-# NOTE: pushing changes to .github/workflows/*.yml requires the `workflow`
-# OAuth scope, which the default GITHUB_TOKEN lacks. See issue #47 for the
-# follow-up to wire a PAT (e.g. RELEASE_PAT) into the checkout/push steps.
+# Pushing changes under .github/workflows/ requires the `workflow` OAuth
+# scope. The default GITHUB_TOKEN lacks it, so this workflow needs a PAT
+# stored as `RELEASE_PAT` (or any name you prefer; update both checkout
+# and the push step env). The PAT must have repo + workflow scopes.
 
 jobs:
   bump:
@@ -33,6 +34,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+          # Use a PAT with `workflow` scope so the subsequent push can
+          # update files under .github/workflows/. Falls back to the
+          # default token, which will fail the push but lets the rest
+          # of the workflow run for diagnostics.
+          token: ${{ secrets.RELEASE_PAT || github.token }}
 
       - name: Install yq
         run: |
@@ -72,7 +78,9 @@ jobs:
       - name: Commit and open PR
         if: steps.check.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # gh CLI uses GH_TOKEN; same PAT used for checkout above so the
+          # push picks up workflow scope.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
         run: |
