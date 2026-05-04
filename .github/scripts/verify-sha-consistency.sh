@@ -196,8 +196,15 @@ main() {
     done
 
     # Look up the manifest SHA for this action.
-    local expected
-    expected="$(echo "$manifest_map" | awk -F'\t' -v key="$name" '$1 == key { print $2; exit }')"
+    # NB: previously used `echo "$manifest_map" | awk ... { print; exit }`,
+    # but awk's early `exit` could trigger SIGPIPE on `echo` and kill the
+    # pipeline under `set -o pipefail`. Use a here-string + shell loop so
+    # there is no pipe and no SIGPIPE risk.
+    local expected=""
+    local m_key m_sha
+    while IFS=$'\t' read -r m_key m_sha; do
+      if [ "$m_key" = "$name" ]; then expected="$m_sha"; break; fi
+    done <<<"$manifest_map"
 
     if [ -z "$expected" ]; then
       emit_error "Unknown Action" "$where: $name has no entry in manifest.yml (.deps). Add the verified SHA and rerun."
@@ -214,10 +221,14 @@ main() {
   # Checks that the pinned SHA actually contains the required directory.
   # Catches the "SHA predates reusable/ reorganization" class of failures
   # before they reach CI (where they manifest as silent "workflow file issue").
-  local self_name self_required_path self_sha tree_output
+  local self_name self_required_path self_sha tree_output m_key m_sha
   for self_name in "${!SELF_REFS[@]}"; do
     self_required_path="${SELF_REFS[$self_name]}"
-    self_sha="$(echo "$manifest_map" | awk -F'\t' -v key="$self_name" '$1 == key { print $2; exit }')"
+    # Same SIGPIPE-avoidance pattern as the inner lookup above.
+    self_sha=""
+    while IFS=$'\t' read -r m_key m_sha; do
+      if [ "$m_key" = "$self_name" ]; then self_sha="$m_sha"; break; fi
+    done <<<"$manifest_map"
     [ -z "$self_sha" ] && continue
 
     # git ls-tree returns non-empty output when the path exists at that SHA.
