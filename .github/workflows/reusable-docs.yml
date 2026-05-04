@@ -95,13 +95,8 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: >-
-    docs-${{
-      github.event.pull_request.number
-      || github.ref
-    }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Caller (docs.yml) owns concurrency; same group here triggers a deadlock
+# detection between the top-level workflow and this reusable. See #68.
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
