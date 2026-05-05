@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-pr.yml@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+    uses: YiAgent/OpenCI/.github/workflows/reusable-pr.yml@a3231202c05a0d1dd9d6e867ae660004f8451c59
     with:
       enable-ai-review: true
       enable-eval:      true
