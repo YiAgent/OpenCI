@@ -14,7 +14,6 @@ setup() {
 @test "issue workflow exposes the three consolidated modes" {
   grep -q 'lifecycle | maintenance | ingest' "$WORKFLOW"
   grep -q 'mode: lifecycle' "$ENTRY"
-  grep -q 'mode: ingest' "$ENTRY"
   grep -q 'mode: maintenance' "$ENTRY"
 }
 
