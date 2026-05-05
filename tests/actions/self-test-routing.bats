@@ -220,9 +220,9 @@ setup() {
   grep -q 'schedule:' "$issue_entry"
 }
 
-@test "issue-ops.yml declares repository_dispatch trigger" {
+@test "issue-ops.yml declares workflow_dispatch trigger" {
   local issue_entry="${PROJECT_ROOT}/.github/workflows/issue-ops.yml"
-  grep -q 'repository_dispatch:' "$issue_entry"
+  grep -q 'workflow_dispatch:' "$issue_entry"
 }
 
 @test "issue-ops.yml calls reusable reusable-issue.yml" {
@@ -235,9 +235,9 @@ setup() {
   grep -q 'lifecycle:' "$issue_entry"
 }
 
-@test "issue-ops.yml has ingest job" {
+@test "issue-ops.yml has manual job" {
   local issue_entry="${PROJECT_ROOT}/.github/workflows/issue-ops.yml"
-  grep -q 'ingest:' "$issue_entry"
+  grep -q 'manual:' "$issue_entry"
 }
 
 @test "issue-ops.yml has maintenance job" {

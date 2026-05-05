@@ -30,12 +30,6 @@ setup() {
   grep -q '0 2 \* \* \*' "$ENTRY"
 }
 
-@test "on-issue declares repository_dispatch with linear-issue-started and sentry-issue types" {
-  grep -q 'repository_dispatch:' "$ENTRY"
-  grep -q 'linear-issue-started' "$ENTRY"
-  grep -q 'sentry-issue' "$ENTRY"
-}
-
 @test "on-issue declares workflow_dispatch with mode choice input" {
   grep -q 'workflow_dispatch:' "$ENTRY"
   grep -q 'mode:' "$ENTRY"
@@ -43,8 +37,8 @@ setup() {
   grep -q 'default: lifecycle' "$ENTRY"
 }
 
-@test "on-issue workflow_dispatch mode options include lifecycle, maintenance, ingest" {
-  grep -q 'options: \[lifecycle, maintenance, ingest\]' "$ENTRY"
+@test "on-issue workflow_dispatch mode options include lifecycle and maintenance" {
+  grep -q 'options: \[lifecycle, maintenance\]' "$ENTRY"
 }
 
 # ---------------------------------------------------------------------------
@@ -54,10 +48,6 @@ setup() {
 @test "lifecycle job runs on issues and issue_comment events" {
   grep -q "github.event_name == 'issues'" "$ENTRY"
   grep -q "github.event_name == 'issue_comment'" "$ENTRY"
-}
-
-@test "ingest job runs on repository_dispatch event" {
-  grep -q "github.event_name == 'repository_dispatch'" "$ENTRY"
 }
 
 @test "maintenance job runs on schedule and workflow_dispatch with maintenance mode" {
@@ -79,10 +69,6 @@ setup() {
   grep -q 'mode: lifecycle' "$ENTRY"
 }
 
-@test "ingest job passes mode: ingest" {
-  grep -q 'mode: ingest' "$ENTRY"
-}
-
 @test "maintenance job passes mode: maintenance" {
   grep -q 'mode: maintenance' "$ENTRY"
 }
@@ -96,10 +82,10 @@ setup() {
 # Reusable workflow reference
 # ---------------------------------------------------------------------------
 
-@test "all four jobs call the same reusable workflow issue.yml" {
+@test "all three jobs call the same reusable workflow reusable-issue.yml" {
   local count
   count=$(grep -c 'uses: YiAgent/OpenCI/.github/workflows/reusable-issue\.yml' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -153,37 +139,25 @@ setup() {
 @test "all jobs pass anthropic-api-key secret" {
   local count
   count=$(grep -c 'anthropic-api-key:' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
 
 @test "all jobs pass api-base-url secret" {
   local count
   count=$(grep -c 'api-base-url:' "$ENTRY")
-  [ "$count" -eq 4 ]
-}
-
-@test "all jobs pass sentry-token secret" {
-  local count
-  count=$(grep -c 'sentry-token:' "$ENTRY")
-  [ "$count" -eq 4 ]
-}
-
-@test "all jobs pass linear-token secret" {
-  local count
-  count=$(grep -c 'linear-token:' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
 
 @test "all jobs pass slack-webhook-url secret" {
   local count
   count=$(grep -c 'slack-webhook-url:' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
 
 @test "all jobs pass mcp-dispatch-token secret" {
   local count
   count=$(grep -c 'mcp-dispatch-token:' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -193,5 +167,5 @@ setup() {
 @test "all jobs specify the same runner" {
   local count
   count=$(grep -c 'runner: blacksmith-2vcpu-ubuntu-2404' "$ENTRY")
-  [ "$count" -eq 4 ]
+  [ "$count" -eq 3 ]
 }
