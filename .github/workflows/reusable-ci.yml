@@ -302,6 +302,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
+      - name: Resolve OpenCI ref and checkout
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        with:
+          openci-ref: ${{ inputs.openci-ref }}
       - name: Install yq
         shell: bash
         run: |
@@ -314,7 +318,17 @@ jobs:
           yq --version
       - name: Run verify-sha-consistency.sh
         shell: bash
-        run: bash .github/scripts/verify-sha-consistency.sh
+        run: |
+          set -euo pipefail
+          SCRIPT=".github/scripts/verify-sha-consistency.sh"
+          if [ ! -f "$SCRIPT" ]; then
+            SCRIPT=".openci/.github/scripts/verify-sha-consistency.sh"
+          fi
+          if [ ! -f manifest.yml ]; then
+            echo "::notice title=verify-sha skipped::manifest.yml not found in caller repo"
+            exit 0
+          fi
+          bash "$SCRIPT"
 
   # ── Stage 3: Agent (skipped entirely on green builds) ───────────────────────
   enrich:

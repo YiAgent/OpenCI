@@ -417,7 +417,17 @@ jobs:
             sudo chmod +x /usr/local/bin/yq
           fi
       - name: Run verify-sha-consistency.sh
-        run: bash .openci/.github/scripts/verify-sha-consistency.sh
+        run: |
+          set -euo pipefail
+          SCRIPT=".github/scripts/verify-sha-consistency.sh"
+          if [ ! -f "$SCRIPT" ]; then
+            SCRIPT=".openci/.github/scripts/verify-sha-consistency.sh"
+          fi
+          if [ ! -f manifest.yml ]; then
+            echo "::notice title=verify-sha skipped::manifest.yml not found in caller repo"
+            exit 0
+          fi
+          bash "$SCRIPT"
 
   lint:
     name: Lint

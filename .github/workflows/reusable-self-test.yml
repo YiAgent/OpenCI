@@ -69,6 +69,11 @@ jobs:
         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493  # v4.2.2
         with: { persist-credentials: false }
 
+      - name: Resolve OpenCI ref and checkout
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        with:
+          openci-ref: main
+
       - name: Install actionlint
         shell: bash
         run: |
@@ -78,7 +83,16 @@ jobs:
 
       - name: Run actionlint
         shell: bash
-        run: actionlint -color -config-file .github/actionlint.yaml -ignore 'unknown permission scope "workflows"'
+        run: |
+          set -euo pipefail
+          CONFIG_ARGS=""
+          if [ -f .openci/.github/actionlint.yaml ]; then
+            CONFIG_ARGS="-config-file .openci/.github/actionlint.yaml"
+          elif [ -f .github/actionlint.yaml ]; then
+            CONFIG_ARGS="-config-file .github/actionlint.yaml"
+          fi
+          # shellcheck disable=SC2086
+          actionlint -color $CONFIG_ARGS -ignore 'unknown permission scope "workflows"'
 
   yamllint:
     name: yamllint
@@ -172,8 +186,13 @@ jobs:
         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493  # v4.2.2
         with: { persist-credentials: false }
 
+      - name: Resolve OpenCI ref and checkout
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        with:
+          openci-ref: main
+
       - name: Run zizmor scan
-        uses: ./actions/_common/scan-zizmor
+        uses: ./.openci/actions/_common/scan-zizmor
 
   verify-sha:
     name: Verify SHA Consistency
@@ -190,6 +209,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Resolve OpenCI ref and checkout
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        with:
+          openci-ref: main
+
       - name: Install yq
         shell: bash
         env:
@@ -204,7 +228,17 @@ jobs:
 
       - name: Verify SHA consistency
         shell: bash
-        run: bash .github/scripts/verify-sha-consistency.sh
+        run: |
+          set -euo pipefail
+          SCRIPT=".github/scripts/verify-sha-consistency.sh"
+          if [ ! -f "$SCRIPT" ]; then
+            SCRIPT=".openci/.github/scripts/verify-sha-consistency.sh"
+          fi
+          if [ ! -f manifest.yml ]; then
+            echo "::notice title=verify-sha skipped::manifest.yml not found in caller repo"
+            exit 0
+          fi
+          bash "$SCRIPT"
 
   workflow-audit:
     name: Workflow Static Audit
@@ -220,9 +254,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve OpenCI ref and checkout
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        with:
+          openci-ref: main
+
       - name: Run workflow auditor
         shell: bash
-        run: bash .github/scripts/workflow-audit.sh
+        run: |
+          set -euo pipefail
+          SCRIPT=".github/scripts/workflow-audit.sh"
+          if [ ! -f "$SCRIPT" ]; then
+            SCRIPT=".openci/.github/scripts/workflow-audit.sh"
+          fi
+          bash "$SCRIPT"
 
   bats-tests:
     name: BATS Tests
@@ -247,7 +292,13 @@ jobs:
 
       - name: Run BATS test suite
         shell: bash
-        run: bats tests/ --recursive
+        run: |
+          set -euo pipefail
+          if [ ! -d tests ]; then
+            echo "::notice title=bats skipped::tests/ directory not found in caller repo"
+            exit 0
+          fi
+          bats tests/ --recursive
 
   # ── Stage 3: Summary ────────────────────────────────────────────────────────
 
