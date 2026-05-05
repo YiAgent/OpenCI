@@ -133,7 +133,7 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.registry-token || github.token }}
           ANTHROPIC_API_KEY: ${{ secrets.anthropic-api-key }}
         run: |
-          bash .github/scripts/preflight-secrets.sh \
+          bash .openci/.github/scripts/preflight-secrets.sh \
             --required "REGISTRY_TOKEN" \
             --optional "ANTHROPIC_API_KEY"
 
