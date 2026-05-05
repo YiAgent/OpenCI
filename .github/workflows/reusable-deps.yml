@@ -28,7 +28,6 @@ on:
         type: string
         default: ubuntu-latest
 
-permissions: {}
 
 concurrency:
   group: dep-auto-merge-${{ github.event.pull_request.number }}
@@ -36,7 +35,6 @@ concurrency:
 
 jobs:
   enable-auto-merge:
-    permissions: {}
     name: Enable Auto-Merge
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3

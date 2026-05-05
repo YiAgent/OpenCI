@@ -76,7 +76,6 @@ on:
         description: "PAT used to request Copilot review (required when enable-copilot-review: true)."
         required: false
 
-permissions: {}
 
 concurrency:
   group: pr-${{ github.event.pull_request.number || github.ref }}
@@ -84,7 +83,6 @@ concurrency:
 
 jobs:
   preflight:
-    permissions: {}
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -113,7 +111,6 @@ jobs:
             --optional "ANTHROPIC_API_KEY,CODECOV_TOKEN,SONAR_TOKEN,SNYK_TOKEN"
 
   detect-language:
-    permissions: {}
     name: Detect Language
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -145,7 +142,6 @@ jobs:
           fi
 
   auto-label:
-    permissions: {}
     name: Auto Label
     needs: preflight
     if: github.event.pull_request != null
@@ -183,7 +179,6 @@ jobs:
       - uses: ./.openci/actions/pr/auto-label
 
   auto-assign-fallback:
-    permissions: {}
     name: Auto Assign (fallback)
     needs: preflight
     # Only when CODEOWNERS hasn't already populated reviewers. GitHub
@@ -223,7 +218,6 @@ jobs:
       - uses: ./.openci/actions/pr/auto-assign-fallback
 
   validate-pr-title:
-    permissions: {}
     name: Validate PR Title
     needs: preflight
     if: github.event.pull_request != null
@@ -258,7 +252,6 @@ jobs:
       - uses: ./.openci/actions/pr/validate-pr-title
 
   validate-pr-desc:
-    permissions: {}
     name: Validate PR Description
     needs: preflight
     if: github.event.pull_request != null
@@ -296,7 +289,6 @@ jobs:
       - uses: ./.openci/actions/pr/validate-pr-description
 
   scan-deps:
-    permissions: {}
     name: Scan Dependencies
     needs: preflight
     if: github.event.pull_request != null
@@ -331,7 +323,6 @@ jobs:
       - uses: ./.openci/actions/pr/scan-deps
 
   scan-secrets:
-    permissions: {}
     name: Scan Secrets
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -368,7 +359,6 @@ jobs:
       - uses: ./.openci/actions/pr/scan-secrets
 
   scan-sonarcloud:
-    permissions: {}
     name: Scan SonarCloud
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -404,7 +394,6 @@ jobs:
           sonar-token: ${{ secrets.sonar-token }}
 
   verify-sha:
-    permissions: {}
     name: Verify SHA Consistency
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -431,7 +420,6 @@ jobs:
         run: bash .openci/.github/scripts/verify-sha-consistency.sh
 
   lint:
-    permissions: {}
     name: Lint
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -472,7 +460,6 @@ jobs:
           package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
   test:
-    permissions: {}
     name: Test
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -515,7 +502,6 @@ jobs:
           package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
   coverage:
-    permissions: {}
     name: Coverage
     needs: test
     runs-on: ${{ inputs.runner }}
@@ -561,7 +547,6 @@ jobs:
           codecov-token:      ${{ secrets.codecov-token }}
 
   build-check:
-    permissions: {}
     name: Build Check
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -607,7 +592,6 @@ jobs:
         uses: ./.openci/actions/pr/build-check
 
   ai-review:
-    permissions: {}
     name: AI Review
     needs: [lint, test]
     runs-on: ${{ inputs.runner }}
@@ -650,7 +634,6 @@ jobs:
           model:             ${{ inputs.model }}
 
   eval-prompt:
-    permissions: {}
     name: Eval Prompts
     needs: ai-review
     runs-on: ${{ inputs.runner }}
@@ -697,7 +680,6 @@ jobs:
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
 
   copilot-review:
-    permissions: {}
     name: Copilot Review
     needs: preflight
     if: inputs.enable-copilot-review == true && github.event.pull_request != null
@@ -743,7 +725,6 @@ jobs:
   # needs). If any required job fails, enrich (and thus agent) does not run.
   # ───────────────────────────────────────────────────────────────────────────
   enrich:
-    permissions: {}
     name: Stage 2 · Enrich
     needs: [lint, test, validate-pr-title, scan-deps, scan-secrets, verify-sha]
     if: >-
@@ -798,7 +779,6 @@ jobs:
   # Produces pr-action-plan/v1 JSON for Stage 4 to consume.
   # ───────────────────────────────────────────────────────────────────────────
   agent:
-    permissions: {}
     name: Stage 3 · Agent Plan
     needs: enrich
     if: inputs.enable-ai-review == true
@@ -870,7 +850,6 @@ jobs:
   # Stage 4 · Execute — post sticky comment and run allowlisted actions.
   # ───────────────────────────────────────────────────────────────────────────
   execute:
-    permissions: {}
     name: Stage 4 · Execute
     needs: [enrich, agent]
     if: always() && needs.agent.result == 'success'

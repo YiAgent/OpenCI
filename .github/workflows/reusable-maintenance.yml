@@ -50,7 +50,6 @@ on:
       api-base-url:
         required: false
 
-permissions: {}
 
 concurrency:
   group: maintenance-reusable
@@ -59,7 +58,6 @@ concurrency:
 jobs:
   # ── Stage 1a · Language detection (gates CodeQL) ───────────────────────────
   detect-language:
-    permissions: {}
     name: Detect Language
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
@@ -98,7 +96,6 @@ jobs:
 
   # ── Stage 1b · CodeQL SAST ─────────────────────────────────────────────────
   scan-codeql:
-    permissions: {}
     name: CodeQL SAST
     needs: detect-language
     if: |
@@ -139,7 +136,6 @@ jobs:
 
   # ── Stage 1c · Secret scan (full git history) ──────────────────────────────
   scan-secrets:
-    permissions: {}
     name: Secret Scan
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
@@ -180,7 +176,6 @@ jobs:
 
   # ── Stage 1d · CVE scan (Trivy filesystem) ─────────────────────────────────
   trivy-fs:
-    permissions: {}
     name: Trivy CVE Scan
     if: inputs.mode == 'full' || inputs.mode == 'scan-only'
     runs-on: ${{ inputs.runner }}
@@ -237,7 +232,6 @@ jobs:
 
   # ── Stage 2 · Check pending dependency updates ─────────────────────────────
   check-updates:
-    permissions: {}
     name: Check Dep Updates
     if: inputs.mode == 'full' || inputs.mode == 'deps-only'
     runs-on: ${{ inputs.runner }}
@@ -277,7 +271,6 @@ jobs:
 
   # ── Stage 3 · Enrich context (always runs after scans) ─────────────────────
   enrich:
-    permissions: {}
     name: Enrich Context
     needs: [scan-secrets, trivy-fs, scan-codeql, check-updates]
     if: always() && (inputs.mode == 'full' || inputs.mode == 'scan-only' || inputs.mode == 'deps-only')
@@ -325,7 +318,6 @@ jobs:
 
   # ── Stage 4 · Agent analysis (full mode only, when issues detected) ─────────
   agent:
-    permissions: {}
     name: Maintenance Agent
     needs: enrich
     if: |
@@ -368,7 +360,6 @@ jobs:
 
   # ── Summary ─────────────────────────────────────────────────────────────────
   summary:
-    permissions: {}
     name: Maintenance Summary
     needs: [enrich, agent]
     if: always() && needs.enrich.result != 'skipped'
