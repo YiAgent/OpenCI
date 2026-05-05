@@ -1,0 +1,10 @@
+name: test-no-perm-key
+on:
+  workflow_call:
+concurrency:
+  group: test-${{ github.run_id }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "no permissions key works"
