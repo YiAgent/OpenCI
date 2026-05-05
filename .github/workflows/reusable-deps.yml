@@ -36,9 +36,7 @@ concurrency:
 
 jobs:
   enable-auto-merge:
-    permissions:
-      contents: write
-      pull-requests: write
+    permissions: {}
     name: Enable Auto-Merge
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 3

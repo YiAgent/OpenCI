@@ -196,12 +196,7 @@ concurrency:
 jobs:
   # ── canary-watch (every 15 min after a recent prd deploy) ───────────────
   canary-watch:
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-      actions: write
-      id-token: write
+    permissions: {}
     name: 3σ Canary Watch
     if: inputs.mode == 'canary-watch'
     runs-on: ${{ inputs.runner }}
@@ -345,12 +340,7 @@ jobs:
 
   # ── terraform-drift (daily at 04:00 UTC) ─────────────────────────────────
   terraform-drift:
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-      actions: write
-      id-token: write
+    permissions: {}
     name: Terraform Drift
     if: inputs.mode == 'terraform-drift'
     runs-on: ${{ inputs.runner }}
@@ -392,12 +382,7 @@ jobs:
 
   # ── verify-fix (after prd workflow succeeds) ────────────────────────────
   verify-fix:
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-      actions: write
-      id-token: write
+    permissions: {}
     name: Verify Fix
     if: inputs.mode == 'verify-fix'
     runs-on: ${{ inputs.runner }}
@@ -474,12 +459,7 @@ jobs:
   # Each adapter step is continue-on-error so a single provider failure
   # does not abort the pipeline — the normalize stage handles missing files.
   multi-observe:
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-      actions: write
-      id-token: write
+    permissions: {}
     name: Multi-Provider Observe
     if: inputs.mode == 'post-deploy' || inputs.mode == 'canary'
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}

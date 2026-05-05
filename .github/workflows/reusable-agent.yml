@@ -128,12 +128,7 @@ concurrency:
 
 jobs:
   preflight:
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -162,12 +157,7 @@ jobs:
           exit 1
 
   ai-task:
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: AI Task
     needs: preflight
     runs-on: ${{ inputs.runner }}

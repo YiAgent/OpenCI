@@ -115,14 +115,7 @@ permissions: {}
 jobs:
   # ── Stage 1: Build ──────────────────────────────────────────────────────────
   preflight:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -145,14 +138,7 @@ jobs:
             --optional "ANTHROPIC_API_KEY"
 
   detect-language:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Detect Language
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -176,14 +162,7 @@ jobs:
         run: bash ./.openci/actions/_common/detect-language/detect.sh "$GITHUB_WORKSPACE"
 
   build-docker:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Build Docker
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -210,14 +189,7 @@ jobs:
 
   # ── Stage 2: Verify (parallel) ──────────────────────────────────────────────
   scan-image:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Scan Image
     needs: build-docker
     runs-on: ${{ inputs.runner }}
@@ -241,14 +213,7 @@ jobs:
           image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
 
   sign-image:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Sign Image
     needs: build-docker
     runs-on: ${{ inputs.runner }}
@@ -272,14 +237,7 @@ jobs:
           image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}@${{ needs.build-docker.outputs.image-digest }}
 
   generate-sbom:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Generate SBOM
     needs: build-docker
     runs-on: ${{ inputs.runner }}
@@ -299,14 +257,7 @@ jobs:
           echo "::notice title=SBOM::SPDX SBOM attestation attached to ${IMAGE_REF}"
 
   check-migration:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Check Migration
     needs: build-docker
     if: inputs.run-migration == true
@@ -326,14 +277,7 @@ jobs:
           migration-cmd: ${{ vars.MIGRATION_DRY_RUN_CMD || 'false' }}
 
   eval-smoke:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: AI Smoke Eval
     needs: build-docker
     if: inputs.enable-ai-smoke == true
@@ -356,14 +300,7 @@ jobs:
           model: ${{ inputs.model }}
 
   verify-sha:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Verify SHA Consistency
     needs: build-docker
     runs-on: ${{ inputs.runner }}
@@ -391,14 +328,7 @@ jobs:
 
   # ── Stage 3: Agent (skipped entirely on green builds) ───────────────────────
   enrich:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Enrich Failure Context
     needs:
       - build-docker
@@ -520,14 +450,7 @@ jobs:
           retention-days: 7
 
   agent:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: CI Failure Analyst
     needs: enrich
     if: >-
@@ -562,14 +485,7 @@ jobs:
 
   # ── Stage 4: Dispatch ────────────────────────────────────────────────────────
   execute:
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
-      pull-requests: write
-      actions: read
-      issues: write
+    permissions: {}
     name: Execute Dispatch
     needs:
       - build-docker

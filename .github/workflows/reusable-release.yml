@@ -66,10 +66,7 @@ permissions: {}
 jobs:
   # ── marketplace tagging + GitHub Release ────────────────────────────────
   marketplace:
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
+    permissions: {}
     name: Marketplace Release
     if: inputs.mode == 'both' || inputs.mode == 'marketplace'
     runs-on: ${{ inputs.runner }}
@@ -171,10 +168,7 @@ jobs:
 
   # ── tag-driven Docker image release with cosign keyless ─────────────────
   docker:
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
+    permissions: {}
     name: Release Docker
     if: inputs.mode == 'both' || inputs.mode == 'docker'
     runs-on: ${{ inputs.runner }}

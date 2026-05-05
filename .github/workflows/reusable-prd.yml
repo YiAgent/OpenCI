@@ -145,9 +145,7 @@ concurrency:
 
 jobs:
   preflight:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -202,9 +200,7 @@ jobs:
           health-url:   ${{ inputs.health-url }}
 
   pre-check:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Pre-Check
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -250,9 +246,7 @@ jobs:
           sentry-project:      ${{ vars.SENTRY_PROJECT }}
 
   deploy-k8s:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Deploy K8s (production)
     if: inputs.deploy-type == 'k8s'
     needs: pre-check
@@ -301,9 +295,7 @@ jobs:
           kubeconfig:    ${{ secrets.kubeconfig-prd }}
 
   deploy-docker:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Deploy Docker (production)
     if: inputs.deploy-type != 'k8s'
     needs: pre-check
@@ -355,9 +347,7 @@ jobs:
           docker-run-args:     ${{ inputs.docker-run-args }}
 
   run-migration:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Run Migration (production)
     needs: [deploy-k8s, deploy-docker]
     if: >-
@@ -402,9 +392,7 @@ jobs:
           migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
 
   smoke-test:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Smoke Test (production)
     needs: [deploy-k8s, deploy-docker, run-migration]
     if: >-
@@ -447,9 +435,7 @@ jobs:
           health-url: ${{ inputs.health-url }}
 
   auto-rollback:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Auto Rollback (K8s)
     needs: [deploy-k8s, smoke-test]
     if: >-
@@ -506,9 +492,7 @@ jobs:
           github-token:      ${{ github.token }}
 
   auto-rollback-docker:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Auto Rollback (Docker)
     needs: [deploy-docker, smoke-test]
     if: >-
@@ -560,9 +544,7 @@ jobs:
           environment:         production
 
   create-release:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Create Release
     needs: smoke-test
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -605,9 +587,7 @@ jobs:
           model:             ${{ inputs.model }}
 
   notify-observability:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Notify Observability
     needs: [deploy-k8s, deploy-docker, smoke-test]
     if: always() && (needs.deploy-k8s.result == 'success' || needs.deploy-docker.result == 'success')
@@ -667,9 +647,7 @@ jobs:
           axiom-dataset:     ${{ vars.AXIOM_DATASET }}
 
   notify-deployed:
-    permissions:
-      contents: read
-      issues: write
+    permissions: {}
     name: Notify Deployed
     needs: [deploy-k8s, deploy-docker, smoke-test]
     if: always()

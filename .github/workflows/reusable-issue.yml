@@ -78,12 +78,7 @@ concurrency:
 
 jobs:
   maintenance:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Stage 1 · Maintenance
     if: inputs.mode == 'maintenance' || inputs.mode == 'stale'
     runs-on: ${{ inputs.runner }}
@@ -165,12 +160,7 @@ jobs:
             }
 
   ingest:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Stage 1 · Ingest
     if: inputs.mode != 'maintenance' && inputs.mode != 'stale'
     runs-on: ${{ inputs.runner }}
@@ -255,12 +245,7 @@ jobs:
           if-no-files-found: error
 
   enrich:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Stage 2 · Enrich
     needs: ingest
     runs-on: ${{ inputs.runner }}
@@ -307,12 +292,7 @@ jobs:
           if-no-files-found: error
 
   agent:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Stage 3 · Agent Plan
     needs: [ingest, enrich]
     runs-on: ${{ inputs.runner }}
@@ -371,12 +351,7 @@ jobs:
           execution-file: ${{ steps.harness.outputs.execution-file }}
 
   execute:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: read
-      id-token: write
+    permissions: {}
     name: Stage 4 · Guarded Execute
     needs: [ingest, enrich, agent]
     runs-on: ${{ inputs.runner }}
