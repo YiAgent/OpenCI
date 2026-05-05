@@ -29,7 +29,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      # Skip runs triggered by the SHA-bump bot — chore commits never produce
+      # a release (BUMP=none), so this just avoids a wasteful no-op run.
+      - name: Guard — skip SHA bump commits
+        id: guard
+        run: |
+          msg=$(git log -1 --format='%s')
+          skip=false
+          if echo "$msg" | grep -qE '^chore\(manifest\): bump YiAgent/OpenCI SHA' \
+            || echo "$msg" | grep -q 'chore/bump-self-sha-'; then
+            skip=true
+            echo "::notice::Skipping auto-release — triggered by SHA bump commit"
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
       - name: Get latest tag
+        if: steps.guard.outputs.skip != 'true'
         id: latest-tag
         run: |
           set -euo pipefail
@@ -44,6 +59,7 @@ jobs:
           fi
 
       - name: Analyze commits since last tag
+        if: steps.guard.outputs.skip != 'true'
         id: analyze
         env:
           LATEST_TAG: ${{ steps.latest-tag.outputs.tag }}
