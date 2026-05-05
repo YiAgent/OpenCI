@@ -48,8 +48,7 @@ on:
         required: false
         default: true
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: self-test-reusable
@@ -59,6 +58,8 @@ jobs:
   # ── Stage 1: Lint (parallel) ────────────────────────────────────────────────
 
   actionlint:
+    permissions:
+      contents: read
     name: Actionlint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -83,6 +84,8 @@ jobs:
         run: actionlint -color -config-file .github/actionlint.yaml -ignore 'unknown permission scope "workflows"'
 
   yamllint:
+    permissions:
+      contents: read
     name: yamllint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -104,6 +107,8 @@ jobs:
         run: yamllint .
 
   shellcheck:
+    permissions:
+      contents: read
     name: ShellCheck
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -129,6 +134,8 @@ jobs:
           shellcheck $files
 
   pyflakes:
+    permissions:
+      contents: read
     name: pyflakes
     if: inputs.enable-pyflakes == true
     runs-on: ${{ inputs.runner }}
@@ -161,6 +168,8 @@ jobs:
   # ── Stage 2: Security (parallel) ────────────────────────────────────────────
 
   zizmor:
+    permissions:
+      contents: read
     name: zizmor
     if: inputs.enable-zizmor == true
     runs-on: ${{ inputs.runner }}
@@ -178,6 +187,8 @@ jobs:
         uses: ./actions/_common/scan-zizmor
 
   verify-sha:
+    permissions:
+      contents: read
     name: Verify SHA Consistency
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -209,6 +220,8 @@ jobs:
         run: bash .github/scripts/verify-sha-consistency.sh
 
   workflow-audit:
+    permissions:
+      contents: read
     name: Workflow Static Audit
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 5
@@ -227,6 +240,8 @@ jobs:
         run: bash .github/scripts/workflow-audit.sh
 
   bats-tests:
+    permissions:
+      contents: read
     name: BATS Tests
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
@@ -254,6 +269,8 @@ jobs:
   # ── Stage 3: Summary ────────────────────────────────────────────────────────
 
   summary:
+    permissions:
+      contents: read
     name: Self-Test Summary
     needs: [actionlint, yamllint, shellcheck, pyflakes, zizmor, verify-sha, workflow-audit, bats-tests]
     if: always()
