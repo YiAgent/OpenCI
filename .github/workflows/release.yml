@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+    uses: YiAgent/OpenCI/.github/workflows/reusable-release.yml@8ed5397e8733c835c6a42fdadfabbf7967b1c137
     secrets: inherit
     with:
       mode: ${{ inputs.mode || 'marketplace' }}
