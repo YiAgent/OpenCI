@@ -120,12 +120,7 @@ on:
         description: Where the prompt came from — direct | slash-command | caller | builtin.
         value: ${{ jobs.ai-task.outputs.prompt-source }}
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  id-token: write
+permissions: {}
 
 concurrency:
   group: claude-harness-${{ github.run_id }}
@@ -133,6 +128,12 @@ concurrency:
 
 jobs:
   preflight:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -161,6 +162,12 @@ jobs:
           exit 1
 
   ai-task:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
     name: AI Task
     needs: preflight
     runs-on: ${{ inputs.runner }}

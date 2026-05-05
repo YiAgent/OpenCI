@@ -56,10 +56,7 @@ on:
         required: false
         default: ghcr.io
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
+permissions: {}
 
 # Reusable workflows must NOT redeclare the caller's concurrency group —
 # GitHub's deadlock-detection cancels the inner run when both share it
@@ -69,6 +66,10 @@ permissions:
 jobs:
   # ── marketplace tagging + GitHub Release ────────────────────────────────
   marketplace:
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     name: Marketplace Release
     if: inputs.mode == 'both' || inputs.mode == 'marketplace'
     runs-on: ${{ inputs.runner }}
@@ -170,6 +171,10 @@ jobs:
 
   # ── tag-driven Docker image release with cosign keyless ─────────────────
   docker:
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     name: Release Docker
     if: inputs.mode == 'both' || inputs.mode == 'docker'
     runs-on: ${{ inputs.runner }}

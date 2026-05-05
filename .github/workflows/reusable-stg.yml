@@ -120,10 +120,7 @@ on:
         description: ISO 8601 deploy timestamp.
         value: ${{ jobs.deploy-k8s.outputs.deploy-time || jobs.deploy-docker.outputs.deploy-time }}
 
-permissions:
-  contents: read
-  actions: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: deploy-stg-${{ github.ref }}
@@ -131,6 +128,10 @@ concurrency:
 
 jobs:
   preflight:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -185,6 +186,10 @@ jobs:
           health-url:   ${{ inputs.health-url }}
 
   coverage-gate:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Coverage Gate
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -233,6 +238,10 @@ jobs:
           mode:               stg
 
   perf-baseline:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Perf Baseline
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -277,6 +286,10 @@ jobs:
           health-url:                ${{ vars.STG_HEALTH_URL        || '' }}
 
   deploy-k8s:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Deploy K8s
     if: inputs.deploy-type == 'k8s'
     needs: [preflight, coverage-gate, perf-baseline]
@@ -322,6 +335,10 @@ jobs:
           kubeconfig:    ${{ secrets.kubeconfig-stg }}
 
   deploy-docker:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Deploy Docker
     if: inputs.deploy-type != 'k8s'
     needs: [preflight, coverage-gate, perf-baseline]
@@ -371,6 +388,10 @@ jobs:
           docker-run-args:     ${{ inputs.docker-run-args }}
 
   run-migration:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Run Migration
     needs: [deploy-k8s, deploy-docker]
     if: >-
@@ -413,6 +434,10 @@ jobs:
           migration-cmd: ${{ vars.MIGRATION_APPLY_CMD || 'false' }}
 
   smoke-test:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Smoke Test
     needs: [deploy-k8s, deploy-docker, run-migration]
     if: >-
@@ -455,6 +480,10 @@ jobs:
           health-url: ${{ inputs.health-url }}
 
   auto-rollback-docker:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Auto Rollback (Docker)
     needs: [deploy-docker, smoke-test]
     if: >-
@@ -506,6 +535,10 @@ jobs:
           environment:         staging
 
   notify-observability:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Notify Observability
     needs: [deploy-k8s, deploy-docker, smoke-test]
     # Always emit deploy markers when the deploy itself succeeded — even if
@@ -568,6 +601,10 @@ jobs:
           axiom-dataset:     ${{ vars.AXIOM_DATASET }}
 
   schedule-prd-dispatch:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Schedule PRD Dispatch
     needs: [deploy-k8s, deploy-docker, smoke-test]
     if: needs.smoke-test.result == 'success' && vars.PRD_OBSERVATION_MINUTES != ''
@@ -615,6 +652,10 @@ jobs:
           github-token:        ${{ github.token }}
 
   notify-deployed:
+    permissions:
+      contents: read
+      actions: write
+      issues: write
     name: Notify Deployed
     needs: [deploy-k8s, deploy-docker, smoke-test]
     if: always()

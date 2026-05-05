@@ -76,10 +76,7 @@ on:
         description: "PAT used to request Copilot review (required when enable-copilot-review: true)."
         required: false
 
-permissions:
-  contents: read
-  pull-requests: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: pr-${{ github.event.pull_request.number || github.ref }}
@@ -87,6 +84,10 @@ concurrency:
 
 jobs:
   preflight:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Preflight
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
@@ -111,6 +112,10 @@ jobs:
             --optional "ANTHROPIC_API_KEY,CODECOV_TOKEN,SONAR_TOKEN,SNYK_TOKEN"
 
   detect-language:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Detect Language
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -142,6 +147,10 @@ jobs:
           fi
 
   auto-label:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Auto Label
     needs: preflight
     if: github.event.pull_request != null
@@ -179,6 +188,10 @@ jobs:
       - uses: ./.openci/actions/pr/auto-label
 
   auto-assign-fallback:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Auto Assign (fallback)
     needs: preflight
     # Only when CODEOWNERS hasn't already populated reviewers. GitHub
@@ -218,6 +231,10 @@ jobs:
       - uses: ./.openci/actions/pr/auto-assign-fallback
 
   validate-pr-title:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Validate PR Title
     needs: preflight
     if: github.event.pull_request != null
@@ -252,6 +269,10 @@ jobs:
       - uses: ./.openci/actions/pr/validate-pr-title
 
   validate-pr-desc:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Validate PR Description
     needs: preflight
     if: github.event.pull_request != null
@@ -289,6 +310,10 @@ jobs:
       - uses: ./.openci/actions/pr/validate-pr-description
 
   scan-deps:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Scan Dependencies
     needs: preflight
     if: github.event.pull_request != null
@@ -323,6 +348,10 @@ jobs:
       - uses: ./.openci/actions/pr/scan-deps
 
   scan-secrets:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Scan Secrets
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -359,6 +388,10 @@ jobs:
       - uses: ./.openci/actions/pr/scan-secrets
 
   scan-sonarcloud:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Scan SonarCloud
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -394,6 +427,10 @@ jobs:
           sonar-token: ${{ secrets.sonar-token }}
 
   verify-sha:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Verify SHA Consistency
     needs: preflight
     runs-on: ${{ inputs.runner }}
@@ -416,6 +453,10 @@ jobs:
         run: bash .github/scripts/verify-sha-consistency.sh
 
   lint:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Lint
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -456,6 +497,10 @@ jobs:
           package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
   test:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Test
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -498,6 +543,10 @@ jobs:
           package-manager: ${{ needs.detect-language.outputs.package-manager }}
 
   coverage:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Coverage
     needs: test
     runs-on: ${{ inputs.runner }}
@@ -543,6 +592,10 @@ jobs:
           codecov-token:      ${{ secrets.codecov-token }}
 
   build-check:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Build Check
     needs: detect-language
     runs-on: ${{ inputs.runner }}
@@ -588,6 +641,10 @@ jobs:
         uses: ./.openci/actions/pr/build-check
 
   ai-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: AI Review
     needs: [lint, test]
     runs-on: ${{ inputs.runner }}
@@ -630,6 +687,10 @@ jobs:
           model:             ${{ inputs.model }}
 
   eval-prompt:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Eval Prompts
     needs: ai-review
     runs-on: ${{ inputs.runner }}
@@ -676,6 +737,10 @@ jobs:
           anthropic-api-key: ${{ secrets.anthropic-api-key }}
 
   copilot-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Copilot Review
     needs: preflight
     if: inputs.enable-copilot-review == true && github.event.pull_request != null
@@ -721,6 +786,10 @@ jobs:
   # needs). If any required job fails, enrich (and thus agent) does not run.
   # ───────────────────────────────────────────────────────────────────────────
   enrich:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Stage 2 · Enrich
     needs: [lint, test, validate-pr-title, scan-deps, scan-secrets, verify-sha]
     if: >-
@@ -775,6 +844,10 @@ jobs:
   # Produces pr-action-plan/v1 JSON for Stage 4 to consume.
   # ───────────────────────────────────────────────────────────────────────────
   agent:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Stage 3 · Agent Plan
     needs: enrich
     if: inputs.enable-ai-review == true
@@ -846,6 +919,10 @@ jobs:
   # Stage 4 · Execute — post sticky comment and run allowlisted actions.
   # ───────────────────────────────────────────────────────────────────────────
   execute:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     name: Stage 4 · Execute
     needs: [enrich, agent]
     if: always() && needs.agent.result == 'success'

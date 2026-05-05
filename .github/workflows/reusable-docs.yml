@@ -93,12 +93,7 @@ on:
         description: Custom Anthropic-compatible base URL.
         required: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  pages: write
-  id-token: write
+permissions: {}
 
 # Caller (docs.yml) owns concurrency; same group here triggers a deadlock
 # detection between the top-level workflow and this reusable. See #68.
@@ -109,6 +104,12 @@ jobs:
   # Failure blocks detect / agent; execute still runs for PR comment on push.
   # ─────────────────────────────────────────────────────────────────────────────
   lint:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      pages: write
+      id-token: write
     name: Stage 1 · Lint
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
@@ -216,6 +217,12 @@ jobs:
   # Stage 2 · Detect — git-history drift analysis, builds docs-workspace artifact.
   # ─────────────────────────────────────────────────────────────────────────────
   detect:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      pages: write
+      id-token: write
     name: Stage 2 · Detect
     needs: lint
     # Run on push/schedule/dispatch/release (not on PR-only lint runs).
@@ -273,6 +280,12 @@ jobs:
   # Gated on: lint passed, detect ran, needs-update == 'true', enable-agent.
   # ─────────────────────────────────────────────────────────────────────────────
   agent:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      pages: write
+      id-token: write
     name: Stage 3 · Agent
     needs: detect
     if: >-
@@ -356,6 +369,12 @@ jobs:
   # Runs with if: always() so deploy + comments happen even when agent skipped.
   # ─────────────────────────────────────────────────────────────────────────────
   execute:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      pages: write
+      id-token: write
     name: Stage 4 · Execute
     needs: [detect, agent]
     if: >-
