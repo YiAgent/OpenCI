@@ -1,0 +1,12 @@
+name: test-write-perm
+on:
+  workflow_call:
+permissions:
+  contents: write
+concurrency:
+  group: test-${{ github.run_id }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "write perm works"
