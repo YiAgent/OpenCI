@@ -169,12 +169,12 @@ setup() {
 }
 
 @test "summary job needs all check jobs" {
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'actionlint'
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'yamllint'
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'shellcheck'
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'zizmor'
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'verify-sha'
-  grep -A2 'summary:' "$REUSABLE" | grep -q 'bats-tests'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'actionlint'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'yamllint'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'shellcheck'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'zizmor'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'verify-sha'
+  grep -A6 'summary:' "$REUSABLE" | grep -q 'bats-tests'
 }
 
 # ---------------------------------------------------------------------------
