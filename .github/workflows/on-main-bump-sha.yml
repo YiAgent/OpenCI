@@ -44,7 +44,30 @@ jobs:
           # of the workflow run for diagnostics.
           token: ${{ secrets.RELEASE_PAT || github.token }}
 
+      # Break the infinite-loop: if THIS push was produced by a previous
+      # run of this workflow (bot-authored bump commit or bump PR merge),
+      # do nothing. We read from git rather than from GitHub context to
+      # avoid injection risks.
+      - name: Guard — skip bot-authored bump commits
+        id: guard
+        run: |
+          msg=$(git log -1 --format='%s')
+          author=$(git log -1 --format='%ae')
+          skip=false
+          if echo "$msg" | grep -qE '^chore\(manifest\): bump YiAgent/OpenCI SHA'; then
+            skip=true
+            echo "::notice::Skipping — squash-merged bump commit detected"
+          elif echo "$msg" | grep -q 'chore/bump-self-sha-'; then
+            skip=true
+            echo "::notice::Skipping — merge commit from bump branch detected"
+          elif [ "$author" = "github-actions[bot]@users.noreply.github.com" ]; then
+            skip=true
+            echo "::notice::Skipping — HEAD commit authored by github-actions[bot]"
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
       - name: Install yq
+        if: steps.guard.outputs.skip != 'true'
         run: |
           sudo wget -qO /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
@@ -52,6 +75,7 @@ jobs:
 
       - name: Check if SHA needs bumping
         id: check
+        if: steps.guard.outputs.skip != 'true'
         run: |
           current_sha="$(yq -r '.deps["YiAgent/OpenCI"] // ""' manifest.yml)"
           head_sha="$(git rev-parse HEAD)"
@@ -62,10 +86,12 @@ jobs:
             exit 0
           fi
 
-          tree_out="$(git ls-tree "$current_sha" .github/workflows/ 2>/dev/null || true)"
-          if [ -n "$tree_out" ] && [ "$current_sha" = "$head_sha" ]; then
+          # Only skip when the pinned SHA is already HEAD — bump-self-sha.sh
+          # handles walking back to a valid ancestor when HEAD itself lacks
+          # .github/workflows/, so we don't need to replicate that check here.
+          if [ "$current_sha" = "$head_sha" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::SHA $current_sha is current and valid — nothing to do"
+            echo "::notice::SHA $current_sha is already at HEAD — nothing to do"
             exit 0
           fi
 
