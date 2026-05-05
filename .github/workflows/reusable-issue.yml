@@ -64,7 +64,12 @@ on:
       mcp-dispatch-token:
         required: false
 
-permissions: {}
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+  id-token: write
 
 concurrency:
   group: >-
@@ -82,10 +87,6 @@ jobs:
     if: inputs.mode == 'maintenance' || inputs.mode == 'stale'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
@@ -167,9 +168,6 @@ jobs:
     if: inputs.mode != 'maintenance' && inputs.mode != 'stale'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
     outputs:
       ingest-json: ${{ steps.pack.outputs.ingest-json }}
       issue-number: ${{ steps.pack.outputs.issue-number }}
@@ -254,10 +252,6 @@ jobs:
     needs: ingest
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: read
-      actions: read
     outputs:
       workspace-artifact: ${{ steps.meta.outputs.workspace-artifact }}
     steps:
@@ -304,11 +298,6 @@ jobs:
     needs: [ingest, enrich]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    permissions:
-      contents: read
-      issues: read
-      actions: read
-      id-token: write
     outputs:
       action-plan: ${{ steps.extract.outputs.action-plan }}
       reasoning: ${{ steps.extract.outputs.reasoning }}
@@ -367,10 +356,6 @@ jobs:
     needs: [ingest, enrich, agent]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }

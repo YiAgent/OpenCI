@@ -94,7 +94,7 @@ The explicit mapping is correct and necessary. The comment in the workflow expla
 
 - **Status**: PASS
 - **Label**: `blacksmith-2vcpu-ubuntu-2404`
-- **Details**: Custom Blacksmith runner, consistent with other workflows in the repo (`ci.yml`, `deploy.yml`, `release.yml`, `dependencies.yml`, `docs.yml`). The reusable workflow's default is `ubuntu-latest`; this override selects a larger runner for AI workloads.
+- **Details**: Custom Blacksmith runner, consistent with other workflows in the repo (`ci.yml`, `release.yml`, `dependencies.yml`, `docs.yml`). The reusable workflow's default is `ubuntu-latest`; this override selects a larger runner for AI workloads.
 
 ## Issues Found
 

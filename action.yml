@@ -5,13 +5,12 @@
 # single entrypoint for AI-powered tasks. For full pipelines and non-AI work,
 # call the top-level reusable workflows directly:
 #
-#   .github/workflows/pr.yml          — PR quality gate
-#   .github/workflows/ci.yml          — build + sign (push to main)
-#   .github/workflows/deploy.yml      — staging / production deploy
-#   .github/workflows/issue.yml       — issue agent orchestrator
-#   .github/workflows/release.yml     — release domain
-#   .github/workflows/docs.yml        — docs build + Pages deploy
-#   .github/workflows/agent.yml       — sole AI entrypoint (workflow form)
+#   .github/workflows/reusable-pr.yml          — PR quality gate
+#   .github/workflows/reusable-ci.yml          — build + sign (push to main)
+#   .github/workflows/reusable-issue.yml       — issue agent orchestrator
+#   .github/workflows/reusable-release.yml     — release domain
+#   .github/workflows/reusable-docs.yml        — docs build + Pages deploy
+#   .github/workflows/reusable-agent.yml       — sole AI entrypoint (workflow form)
 # ─────────────────────────────────────────────────────────────────────────────
 name: 'OpenCI'
 description: 'AI-powered CI/CD toolkit — PR review, issue triage, smoke eval, observability, and more.'

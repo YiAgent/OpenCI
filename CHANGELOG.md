@@ -12,6 +12,12 @@
 are thin shims that delegate to reusable workflows. The 4-stage agentic
 pipeline (Ingest → Enrich → Agent → Execute) is the standard pattern.**
 
+### Removed (library has nothing to deploy/observe)
+
+- `deploy.yml` event entry — a library has no staging/production to deploy
+- `observability.yml` event entry — a library has no canary endpoints or Terraform state
+- `issue-ops.yml`: removed `sentry-issue`/`linear-issue-started` dispatch types and `sentry-token`/`linear-token` secrets (app-specific)
+
 ### Reusable workflows (external consumers call these)
 
 | Reusable workflow | Purpose |
@@ -54,7 +60,7 @@ External consumers MUST update `uses:` references:
 | `YiAgent/OpenCI/.github/workflows/pr-agent.yml@v2` | DROPPED — use `reusable-agent.yml` with `task: pr/review` |
 
 **Why:** OpenCI now has two clear identities — (1) a normal project that
-dogfoods its own workflows via 13 thin event-entry files, and (2) a tool
+dogfoods its own workflows via 12 thin event-entry files, and (2) a tool
 library that exposes 12 public `reusable-*.yml` workflows. The old layout
 mixed events and `workflow_call` triggers in the same files.
 

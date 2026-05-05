@@ -8,15 +8,13 @@ on:
     types: [created]
   schedule:
     - cron: "0 2 * * *"
-  repository_dispatch:
-    types: [linear-issue-started, sentry-issue]
   workflow_dispatch:
     inputs:
       mode:
         required: false
         type: choice
         default: lifecycle
-        options: [lifecycle, maintenance, ingest]
+        options: [lifecycle, maintenance]
       model:
         required: false
         type: string
@@ -41,7 +39,7 @@ jobs:
       || (github.event_name == 'issue_comment'
           && github.event.comment.user.login != 'github-actions[bot]'
           && github.event.comment.user.login != 'openci-agent[bot]')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@f195c36e2da18bddaa168413ad1bc0fbde34cea8
     with:
       mode: lifecycle
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -49,29 +47,12 @@ jobs:
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token: ${{ secrets.SENTRY_TOKEN }}
-      linear-token: ${{ secrets.LINEAR_TOKEN }}
-      slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}
-
-  ingest:
-    if: github.event_name == 'repository_dispatch'
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
-    with:
-      mode: ingest
-      runner: blacksmith-2vcpu-ubuntu-2404
-      model: ${{ vars.AI_MODEL || '' }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-      api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token: ${{ secrets.SENTRY_TOKEN }}
-      linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
       mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}
 
   maintenance:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@f195c36e2da18bddaa168413ad1bc0fbde34cea8
     with:
       mode: maintenance
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -79,14 +60,12 @@ jobs:
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token: ${{ secrets.SENTRY_TOKEN }}
-      linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
       mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}
 
   manual:
     if: github.event_name == 'workflow_dispatch' && inputs.mode != 'maintenance'
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@4e1ecadc2505761f104f3fd8d255eee4eb369d90
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@f195c36e2da18bddaa168413ad1bc0fbde34cea8
     with:
       mode: ${{ inputs.mode }}
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -94,7 +73,5 @@ jobs:
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       api-base-url: ${{ secrets.ANTHROPIC_BASE_URL }}
-      sentry-token: ${{ secrets.SENTRY_TOKEN }}
-      linear-token: ${{ secrets.LINEAR_TOKEN }}
       slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
       mcp-dispatch-token: ${{ secrets.MCP_DISPATCH_TOKEN }}

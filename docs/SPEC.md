@@ -14,7 +14,7 @@
 Ingest → Enrich → Agent → Execute 模式，Claude 作为结构化决策引擎嵌入每个阶段。**
 
 主要变更:
-- 12 个 `reusable-*.yml` 工作流 + 13 个 event entry 文件
+- 12 个 `reusable-*.yml` 工作流 + 12 个 event entry 文件
 - 15 个内置 AI skill (`skills/` 目录)
 - Agent context 系统 (`.github/agent/` 目录: shared / pr / issue / docs / observe)
 - 多 provider 可观测性 (Sentry / PostHog / Axiom / Datadog / LangSmith → Claude incident analyst)
@@ -47,7 +47,7 @@ Ingest → Enrich → Agent → Execute 模式，Claude 作为结构化决策引
 
 OpenCI 有两个明确身份:
 
-1. **普通项目**：通过 13 个 event entry 文件 dogfood 自己的工作流
+1. **普通项目**：通过 12 个 event entry 文件 dogfood 自己的工作流
 2. **工具库**：暴露 12 个 `reusable-*.yml` 供外部消费
 
 Event entry 文件是 OpenCI 自己的薄包装器，外部消费者应编写自己的 event entry。
@@ -160,7 +160,7 @@ Reusable Workflow (reusable-*.yml)
 ```
 openCI/
 ├── .github/                              # 工作流 + GitHub 原生模板
-│   ├── workflows/                        # 13 event entries + 12 reusable workflows
+│   ├── workflows/                        # 12 event entries + 12 reusable workflows
 │   ├── ISSUE_TEMPLATE/                   # YAML form 模板
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── CODEOWNERS / labeler.yml / auto-assign.yml
@@ -206,8 +206,7 @@ openCI/
 | 类别 | 文件 | 数量 |
 | --- | --- | --- |
 | Reusable workflows | `reusable-agent.yml`, `reusable-ci.yml`, `reusable-pr.yml`, `reusable-issue.yml`, `reusable-stg.yml`, `reusable-prd.yml`, `reusable-observability.yml`, `reusable-release.yml`, `reusable-docs.yml`, `reusable-maintenance.yml`, `reusable-deps.yml`, `reusable-self-test.yml` | 12 |
-| Event entries | `agent.yml`, `ci.yml`, `pull-request.yml`, `deploy.yml`, `issue-ops.yml`, `release.yml`, `docs.yml`, `observability.yml`, `on-maintenance.yml`, `auto-release.yml`, `on-main-bump-sha.yml`, `dependencies.yml`, `ci-self-test.yml` | 13 |
-| Test | `test.yml` | 1 |
+| Event entries | `agent.yml`, `ci.yml`, `pull-request.yml`, `issue-ops.yml`, `release.yml`, `docs.yml`, `on-maintenance.yml`, `auto-release.yml`, `on-main-bump-sha.yml`, `dependencies.yml`, `ci-self-test.yml`, `test.yml` | 12 |
 
 ---
 

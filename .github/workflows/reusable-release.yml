@@ -56,7 +56,10 @@ on:
         required: false
         default: ghcr.io
 
-permissions: {}
+permissions:
+  contents: write
+  packages: write
+  id-token: write
 
 # Reusable workflows must NOT redeclare the caller's concurrency group —
 # GitHub's deadlock-detection cancels the inner run when both share it
@@ -70,8 +73,6 @@ jobs:
     if: inputs.mode == 'both' || inputs.mode == 'marketplace'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
-    permissions:
-      contents: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }
@@ -173,10 +174,6 @@ jobs:
     if: inputs.mode == 'both' || inputs.mode == 'docker'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     steps:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with: { egress-policy: audit }
