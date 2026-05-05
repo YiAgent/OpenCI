@@ -169,11 +169,11 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
         run: |
           if [ "$DEPLOY_TYPE" = "k8s" ]; then
-            bash .github/scripts/preflight-secrets.sh \
+            bash .openci/.github/scripts/preflight-secrets.sh \
               --required "KUBECONFIG_STG" \
               --optional "SLACK_WEBHOOK_URL"
           else
-            bash .github/scripts/preflight-secrets.sh \
+            bash .openci/.github/scripts/preflight-secrets.sh \
               --required "SSH_KEY_STG" \
               --optional "SLACK_WEBHOOK_URL"
           fi
