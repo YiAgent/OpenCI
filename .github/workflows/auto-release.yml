@@ -137,7 +137,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Calculate new version
-        if: steps.analyze.outputs.bump != 'none'
+        if: steps.guard.outputs.skip != 'true' && steps.analyze.outputs.bump != 'none'
         id: version
         env:
           LATEST_TAG: ${{ steps.latest-tag.outputs.tag }}
@@ -177,7 +177,7 @@ jobs:
           echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
-        if: steps.analyze.outputs.bump != 'none'
+        if: steps.guard.outputs.skip != 'true' && steps.analyze.outputs.bump != 'none'
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
           GH_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
@@ -190,7 +190,7 @@ jobs:
           echo "Tag $NEW_TAG created successfully via GitHub API"
 
       - name: Summary
-        if: steps.analyze.outputs.bump != 'none'
+        if: steps.guard.outputs.skip != 'true' && steps.analyze.outputs.bump != 'none'
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
           BUMP: ${{ steps.analyze.outputs.bump }}
@@ -211,7 +211,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: No release needed
-        if: steps.analyze.outputs.bump == 'none'
+        if: steps.guard.outputs.skip != 'true' && steps.analyze.outputs.bump == 'none'
         run: |
           {
             echo "## No Release Needed"
