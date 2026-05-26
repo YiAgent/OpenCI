@@ -6,13 +6,6 @@ name: ci
 on:
   push:
     branches: [main]
-    paths:
-      - "Dockerfile*"
-      - "docker-compose*.yml"
-      - ".dockerignore"
-      - "src/**"
-      - "*.dockerfile"
-      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +22,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    name: Guard — check Dockerfile presence
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 2
+    outputs:
+      has-dockerfile: ${{ steps.check.outputs.has-dockerfile }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with: { egress-policy: audit }
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
+        with: { persist-credentials: false }
+      - id: check
+        run: |
+          if [ -f "Dockerfile" ] || ls Dockerfile* 1>/dev/null 2>&1; then
+            echo "has-dockerfile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-dockerfile=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Dockerfile found — skipping Docker build pipeline"
+          fi
+
   ci:
+    needs: guard
+    if: needs.guard.outputs.has-dockerfile == 'true'
     uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@9b40a02acafd321f967761716fafcedb4a713f50
     with:
       openci-ref:      ${{ github.sha }}
