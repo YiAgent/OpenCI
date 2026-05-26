@@ -1,4 +1,4 @@
-# test.yml — Self-34a93579aac0d1682cc65ab8b7c2c9e2d06b0953ping comprehensive test suite for OpenCI.
+# test.yml — Self-bootstrapping comprehensive test suite for OpenCI.
 #
 # Test pyramid:
 #   Layer 1: Unit tests (BATS shell + Node.js) — fast, offline, always run
@@ -6,7 +6,7 @@
 #   Layer 3: Agentic eval — calls Claude API to validate skill output shape
 #   Layer 4: Live E2E — fires a real test issue, observes full agentic pipeline
 #
-# The live E2E test makes this workflow self-34a93579aac0d1682cc65ab8b7c2c9e2d06b0953ping: OpenCI tests
+# The live E2E test makes this workflow self-bootstrapping: OpenCI tests
 # itself by triggering its own issue-ops pipeline and verifying the response.
 name: test
 
@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       run-live-e2e:
-        description: "Run self-34a93579aac0d1682cc65ab8b7c2c9e2d06b0953ping live E2E test (creates a real issue)"
+        description: "Run self-bootstrapping live E2E test (creates a real issue)"
         type: boolean
         default: false
       run-pr-e2e:
@@ -257,7 +257,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run self-34a93579aac0d1682cc65ab8b7c2c9e2d06b0953ping E2E test
+      - name: Run self-bootstrapping E2E test
         if: steps.e2e-gate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
