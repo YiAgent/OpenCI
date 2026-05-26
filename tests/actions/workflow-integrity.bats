@@ -136,10 +136,10 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "on-main-bump-sha.yml restores workflow files before committing" {
+@test "on-main-bump-sha.yml uses RELEASE_PAT for git push" {
   # github.token cannot push .github/workflows/ changes. Verify the
-  # workflow reverts them (git checkout -- .github/workflows/) before
-  # staging only manifest.yml and actions/.
-  run grep -F 'git checkout -- .github/workflows/' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
+  # workflow overrides the git remote URL to use RELEASE_PAT, which
+  # has the `workflow` OAuth scope for pushing workflow files.
+  run grep -F 'RELEASE_PAT}@github.com' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
   [ "$status" -eq 0 ]
 }
