@@ -136,7 +136,10 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "on-main-bump-sha.yml git add includes actions/ directory" {
-  run grep 'git add' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
-  [[ "$output" == *"actions"* ]]
+@test "on-main-bump-sha.yml changed-files pathspec includes actions/ directory" {
+  # The workflow collects changed files via git diff pathspec rather than
+  # git add (it pushes through the GitHub Git Database API). Verify that
+  # the pathspec covers all three locations bump-self-sha.sh touches.
+  run grep -E 'git diff.*actions/' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
+  [ "$status" -eq 0 ]
 }
