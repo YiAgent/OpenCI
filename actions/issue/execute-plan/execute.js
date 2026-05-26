@@ -298,10 +298,11 @@ async function executeIssuePlan({ github, context, env, fetchFn }) {
 
   if (issueNumber && audit.length) {
     const marker = `<!-- openci-agent-run: ${env.PLAN_HASH} -->`;
+    const markerPrefix = '<!-- openci-agent-run:';
     const existing = await github.paginate(github.rest.issues.listComments, {
       ...context.repo, issue_number: issueNumber, per_page: 100,
     });
-    if (!existing.some((c) => c.body && c.body.includes(marker))) {
+    if (!existing.some((c) => c.body && c.body.includes(markerPrefix))) {
       await github.rest.issues.createComment({
         ...context.repo,
         issue_number: issueNumber,

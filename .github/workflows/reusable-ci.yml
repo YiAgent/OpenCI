@@ -303,7 +303,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9bd9cf085ba9d3a199b701d42ea054e1625a65ce
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@9b40a02acafd321f967761716fafcedb4a713f50
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Install yq

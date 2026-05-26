@@ -1471,7 +1471,7 @@ test('dispatch_mcp_task uses default event_type when not in task or params', asy
   }
 });
 
-test('audit comment marker includes runId and PLAN_HASH', async () => {
+test('audit comment marker includes PLAN_HASH', async () => {
   const comments = [];
   const github = makeGithub({
     issues: {
@@ -1490,7 +1490,7 @@ test('audit comment marker includes runId and PLAN_HASH', async () => {
   await executeIssuePlan({ github, context: makeContext({ runId: 42 }), env, fetchFn: okFetch() });
 
   const auditComment = comments.find((c) => c.includes('<!-- openci-agent-run:'));
-  assert.ok(auditComment.includes('42:abc999'));
+  assert.ok(auditComment.includes('abc999'), 'audit comment should include PLAN_HASH value');
 });
 
 test('PLAN_HASH missing — audit comment still produced', async () => {
