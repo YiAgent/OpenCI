@@ -136,10 +136,10 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "on-main-bump-sha.yml changed-files pathspec includes actions/ directory" {
-  # The workflow detects changes via git diff pathspec before staging
-  # with git add. Verify the pathspec covers all three locations that
-  # bump-self-sha.sh touches (manifest.yml, .github/workflows/, actions/).
-  run grep -E 'git (diff|add).*actions/' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
+@test "on-main-bump-sha.yml restores workflow files before committing" {
+  # github.token cannot push .github/workflows/ changes. Verify the
+  # workflow reverts them (git checkout -- .github/workflows/) before
+  # staging only manifest.yml and actions/.
+  run grep -F 'git checkout -- .github/workflows/' "$WORKFLOWS_DIR/on-main-bump-sha.yml"
   [ "$status" -eq 0 ]
 }

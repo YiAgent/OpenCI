@@ -8,9 +8,11 @@
 # that condition and creates a one-commit PR to fix it automatically.
 #
 # The commit is pushed via standard git-push with the built-in
-# github.token. Unlike classic PATs, github.token uses fine-grained
-# permissions (contents:write) so the `workflow` OAuth scope is not
-# needed for .github/workflows/ pushes.
+# github.token. Workflow file (.github/workflows/) changes are reverted
+# before committing because github.token cannot push workflow files even
+# with contents:write — only manifest.yml (and optionally actions/) is
+# committed. External repos rely on manifest.yml for the pinned SHA;
+# stale internal workflow references are harmless.
 name: Auto-bump self SHA
 
 on:
@@ -21,7 +23,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write  # required to push .github/workflows/ via git
 
 concurrency:
   group: bump-self-sha-${{ github.ref }}
@@ -41,9 +42,8 @@ jobs:
           fetch-depth: 0
           # Default persist-credentials=true persists github.token as the
           # git remote credential. This lets bump-self-sha.sh git-fetch
-          # AND lets us git-push the bump branch back — github.token with
-          # contents:write covers .github/workflows/ without needing the
-          # `workflow` OAuth scope (which only applies to classic PATs).
+          # AND lets us git-push the bump branch back — but only for
+          # manifest.yml/actions/ (workflow files are reverted).
 
       # Break the infinite-loop: if THIS push was produced by a previous
       # run of this workflow (bot-authored bump commit or bump PR merge),
@@ -107,12 +107,10 @@ jobs:
         run: bash scripts/bump-self-sha.sh
 
       # ── Push via git-push with github.token ───────────────────────────────
-      # github.token is a GitHub App installation token with fine-grained
-      # permissions (contents: write). Unlike classic PATs, it does NOT
-      # need the `workflow` OAuth scope to push .github/workflows/ files.
-      # The Git Database REST API (blobs/trees/commits) returns HTTP 403
-      # for github.token ("Resource not accessible by integration"), so we
-      # use standard git-push which works with the persisted credentials.
+      # github.token uses fine-grained permissions (contents: write) and
+      # CANNOT push .github/workflows/ changes — that requires the non-
+      # existent "workflows" permission. We restore workflow files before
+      # committing so only manifest.yml (+ optionally actions/) is pushed.
       - name: Push branch with changes
         id: push-branch
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
@@ -127,8 +125,17 @@ jobs:
           commit_msg="chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}"
           commit_body="Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
 
-          # Collect changed files from bump-self-sha.sh.
-          changed=$(git diff --name-only HEAD -- manifest.yml .github/workflows/ actions/ 2>/dev/null || true)
+          # bump-self-sha.sh modifies all files containing the old SHA
+          # (including .github/workflows/*.yml). github.token cannot push
+          # workflow file changes, so we revert them — only manifest.yml
+          # (and actions/) changes are committed. External repos rely on
+          # manifest.yml for the pinned SHA; internal workflow references
+          # lag slightly behind, which is harmless (reusable workflows
+          # exist at old SHAs in repo history).
+          git checkout -- .github/workflows/
+
+          # Collect changed files.
+          changed=$(git diff --name-only HEAD -- manifest.yml actions/ 2>/dev/null || true)
           if [ -z "$changed" ]; then
             echo "::notice::No files changed — nothing to commit"
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -143,7 +150,7 @@ jobs:
 
           # Stage, commit, and push to a new branch.
           git checkout -b "${branch}"
-          git add manifest.yml .github/workflows/ actions/
+          git add manifest.yml actions/
           git commit -m "${commit_msg}" -m "${commit_body}"
           git push origin "${branch}"
           echo "::notice::Pushed branch ${branch}"
