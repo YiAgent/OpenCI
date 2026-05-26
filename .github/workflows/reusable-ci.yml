@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Probe secrets
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - id: detect
@@ -173,7 +173,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - id: build
@@ -199,7 +199,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - id: scan
@@ -218,7 +218,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
@@ -261,7 +261,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - uses: ./.openci/actions/ci/check-migration
@@ -280,7 +280,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - uses: ./.openci/actions/ci/eval-smoke
@@ -303,7 +303,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Install yq
@@ -467,7 +467,7 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with: { persist-credentials: false }
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@34a93579aac0d1682cc65ab8b7c2c9e2d06b0953
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@119c3eab2c613bdcc1fbed9b97535f34955defba
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Download ci-context artifact
