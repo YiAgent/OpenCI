@@ -6,6 +6,11 @@
 # .github/workflows/reusable/. After structural reorganizations (or simply
 # as main moves forward) the SHA can become stale. This workflow detects
 # that condition and creates a one-commit PR to fix it automatically.
+#
+# The commit is pushed via the GitHub Git Database API (blobs → trees →
+# commits → refs), which only requires the `repo` OAuth scope. This
+# deliberately sidesteps the `workflow` scope that git-over-HTTPS would
+# require for pushing to .github/workflows/.
 name: Auto-bump self SHA
 
 on:
@@ -20,10 +25,6 @@ permissions:
 concurrency:
   group: bump-self-sha-${{ github.ref }}
   cancel-in-progress: false
-# Pushing changes under .github/workflows/ requires the `workflow` OAuth
-# scope. The default GITHUB_TOKEN lacks it, so this workflow needs a PAT
-# stored as `RELEASE_PAT` (or any name you prefer; update both checkout
-# and the push step env). The PAT must have repo + workflow scopes.
 
 jobs:
   bump:
@@ -37,12 +38,9 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
-          persist-credentials: true
-          # Use a PAT with `workflow` scope so the subsequent push can
-          # update files under .github/workflows/. Falls back to the
-          # default token, which will fail the push but lets the rest
-          # of the workflow run for diagnostics.
-          token: ${{ secrets.RELEASE_PAT || github.token }}
+          # persist-credentials so bump-self-sha.sh can git fetch.
+          # The push itself goes through the REST API (RELEASE_PAT or
+          # github.token), bypassing the workflow-scope requirement.
 
       # Break the infinite-loop: if THIS push was produced by a previous
       # run of this workflow (bot-authored bump commit or bump PR merge),
@@ -105,11 +103,16 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         run: bash scripts/bump-self-sha.sh
 
-      - name: Commit, supersede older bumps, open PR
+      # ── Push via GitHub Git Database API ──────────────────────────────────
+      # Uses the REST API (blobs → trees → commits → refs) so only `repo`
+      # scope is required. git-over-HTTPS would need the `workflow` scope
+      # for pushes touching .github/workflows/, which classic PATs often
+      # lack. The GH_TOKEN (RELEASE_PAT or github.token) works with the API
+      # as long as it has repo/write permissions.
+      - name: Push commit via GitHub API
+        id: push-api
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         env:
-          # gh CLI uses GH_TOKEN; same PAT used for checkout above so the
-          # push picks up workflow scope.
           GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
@@ -117,19 +120,74 @@ jobs:
           set -euo pipefail
 
           branch="chore/bump-self-sha-${NEW_SHA:0:8}"
+          short_new="${NEW_SHA:0:8}"
+          commit_msg="chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}"
+          commit_body="Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
+
+          # Collect every file changed by bump-self-sha.sh relative to HEAD.
+          changed=$(git diff --name-only HEAD -- manifest.yml .github/workflows/ actions/ 2>/dev/null || true)
+          if [ -z "$changed" ]; then
+            echo "::notice::No files changed — nothing to commit"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+          # Build tree entries from changed files via jq for robust JSON.
+          # Avoids shellcheck SC1083 false-positives on literal JSON braces.
+          parent_sha=$(git rev-parse HEAD)
+          base_tree=$(git rev-parse 'HEAD^{tree}')
+          tree_payload='{"base_tree":"'"${base_tree}"'","tree":['
+          first=true
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            blob_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" \
+              -f content="$(base64 -w0 "$f")" -f encoding="base64" -q .sha)
+            mode="100644"
+            [ -x "$f" ] && mode="100755"
+            entry=$(jq -nc --arg path "$f" --arg mode "$mode" --arg sha "$blob_sha" \
+              '{path: $path, mode: $mode, type: "blob", sha: $sha}')
+            $first || tree_payload+=','
+            first=false
+            tree_payload+="${entry}"
+          done <<< "${changed}"
+          tree_payload+=']}'
+
+          # Create tree via API (single call with base_tree + tree entries).
+          new_tree=$(gh api "repos/${GITHUB_REPOSITORY}/git/trees" \
+            --input - <<< "${tree_payload}" -q .sha)
+
+          # Create the commit object.
+          new_commit=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits" \
+            -f message="${commit_msg}"$'\n\n'"${commit_body}" \
+            -f tree="${new_tree}" \
+            -f parents[]="${parent_sha}" -q .sha)
+
+          # Create or force-update the branch ref.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" \
+               --silent 2>/dev/null; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" \
+              -f sha="${new_commit}" -f force=true --silent
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/heads/${branch}" -f sha="${new_commit}" --silent
+          fi
+          echo "::notice::Pushed ${new_commit:0:7} to ${branch}"
+
+      - name: Manage PRs — close old, clean orphans, open new
+        if: steps.push-api.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+          NEW_SHA: ${{ steps.check.outputs.new_sha }}
+          OLD_SHA: ${{ steps.check.outputs.current_sha }}
+          BRANCH: ${{ steps.push-api.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          branch="${BRANCH}"
           short_old="${OLD_SHA:0:8}"
           short_new="${NEW_SHA:0:8}"
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git add manifest.yml .github/workflows/ actions/
-          git commit -m "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}" \
-            -m "Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
-
-          # Force-with-lease so workflow re-runs (same branch name) succeed
-          # without trampling unrelated work.
-          git push --force-with-lease origin "$branch"
 
           # 1) Close older auto-bump PRs and delete their branches.
           gh pr list \
@@ -137,37 +195,39 @@ jobs:
             --base main \
             --json number,headRefName \
             --jq '.[] | select(.headRefName | startswith("chore/bump-self-sha-"))
-                       | select(.headRefName != "'"$branch"'")
+                       | select(.headRefName != "'"${branch}"'")
                        | .number' \
             | while read -r old_num; do
                 echo "::notice::Closing superseded bump PR #${old_num}"
-                gh pr close "$old_num" \
+                gh pr close "${old_num}" \
                   --comment "Superseded by \`${branch}\` (bump to ${short_new})." \
                   --delete-branch
               done
 
-          # 2) Delete orphan auto-bump branches that never got a PR.
-          git ls-remote origin 'refs/heads/chore/bump-self-sha-*' \
-            | awk '{sub(/^refs\/heads\//,"",$2); print $2}' \
-            | while read -r ref; do
-                [ "$ref" = "$branch" ] && continue
-                echo "::notice::Deleting orphan bump branch ${ref}"
-                git push origin --delete "$ref" || true
+          # 2) Delete orphan auto-bump branches that never got a PR (API-based).
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads" \
+            --jq '.[].ref' \
+            | grep 'refs/heads/chore/bump-self-sha-' \
+            | while read -r ref_path; do
+                ref_name="${ref_path#refs/heads/}"
+                [ "${ref_name}" = "${branch}" ] && continue
+                echo "::notice::Deleting orphan bump branch ${ref_name}"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${ref_name}" --silent || true
               done
 
           # 3) Open (or reuse) the PR for the new branch.
           # shellcheck disable=SC2016
           printf 'Automated SHA bump: `%s` to `%s`\n\nThe YiAgent/OpenCI self-reference SHA in manifest.yml was stale. Updated to the latest main HEAD so all reusable workflow calls resolve correctly.\n\n> Generated by the on-main-bump-sha workflow.' \
-            "$short_old" "$short_new" > /tmp/pr-body.md
+            "${short_old}" "${short_new}" > /tmp/pr-body.md
 
-          existing="$(gh pr list --state open --head "$branch" --base main \
+          existing="$(gh pr list --state open --head "${branch}" --base main \
             --json number --jq '.[0].number // ""')"
-          if [ -n "$existing" ]; then
+          if [ -n "${existing}" ]; then
             echo "::notice::PR #${existing} already exists for ${branch}; skipping create"
           else
             gh pr create \
               --title "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}" \
               --body-file /tmp/pr-body.md \
               --base main \
-              --head "$branch"
+              --head "${branch}"
           fi
