@@ -8,8 +8,8 @@
 # that condition and creates a one-commit PR to fix it automatically.
 #
 # The commit is pushed via the GitHub Git Database API (blobs → trees →
-# commits → refs), which only requires the `repo` OAuth scope. This
-# deliberately sidesteps the `workflow` scope that git-over-HTTPS would
+# commits → refs). This works with the built-in github.token (no PAT
+# needed) and sidesteps the `workflow` scope that git-over-HTTPS would
 # require for pushing to .github/workflows/.
 name: Auto-bump self SHA
 
@@ -113,7 +113,7 @@ jobs:
         id: push-api
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+          GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
         run: |
@@ -178,7 +178,7 @@ jobs:
       - name: Manage PRs — close old, clean orphans, open new
         if: steps.push-api.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+          GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
           BRANCH: ${{ steps.push-api.outputs.branch }}
