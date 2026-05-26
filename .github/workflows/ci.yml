@@ -6,6 +6,13 @@ name: ci
 on:
   push:
     branches: [main]
+    paths:
+      - "Dockerfile*"
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - "src/**"
+      - "*.dockerfile"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:

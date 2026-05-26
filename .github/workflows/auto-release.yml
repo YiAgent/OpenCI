@@ -180,7 +180,7 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && steps.analyze.outputs.bump != 'none'
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
-          GH_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           echo "Creating tag: $NEW_TAG"
