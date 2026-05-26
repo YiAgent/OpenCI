@@ -7,12 +7,10 @@
 # as main moves forward) the SHA can become stale. This workflow detects
 # that condition and creates a one-commit PR to fix it automatically.
 #
-# The commit is pushed via standard git-push with the built-in
-# github.token. Workflow file (.github/workflows/) changes are reverted
-# before committing because github.token cannot push workflow files even
-# with contents:write — only manifest.yml (and optionally actions/) is
-# committed. External repos rely on manifest.yml for the pinned SHA;
-# stale internal workflow references are harmless.
+# The commit is pushed via git-push with RELEASE_PAT (a classic PAT with
+# the `workflow` OAuth scope). github.token cannot push .github/workflows/
+# files — it requires a non-existent "workflows" permission. RELEASE_PAT
+# bypasses this restriction, keeping all SHA references in sync.
 name: Auto-bump self SHA
 
 on:
@@ -40,10 +38,9 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
-          # Default persist-credentials=true persists github.token as the
-          # git remote credential. This lets bump-self-sha.sh git-fetch
-          # AND lets us git-push the bump branch back — but only for
-          # manifest.yml/actions/ (workflow files are reverted).
+          # persist-credentials so bump-self-sha.sh can git-fetch.
+          # The push itself overrides the remote URL to use RELEASE_PAT
+          # (which has the `workflow` scope for .github/workflows/ pushes).
 
       # Break the infinite-loop: if THIS push was produced by a previous
       # run of this workflow (bot-authored bump commit or bump PR merge),
@@ -106,17 +103,18 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         run: bash scripts/bump-self-sha.sh
 
-      # ── Push via git-push with github.token ───────────────────────────────
-      # github.token uses fine-grained permissions (contents: write) and
-      # CANNOT push .github/workflows/ changes — that requires the non-
-      # existent "workflows" permission. We restore workflow files before
-      # committing so only manifest.yml (+ optionally actions/) is pushed.
+      # ── Push via git-push with RELEASE_PAT ─────────────────────────────────
+      # github.token cannot push .github/workflows/ changes (requires the
+      # non-existent "workflows" permission). RELEASE_PAT is a classic PAT
+      # with the `workflow` OAuth scope — it CAN push workflow files. We
+      # override the git remote URL to use RELEASE_PAT for the push only.
       - name: Push branch with changes
         id: push-branch
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         env:
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
         run: |
           set -euo pipefail
 
@@ -125,17 +123,8 @@ jobs:
           commit_msg="chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}"
           commit_body="Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
 
-          # bump-self-sha.sh modifies all files containing the old SHA
-          # (including .github/workflows/*.yml). github.token cannot push
-          # workflow file changes, so we revert them — only manifest.yml
-          # (and actions/) changes are committed. External repos rely on
-          # manifest.yml for the pinned SHA; internal workflow references
-          # lag slightly behind, which is harmless (reusable workflows
-          # exist at old SHAs in repo history).
-          git checkout -- .github/workflows/
-
           # Collect changed files.
-          changed=$(git diff --name-only HEAD -- manifest.yml actions/ 2>/dev/null || true)
+          changed=$(git diff --name-only HEAD -- manifest.yml .github/workflows/ actions/ 2>/dev/null || true)
           if [ -z "$changed" ]; then
             echo "::notice::No files changed — nothing to commit"
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -150,8 +139,14 @@ jobs:
 
           # Stage, commit, and push to a new branch.
           git checkout -b "${branch}"
-          git add manifest.yml actions/
+          git add manifest.yml .github/workflows/ actions/
           git commit -m "${commit_msg}" -m "${commit_body}"
+
+          # Use RELEASE_PAT for the push — github.token cannot push
+          # .github/workflows/ files (requires "workflows" permission
+          # which doesn't exist in workflow syntax).
+          git remote set-url origin \
+            "https://x-access-token:${RELEASE_PAT}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "${branch}"
           echo "::notice::Pushed branch ${branch}"
 
