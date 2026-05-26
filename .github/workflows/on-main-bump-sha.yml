@@ -134,28 +134,29 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
 
-          # Build tree entries from changed files. Each entry:
-          #   {"path":"…", "mode":"100644", "type":"blob", "sha":"…"}
-          tree_entries='['
+          # Build tree entries from changed files via jq for robust JSON.
+          # Avoids shellcheck SC1083 false-positives on literal JSON braces.
+          parent_sha=$(git rev-parse HEAD)
+          base_tree=$(git rev-parse 'HEAD^{tree}')
+          tree_payload='{"base_tree":"'"${base_tree}"'","tree":['
           first=true
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             blob_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" \
               -f content="$(base64 -w0 "$f")" -f encoding="base64" -q .sha)
-            $first || tree_entries+=','
-            first=false
             mode="100644"
             [ -x "$f" ] && mode="100755"
-            tree_entries+='{"path":"'"${f}"'","mode":"'"${mode}"'","type":"blob","sha":"'"${blob_sha}"'"}'
+            entry=$(jq -nc --arg path "$f" --arg mode "$mode" --arg sha "$blob_sha" \
+              '{path: $path, mode: $mode, type: "blob", sha: $sha}')
+            $first || tree_payload+=','
+            first=false
+            tree_payload+="${entry}"
           done <<< "${changed}"
-          tree_entries+=']'
+          tree_payload+=']}'
 
-          # Create a new tree based on HEAD^{tree} with our file overrides.
-          parent_sha=$(git rev-parse HEAD)
-          base_tree=$(git rev-parse HEAD^{tree})
+          # Create tree via API (single call with base_tree + tree entries).
           new_tree=$(gh api "repos/${GITHUB_REPOSITORY}/git/trees" \
-            -f base_tree="${base_tree}" \
-            --input - <<< "{\"tree\":${tree_entries}}" -q .sha)
+            --input - <<< "${tree_payload}" -q .sha)
 
           # Create the commit object.
           new_commit=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits" \
