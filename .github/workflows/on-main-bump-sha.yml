@@ -21,6 +21,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  workflows: write  # required to push .github/workflows/ via git
 
 concurrency:
   group: bump-self-sha-${{ github.ref }}
