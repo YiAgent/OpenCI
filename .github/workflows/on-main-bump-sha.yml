@@ -210,12 +210,14 @@ jobs:
             echo "::notice::Created PR #${pr_number}"
           fi
 
-          # 4) Enable auto-merge on the PR so it merges once required checks pass.
-          #    The bump commit only changes manifest.yml and was already tested
-          #    as part of the triggering merge — auto-merging avoids manual
-          #    intervention while still respecting branch protection rules.
+          # 4) Auto-merge the bump PR. The bump commit only changes SHAs
+          #    (manifest.yml + workflow files) — it was already tested as
+          #    part of the triggering merge. The guard condition prevents
+          #    infinite loops when this merge triggers the workflow again.
+          #    Uses direct squash-merge because auto-merge (--auto) requires
+          #    branch protection rules on main, which aren't configured.
           if [ -n "${pr_number}" ]; then
-            gh pr merge "${pr_number}" --auto --squash \
+            gh pr merge "${pr_number}" --squash --delete-branch \
               --subject "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new} (#${pr_number})" \
-              || echo "::warning::Auto-merge not enabled — repo may lack 'Allow auto-merge' setting."
+              || echo "::warning::Failed to auto-merge PR #${pr_number} — manual merge required."
           fi
