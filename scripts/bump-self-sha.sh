@@ -98,12 +98,19 @@ fi
 perl -pi -e "s|\Q${old_sha}\E|${new_sha}|g" "$MANIFEST"
 info "Updated manifest.yml"
 
-# ── 5. Update all workflow files that reference the old SHA ──────────────────
+# ── 5. Update all YiAgent/OpenCI SHA references ──────────────────────────────
+# Instead of searching only for the manifest.yml SHA (which can diverge from
+# workflow files), replace ANY YiAgent/OpenCI@<40-char-hex> reference with
+# the new SHA. This works even when workflow files have a different old SHA
+# than manifest.yml (e.g., after a revert-workflow-files cycle).
 
 updated=0
 while IFS= read -r -d '' f; do
-  if grep -q "$old_sha" "$f" 2>/dev/null; then
-    perl -pi -e "s|\Q${old_sha}\E|${new_sha}|g" "$f"
+  # Compare checksums to detect if perl actually changed the file.
+  before=$(shasum -a 256 "$f" 2>/dev/null || true)
+  perl -pi -e "s|(YiAgent/OpenCI/[^\s@]+)\@[a-f0-9]{40}|\1\@${new_sha}|g" "$f"
+  after=$(shasum -a 256 "$f" 2>/dev/null || true)
+  if [ "$before" != "$after" ]; then
     info "Updated $f"
     updated=$((updated + 1))
   fi
@@ -111,5 +118,5 @@ done < <(find "$REPO_ROOT/.github/workflows" "$REPO_ROOT/actions" \
            -name "*.yml" -o -name "*.yaml" 2>/dev/null | tr '\n' '\0')
 
 echo ""
-echo "Done. Updated manifest.yml + $updated workflow file(s) to $new_sha"
+echo "Done. Updated manifest.yml + $updated workflow/action file(s) to $new_sha"
 echo "Stage and commit: git add manifest.yml .github/workflows actions/ && git commit -m 'chore(manifest): bump YiAgent/OpenCI SHA to $new_sha'"
