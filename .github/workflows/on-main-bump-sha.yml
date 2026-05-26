@@ -156,7 +156,7 @@ jobs:
           echo "::notice::Pushed branch ${branch}"
 
       - name: Manage PRs — close old, clean orphans, open new
-        if: steps.push-branch.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.push-branch.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
@@ -204,10 +204,23 @@ jobs:
             --json number --jq '.[0].number // ""')"
           if [ -n "${existing}" ]; then
             echo "::notice::PR #${existing} already exists for ${branch}; skipping create"
+            pr_number="${existing}"
           else
-            gh pr create \
+            pr_url="$(gh pr create \
               --title "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}" \
               --body-file /tmp/pr-body.md \
               --base main \
-              --head "${branch}"
+              --head "${branch}")"
+            pr_number="${pr_url##*/}"
+            echo "::notice::Created PR #${pr_number}"
+          fi
+
+          # 4) Enable auto-merge on the PR so it merges once required checks pass.
+          #    The bump commit only changes manifest.yml and was already tested
+          #    as part of the triggering merge — auto-merging avoids manual
+          #    intervention while still respecting branch protection rules.
+          if [ -n "${pr_number}" ]; then
+            gh pr merge "${pr_number}" --auto --squash \
+              --subject "chore(manifest): bump YiAgent/OpenCI SHA to ${short_new} (#${pr_number})" \
+              || echo "::warning::Auto-merge not enabled — repo may lack 'Allow auto-merge' setting."
           fi
