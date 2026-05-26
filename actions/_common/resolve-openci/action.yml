@@ -28,6 +28,10 @@ inputs:
       .github/scripts/
       .github/actionlint.yaml
       .github/advanced-issue-labeler.yml
+      .github/labeler.yml
+      manifest.yml
+      manifest-pending.yml
+      .yamllint
       skills/
 
 outputs:
