@@ -7,10 +7,10 @@
 # as main moves forward) the SHA can become stale. This workflow detects
 # that condition and creates a one-commit PR to fix it automatically.
 #
-# The commit is pushed via the GitHub Git Database API (blobs → trees →
-# commits → refs). This works with the built-in github.token (no PAT
-# needed) and sidesteps the `workflow` scope that git-over-HTTPS would
-# require for pushing to .github/workflows/.
+# The commit is pushed via standard git-push with the built-in
+# github.token. Unlike classic PATs, github.token uses fine-grained
+# permissions (contents:write) so the `workflow` OAuth scope is not
+# needed for .github/workflows/ pushes.
 name: Auto-bump self SHA
 
 on:
@@ -38,9 +38,11 @@ jobs:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
-          # persist-credentials so bump-self-sha.sh can git fetch.
-          # The push itself goes through the REST API (RELEASE_PAT or
-          # github.token), bypassing the workflow-scope requirement.
+          # Default persist-credentials=true persists github.token as the
+          # git remote credential. This lets bump-self-sha.sh git-fetch
+          # AND lets us git-push the bump branch back — github.token with
+          # contents:write covers .github/workflows/ without needing the
+          # `workflow` OAuth scope (which only applies to classic PATs).
 
       # Break the infinite-loop: if THIS push was produced by a previous
       # run of this workflow (bot-authored bump commit or bump PR merge),
@@ -103,17 +105,17 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         run: bash scripts/bump-self-sha.sh
 
-      # ── Push via GitHub Git Database API ──────────────────────────────────
-      # Uses the REST API (blobs → trees → commits → refs) so only `repo`
-      # scope is required. git-over-HTTPS would need the `workflow` scope
-      # for pushes touching .github/workflows/, which classic PATs often
-      # lack. The GH_TOKEN (RELEASE_PAT or github.token) works with the API
-      # as long as it has repo/write permissions.
-      - name: Push commit via GitHub API
-        id: push-api
+      # ── Push via git-push with github.token ───────────────────────────────
+      # github.token is a GitHub App installation token with fine-grained
+      # permissions (contents: write). Unlike classic PATs, it does NOT
+      # need the `workflow` OAuth scope to push .github/workflows/ files.
+      # The Git Database REST API (blobs/trees/commits) returns HTTP 403
+      # for github.token ("Resource not accessible by integration"), so we
+      # use standard git-push which works with the persisted credentials.
+      - name: Push branch with changes
+        id: push-branch
         if: steps.guard.outputs.skip != 'true' && steps.check.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
         run: |
@@ -124,7 +126,7 @@ jobs:
           commit_msg="chore(manifest): bump YiAgent/OpenCI SHA to ${short_new}"
           commit_body="Automated update from on-main-bump-sha workflow. old=${OLD_SHA} new=${NEW_SHA}"
 
-          # Collect every file changed by bump-self-sha.sh relative to HEAD.
+          # Collect changed files from bump-self-sha.sh.
           changed=$(git diff --name-only HEAD -- manifest.yml .github/workflows/ actions/ 2>/dev/null || true)
           if [ -z "$changed" ]; then
             echo "::notice::No files changed — nothing to commit"
@@ -134,54 +136,24 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
 
-          # Build tree entries from changed files via jq for robust JSON.
-          # Avoids shellcheck SC1083 false-positives on literal JSON braces.
-          parent_sha=$(git rev-parse HEAD)
-          base_tree=$(git rev-parse 'HEAD^{tree}')
-          tree_payload='{"base_tree":"'"${base_tree}"'","tree":['
-          first=true
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            blob_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" \
-              -f content="$(base64 -w0 "$f")" -f encoding="base64" -q .sha)
-            mode="100644"
-            [ -x "$f" ] && mode="100755"
-            entry=$(jq -nc --arg path "$f" --arg mode "$mode" --arg sha "$blob_sha" \
-              '{path: $path, mode: $mode, type: "blob", sha: $sha}')
-            $first || tree_payload+=','
-            first=false
-            tree_payload+="${entry}"
-          done <<< "${changed}"
-          tree_payload+=']}'
+          # Configure git identity for the bot commit.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create tree via API (single call with base_tree + tree entries).
-          new_tree=$(gh api "repos/${GITHUB_REPOSITORY}/git/trees" \
-            --input - <<< "${tree_payload}" -q .sha)
-
-          # Create the commit object.
-          new_commit=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits" \
-            -f message="${commit_msg}"$'\n\n'"${commit_body}" \
-            -f tree="${new_tree}" \
-            -f parents[]="${parent_sha}" -q .sha)
-
-          # Create or force-update the branch ref.
-          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" \
-               --silent 2>/dev/null; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" \
-              -f sha="${new_commit}" -f force=true --silent
-          else
-            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref="refs/heads/${branch}" -f sha="${new_commit}" --silent
-          fi
-          echo "::notice::Pushed ${new_commit:0:7} to ${branch}"
+          # Stage, commit, and push to a new branch.
+          git checkout -b "${branch}"
+          git add manifest.yml .github/workflows/ actions/
+          git commit -m "${commit_msg}" -m "${commit_body}"
+          git push origin "${branch}"
+          echo "::notice::Pushed branch ${branch}"
 
       - name: Manage PRs — close old, clean orphans, open new
-        if: steps.push-api.outputs.skip != 'true'
+        if: steps.push-branch.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ steps.check.outputs.new_sha }}
           OLD_SHA: ${{ steps.check.outputs.current_sha }}
-          BRANCH: ${{ steps.push-api.outputs.branch }}
+          BRANCH: ${{ steps.push-branch.outputs.branch }}
         run: |
           set -euo pipefail
 
