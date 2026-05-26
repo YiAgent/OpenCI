@@ -143,11 +143,13 @@ jobs:
           git commit -m "${commit_msg}" -m "${commit_body}"
 
           # Use RELEASE_PAT for the push — github.token cannot push
-          # .github/workflows/ files (requires "workflows" permission
-          # which doesn't exist in workflow syntax).
-          git remote set-url origin \
-            "https://x-access-token:${RELEASE_PAT}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin "${branch}"
+          # .github/workflows/ files. We must clear the extraheader
+          # that actions/checkout sets (which injects github.token on
+          # every request) and push directly with the PAT in the URL.
+          git config --local --unset-all 'http.https://github.com/.extraheader' || true
+          git push \
+            "https://x-access-token:${RELEASE_PAT}@github.com/${GITHUB_REPOSITORY}.git" \
+            "${branch}"
           echo "::notice::Pushed branch ${branch}"
 
       - name: Manage PRs — close old, clean orphans, open new
