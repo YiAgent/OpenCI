@@ -75,12 +75,20 @@ runs:
         model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
+    # claude-harness `result` is a PATH to the JSONL transcript, not text.
+    # Extract the agent's final report before filing the issue (see #177).
+    - name: Extract audit report
+      id: report
+      uses: ./.openci/actions/_common/extract-text
+      with:
+        execution-file: ${{ steps.harness.outputs.execution-file }}
+
     - name: File audit issue
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         REPO:     ${{ github.repository }}
-        BODY:     ${{ steps.harness.outputs.result }}
+        BODY:     ${{ steps.report.outputs.text }}
       run: |
         set -euo pipefail
         if [ -z "$BODY" ]; then

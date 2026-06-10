@@ -73,10 +73,18 @@ runs:
         model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
+    # `result` is a transcript PATH under claude-code-action@v1.x; extract the
+    # agent's generated output so the staged file holds it, not a path.
+    - name: Extract generated output
+      id: gen
+      uses: ./.openci/actions/_common/extract-text
+      with:
+        execution-file: ${{ steps.harness.outputs.execution-file }}
+
     - name: Stage generated files (no auto-commit)
       shell: bash
       env:
-        OUTPUT: ${{ steps.harness.outputs.result }}
+        OUTPUT: ${{ steps.gen.outputs.text }}
       run: |
         set -euo pipefail
         mkdir -p triage/test-gen
