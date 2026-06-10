@@ -96,7 +96,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Probe secrets
@@ -128,7 +128,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Detect (or honour caller override)
@@ -414,7 +414,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0   # required so git ls-tree can resolve the self-ref SHA
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: ${{ inputs.openci-ref }}
       - name: Install yq

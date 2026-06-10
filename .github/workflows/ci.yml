@@ -45,7 +45,7 @@ jobs:
   ci:
     needs: guard
     if: needs.guard.outputs.has-dockerfile == 'true'
-    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@25bc02482fd804999326c71cc39433c428a16f27
+    uses: YiAgent/OpenCI/.github/workflows/reusable-ci.yml@0d64934a148e670a04886e58e21fda51023a4033
     with:
       openci-ref:      ${{ github.sha }}
       registry:        ghcr.io

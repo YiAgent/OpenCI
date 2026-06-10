@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   docs:
-    uses: YiAgent/OpenCI/.github/workflows/reusable-docs.yml@25bc02482fd804999326c71cc39433c428a16f27
+    uses: YiAgent/OpenCI/.github/workflows/reusable-docs.yml@0d64934a148e670a04886e58e21fda51023a4033
     with:
       build-cmd:    ${{ vars.DOCS_BUILD_CMD || '' }}
       docs-path:    ${{ vars.DOCS_DIR || 'docs' }}
