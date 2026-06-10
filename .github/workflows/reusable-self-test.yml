@@ -182,7 +182,7 @@ jobs:
         with: { persist-credentials: false }
 
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: main
 
@@ -205,7 +205,7 @@ jobs:
           fetch-depth: 0
 
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: main
 
@@ -250,7 +250,7 @@ jobs:
           persist-credentials: false
 
       - name: Resolve OpenCI ref and checkout
-        uses: YiAgent/OpenCI/actions/_common/resolve-openci@25bc02482fd804999326c71cc39433c428a16f27
+        uses: YiAgent/OpenCI/actions/_common/resolve-openci@0d64934a148e670a04886e58e21fda51023a4033
         with:
           openci-ref: main
 
