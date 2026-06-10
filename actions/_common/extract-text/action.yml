@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# _common/extract-text — pull the final assistant text out of a claude-harness
+# execution file.
+# ─────────────────────────────────────────────────────────────────────────────
+# claude-code-action@v1.x writes a JSONL transcript to a file; its path is
+# exposed by claude-harness as `execution-file` (and the deprecated `result`
+# alias). Pre-v1 callers that wanted Claude's *text* output — flag-audit,
+# agent-test, eval-smoke, agent-test-gen, create-release — were reading that
+# path and treating it as the text itself, producing bodies that were literally
+# "/home/runner/_work/_temp/claude-execution-output.json" (see #177).
+#
+# This helper reads the transcript and returns the agent's final text so those
+# callers can keep their "result is text" contract on top of v1.x.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Extract Agent Text
+description: Extract the final assistant text from a claude-harness execution file.
+
+inputs:
+  execution-file:
+    description: Path to the claude-harness execution output file.
+    required: false
+    default: ""
+  skipped:
+    description: '"true" when the agent was skipped (e.g. API key absent). Emits empty text.'
+    required: false
+    default: "false"
+
+outputs:
+  text:
+    description: The agent's final text output (empty when missing/skipped/unparseable).
+    value: ${{ steps.run.outputs.text }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ inputs.execution-file }}
+        SKIPPED:        ${{ inputs.skipped }}
+      run: bash "${{ github.action_path }}/extract-text.sh"

@@ -56,11 +56,19 @@ runs:
 
         api-base-url:  ${{ inputs.api-base-url }}
         model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
+    # `result` is a transcript PATH under claude-code-action@v1.x; extract the
+    # agent's finding text so the staged file holds the report, not a path.
+    - name: Extract findings
+      id: findings
+      uses: ./.openci/actions/_common/extract-text
+      with:
+        execution-file: ${{ steps.harness.outputs.execution-file }}
+
     - name: Stage findings
       shell: bash
       env:
         L: ${{ inputs.level }}
-        OUTPUT: ${{ steps.harness.outputs.result }}
+        OUTPUT: ${{ steps.findings.outputs.text }}
       run: |
         mkdir -p triage/agent-test
         printf '%s\n' "$OUTPUT" > "triage/agent-test/L${L}.json"

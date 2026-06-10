@@ -228,9 +228,10 @@ outputs:
   # `result` expecting Claude's text output. claude-code-action@v1.x has no
   # such output — `execution_file` is a path to a JSON transcript. We expose
   # `result` as an alias so those callers keep working at the type level
-  # while we migrate them.
+  # while we migrate them. Migrated callers should instead feed `execution-file`
+  # to _common/extract-text to recover the agent's text (see #177).
   result:
-    description: "[deprecated] Alias of execution-file. Pre-v1 callers expected text; v1 returns a path."
+    description: "[deprecated] Alias of execution-file. Pre-v1 callers expected text; v1 returns a path. Use _common/extract-text on execution-file."
     value: ${{ steps.invoke.outputs.execution_file }}
   comment-id:
     description: "[deprecated] No longer populated. claude-code-action@v1.x uses sticky comments managed internally."

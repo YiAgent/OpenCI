@@ -27,7 +27,7 @@ inputs:
 outputs:
   result:
     description: AI eval report (JSON-encoded text).
-    value: ${{ steps.harness.outputs.result }}
+    value: ${{ steps.report.outputs.text }}
 
   api-base-url:
     required: false
@@ -67,3 +67,10 @@ runs:
         api-key:  ${{ inputs.anthropic-api-key }}
         api-base-url:  ${{ inputs.api-base-url }}
         model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
+
+    # `result` is a transcript PATH under claude-code-action@v1.x; extract the
+    # eval report text so downstream `outputs.result` is the report, not a path.
+    - id: report
+      uses: ./.openci/actions/_common/extract-text
+      with:
+        execution-file: ${{ steps.harness.outputs.execution-file }}

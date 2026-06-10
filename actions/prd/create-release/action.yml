@@ -103,13 +103,22 @@ runs:
         model:         ${{ inputs.model || 'claude-sonnet-4-5-20250929' }}
         github-token:  ${{ inputs.github-token }}
 
+    # `result` is a transcript PATH under claude-code-action@v1.x; extract the
+    # changelog text so release notes hold the body, not a path.
+    - name: Extract changelog
+      id: notes
+      if: steps.skip.outputs.skip != 'true' && inputs.use-ai-changelog == 'true' && inputs.anthropic-api-key != ''
+      uses: ./.openci/actions/_common/extract-text
+      with:
+        execution-file: ${{ steps.ai.outputs.execution-file }}
+
     - name: Create release
       if: steps.skip.outputs.skip != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         VER:      ${{ steps.ver.outputs.version }}
-        AI_BODY:  ${{ steps.ai.outputs.result }}
+        AI_BODY:  ${{ steps.notes.outputs.text }}
       run: |
         set -euo pipefail
         if [ -n "$AI_BODY" ]; then
