@@ -66,4 +66,7 @@ test('merge uses verified head and reads back; uncertain response never retries 
   api.rest.pulls.get = async () => ({ data: pull() });
   await assert.rejects(mergeOne(api, 'YiAgent/example', pull(), false), /unknown/);
   assert.equal(calls, 3);
+  api.rest.pulls.get = async () => ({ data: { ...pull(), head: { sha: 'changed' }, merged: true } });
+  await assert.rejects(mergeOne(api, 'YiAgent/example', pull(), false), /changed/);
+  assert.equal(calls, 4);
 });

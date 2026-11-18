@@ -48,7 +48,9 @@ async function mergeOne(github, repository, pull, dryRun) {
   // Read back even on an uncertain PUT. Never replay the mutation.
   const { data: back } = await github.rest.pulls.get({ owner, repo, pull_number: pull.number });
   if (!back.merged) throw new Error(`merge outcome unknown or rejected: ${repository}#${pull.number}: ${error?.message || 'not merged'}`);
-  return { repository, pr: pull.number, merged: true, sha: back.merge_commit_sha };
+  if (back.head.sha !== pull.head.sha) throw new Error(`head changed before merge readback: ${repository}#${pull.number}`);
+  return { repository, pr: pull.number, merged: true, verifiedHead: pull.head.sha,
+    mergedBy: back.merged_by?.login, sha: back.merge_commit_sha };
 }
 async function threads(github, owner, repo, number) {
   let after = null, count = 0;
@@ -64,6 +66,9 @@ async function threads(github, owner, repo, number) {
   return count;
 }
 async function sweep({ github, core, dryRun = true }) {
+  const { data: identity } = await github.rest.users.getAuthenticated();
+  core.info(JSON.stringify({ actor: identity.login, type: identity.type, dryRun }));
+  if (!dryRun && identity.type !== 'User') throw new Error('organization merge requires the existing user credential so CI/CD push events run');
   const repos = await github.paginate(github.rest.repos.listForOrg, { org: 'YiAgent', per_page: 100 });
   const results = [];
   for (const repository of repos) {
