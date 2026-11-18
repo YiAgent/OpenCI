@@ -32,5 +32,5 @@ jobs:
         run: node --test tests/scripts/merge-organization.test.cjs
       - uses: ./actions/pr/merge-organization
         with:
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.YIAGENT_MERGE_TOKEN }}
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || vars.YIAGENT_AUTOMERGE_ENABLED != 'true' }}

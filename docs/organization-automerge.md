@@ -1,6 +1,6 @@
 # YiAgent PR 自动合并
 
-2026-11-18，组织维护者授权所有仓库的 PR 自动合并，替代 Mergify。入口为 `organization-automerge.yml`，每 5 分钟巡检；GitHub 定时触发可能延迟。使用现有 `GH_TOKEN`，不调用模型，不检出或执行被扫描 PR 的代码；仅读取仓库与 PR 元数据。GitHub Actions 日志和摘要保留逐条决策及合并 SHA。
+2026-11-18，组织维护者授权所有仓库的 PR 自动合并，替代 Mergify。入口为 `organization-automerge.yml`，每 5 分钟巡检；GitHub 定时触发可能延迟。使用专用 `YIAGENT_MERGE_TOKEN`（来自维护者既有 GitHub CLI 授权；原 GH_TOKEN 的首次只读身份验证返回 401，未复用），不调用模型，不检出或执行被扫描 PR 的代码；仅读取仓库与 PR 元数据。GitHub Actions 日志和摘要保留逐条决策及合并 SHA。
 
 启用：仓库变量 `YIAGENT_AUTOMERGE_ENABLED=true`。暂停：改为 `false`；此时仍只读巡检。手动触发默认 `dry-run=true`。运行时动态列出 YiAgent 的当前仓库，归档仓库跳过。trade 由自己的 `Automatic PR merge` 执行器处理，组织执行器跳过它，避免两个写者。
 
