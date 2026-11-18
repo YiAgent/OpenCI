@@ -39,7 +39,7 @@ jobs:
         && !contains(github.actor, '[bot]'))
       || (github.event_name == 'issue_comment'
           && !contains(github.event.comment.user.login, '[bot]'))
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@0d64934a148e670a04886e58e21fda51023a4033
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@61a232b118c47ac971007b287387745673d953cd
     with:
       mode: lifecycle
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -52,7 +52,7 @@ jobs:
 
   maintenance:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@0d64934a148e670a04886e58e21fda51023a4033
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@61a232b118c47ac971007b287387745673d953cd
     with:
       mode: maintenance
       runner: blacksmith-2vcpu-ubuntu-2404
@@ -65,7 +65,7 @@ jobs:
 
   manual:
     if: github.event_name == 'workflow_dispatch' && inputs.mode != 'maintenance'
-    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@0d64934a148e670a04886e58e21fda51023a4033
+    uses: YiAgent/OpenCI/.github/workflows/reusable-issue.yml@61a232b118c47ac971007b287387745673d953cd
     with:
       mode: ${{ inputs.mode }}
       runner: blacksmith-2vcpu-ubuntu-2404
