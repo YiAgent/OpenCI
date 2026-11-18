@@ -25,8 +25,11 @@ function blockers(p, f, required) {
   for (const s of f.statuses) if (!statuses.has(s.context)) statuses.set(s.context, s);
   for (const s of statuses.values()) if (s.state !== 'success') reasons.push(`status ${s.context}: ${s.state}`);
   const runs = new Map();
-  for (const r of f.runs) if (!runs.has(r.workflow_id) || runs.get(r.workflow_id).id < r.id) runs.set(r.workflow_id, r);
-  for (const r of runs.values()) if (['pull_request', 'push'].includes(r.event) && (r.status !== 'completed' || !GOOD.has(r.conclusion))) reasons.push(`workflow ${r.name || r.workflow_id}: ${r.conclusion || r.status}`);
+  for (const r of f.runs.filter(r => ['pull_request', 'push'].includes(r.event))) {
+    const key = `${r.workflow_id}:${r.event}`;
+    if (!runs.has(key) || runs.get(key).id < r.id) runs.set(key, r);
+  }
+  for (const r of runs.values()) if (r.status !== 'completed' || !GOOD.has(r.conclusion)) reasons.push(`workflow ${r.name || r.workflow_id}: ${r.conclusion || r.status}`);
   const reviews = new Map();
   for (const r of f.reviews) if (['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state)) reviews.set(r.user.login, r.state);
   if ([...reviews.values()].includes('CHANGES_REQUESTED')) reasons.push('changes requested');

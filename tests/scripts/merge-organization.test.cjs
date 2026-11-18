@@ -45,6 +45,13 @@ test('review changes, unresolved threads, hold labels and pending workflow runs 
   reviews.push({ id: 3, state: 'APPROVED', user: { login: 'reviewer' } });
   assert.deepEqual(blockers(pull(), { ...facts(), reviews }, []), []);
 });
+test('manual workflow success cannot overwrite failed PR validation', () => {
+  const runs = [
+    { id: 1, workflow_id: 1, event: 'pull_request', status: 'completed', conclusion: 'failure' },
+    { id: 2, workflow_id: 1, event: 'workflow_dispatch', status: 'completed', conclusion: 'success' },
+  ];
+  assert.ok(blockers(pull(), { ...facts(), runs }, []).length);
+});
 test('merge uses verified head and reads back; uncertain response never retries mutation', async () => {
   let calls = 0;
   const api = { rest: { pulls: {
