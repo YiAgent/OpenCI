@@ -1,0 +1,36 @@
+name: YiAgent PR auto-merge
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Scan eligibility without merging
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: yiagent-organization-merge
+  cancel-in-progress: false
+jobs:
+  merge-organization:
+    if: github.ref == 'refs/heads/main'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Verify merge policy
+        run: node --test tests/scripts/merge-organization.test.cjs
+      - uses: ./actions/pr/merge-organization
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || vars.YIAGENT_AUTOMERGE_ENABLED != 'true' }}

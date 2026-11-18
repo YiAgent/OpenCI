@@ -844,6 +844,10 @@ OpenCI 的 AI 步骤按 Claude Sonnet 定价，典型中型团队(50 PR/月)月�
 
 ## 十六、EvolveCI 关系
 
+### YiAgent 组织合并维护
+
+组织维护入口 `organization-automerge.yml` 调用 `actions/pr/merge-organization`，使用现有组织可访问凭据，每 5 分钟按 PR 当前 head 的 CI、评审及冲突状态执行带 SHA 的合并，并读回结果。仅操作元数据，不执行 PR 源码，不调用模型；trade 使用自身专用执行器。精确条件、暂停、权限与恢复见 [组织合并说明](organization-automerge.md)。这是维护者授权的组织操作入口，公共 reusable workflow 接口保持原有契约。
+
 OpenCI 是**通用 CI/CD 基础层**。EvolveCI 是**应用层**——通过 `uses: YiAgent/OpenCI/.github/workflows/reusable-*.yml@v3` 引用 OpenCI，在其上扩展 AI Agent 特化能力。OpenCI 不感知也不依赖 EvolveCI。
 
 ---

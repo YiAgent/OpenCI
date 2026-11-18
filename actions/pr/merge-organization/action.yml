@@ -1,0 +1,21 @@
+name: Merge organization PRs
+description: Verify current PR checks and reviews, then merge authorized YiAgent PRs
+inputs:
+  token:
+    description: Existing credential with access to YiAgent repositories
+    required: true
+  dry-run:
+    description: Read eligibility without merging
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+      env:
+        MERGE_ACTION_PATH: ${{ github.action_path }}
+        MERGE_DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const { sweep } = require(`${process.env.MERGE_ACTION_PATH}/merge.cjs`);
+          await sweep({ github, core, dryRun: process.env.MERGE_DRY_RUN !== 'false' });
